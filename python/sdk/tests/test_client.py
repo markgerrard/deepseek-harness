@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from deepseek_harness import DeepSeekHarness, HarnessClient, HarnessConfig, Notification, SdkProtocolError
+from deepseek_harness import DeepSeekHarness, HarnessClient, HarnessConfig, IncomingRequest, Notification, SdkProtocolError
 
 
 def test_high_level_sdk_runs_turn_and_collects_final_response(tmp_path: Path) -> None:
@@ -587,6 +587,54 @@ for line in sys.stdin:
             client_capabilities={"approvals": True},
         )
     assert json.loads(init_dump.read_text())["clientCapabilities"] == {"approvals": True}
+
+
+def test_unhandled_permission_request_answers_method_not_found() -> None:
+    client = HarnessClient()
+    written: list[object] = []
+    client._write_message = written.append  # type: ignore[method-assign]
+    client._handle_message({
+        "jsonrpc": "2.0",
+        "id": "perm-1",
+        "method": "session/request_permission",
+        "params": {"sessionId": "main", "toolName": "bash"},
+    })
+    assert written == [{
+        "jsonrpc": "2.0",
+        "id": "perm-1",
+        "error": {"code": -32601, "message": "method not found: session/request_permission"},
+    }]
+    assert client._requests.empty()
+
+
+def test_permission_request_is_queued_when_next_request_is_waiting() -> None:
+    client = HarnessClient()
+    written: list[object] = []
+    client._write_message = written.append  # type: ignore[method-assign]
+    got: list[IncomingRequest] = []
+
+    def drain() -> None:
+        got.append(client.next_request())
+
+    thread = threading.Thread(target=drain)
+    thread.start()
+    deadline = time.monotonic() + 1
+    while client._request_waiters == 0:
+        if time.monotonic() > deadline:
+            raise AssertionError("next_request waiter did not register")
+        time.sleep(0.01)
+    client._handle_message({
+        "jsonrpc": "2.0",
+        "id": "perm-1",
+        "method": "session/request_permission",
+        "params": {"sessionId": "main", "toolName": "bash"},
+    })
+    thread.join(timeout=1)
+    assert thread.is_alive() is False
+    assert written == []
+    assert len(got) == 1
+    assert got[0].id == "perm-1"
+    assert got[0].method == "session/request_permission"
 
 
 def test_client_keeps_unmatched_notifications_available_globally_while_subscribed() -> None:

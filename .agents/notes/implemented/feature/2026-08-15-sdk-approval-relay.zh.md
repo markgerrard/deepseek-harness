@@ -28,8 +28,8 @@ Status: implemented
 
 **收益**：已声明能力的客户端可以授予或拒绝一次仍在进行的审批，而无需在运行时侧挂载 UI 插件。
 
-**代价**：`DeepSeekHarness` 不会声明该能力，因此高层 `run()` 路径保持字节级一致。服务器未创建的子 subagent 会失败关闭，除非另有应答者。仍然存活但不作答的已声明客户端仍会阻塞该询问，直到工具信号中止或传输关闭。
+**代价**：`DeepSeekHarness` 不会声明该能力，因此高层 `run()` 路径保持字节级一致。服务器未创建的子 subagent 会失败关闭，除非另有应答者。不作答的已声明客户端由[审批转发挂起](../../bug-fix/2026-08-15-sdk-approval-relay-hang.md)收口：缺少询问信号且未配置超时时委托；已配置超时或询问信号到期变为 `unavailable`；Python 客户端在没有 `next_request()` 等待者时应答 `-32601`。
 
 ## 测试
 
-无需密钥的单元测试：若去掉能力检查，`does not send a server-to-client request unless the client advertised approvals` 会失败（fixture 记录每一次 `transport.request`）。声明能力的测试覆盖封闭 outcome、非法应答 → `rejected`、传输中断 → `unavailable`，以及外站 agent 委托。`HarnessClient` 与 Python 客户端记录握手字段和审批应答。
+无需密钥的单元测试：若去掉能力检查，`does not send a server-to-client request unless the client advertised approvals` 会失败（fixture 记录每一次 `transport.request`）。声明能力的测试覆盖封闭 outcome、非法应答 → `rejected`、传输中断 → `unavailable`，以及外站 agent 委托。挂起收口测试见[审批转发挂起](../../bug-fix/2026-08-15-sdk-approval-relay-hang.md)。`HarnessClient` 与 Python 客户端记录握手字段和审批应答。

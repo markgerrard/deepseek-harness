@@ -61,6 +61,13 @@ function subagentParentOf(carrier: Scoped<SubagentRuntime>): Agent {
 export interface HarnessSdkJsonRpcServerOptions {
   /** Report max-token termination as an accepted result instead of an infrastructure error. */
   maxTokensAsSuccess?: boolean
+  /**
+   * Bound, in milliseconds, for one relayed `session/request_permission`.
+   * Expiry aborts the outbound RPC and the ask settles `'unavailable'`.
+   * Omitted: wait only on {@link ApprovalRequest.signal}; an ask with
+   * neither signal nor bound is delegated instead of waited on.
+   */
+  approvalRequestTimeoutMs?: number
 }
 
 function successStatus(reason: string, options: HarnessSdkJsonRpcServerOptions): 'ok' | 'error' {
@@ -132,6 +139,9 @@ export class HarnessSdkJsonRpcServer {
       if (!this.clientApprovals) return next()
       const rec = this.sessions.get(String(request.agent.session.id))
       if (rec === undefined || rec.handle.agent !== request.agent) return next()
+      // An advertising client that never answers has no other bound when the
+      // asker omitted `signal` and the deployment set no timeout.
+      if (request.signal === undefined && this.options.approvalRequestTimeoutMs === undefined) return next()
       return this.relayApproval(request)
     }))
   }
@@ -333,19 +343,39 @@ export class HarnessSdkJsonRpcServer {
   }
 
   /**
-   * Ask the advertising client and map the answer. Transport loss or a
-   * thrown handler becomes `'unavailable'` so the turn is not wedged.
+   * Ask the advertising client and map the answer. Transport loss, a
+   * thrown handler, or {@link HarnessSdkJsonRpcServerOptions.approvalRequestTimeoutMs}
+   * expiry becomes `'unavailable'` so the turn is not wedged.
    * A garbage result becomes `'rejected'` and never grants.
    */
   private relayApproval(request: ApprovalRequest): Promise<ApprovalOutcome> {
+    const timeoutMs = this.options.approvalRequestTimeoutMs
+    const timer = timeoutMs === undefined ? undefined : new AbortController()
+    const timeout = timer === undefined || timeoutMs === undefined
+      ? undefined
+      : setTimeout(() => { timer.abort() }, timeoutMs)
+    const signal = combineSignals(request.signal, timer?.signal)
     return this.transport.request('session/request_permission', {
       sessionId: String(request.agent.session.id),
       toolName: request.toolName,
       ...request.callId !== undefined ? { callId: request.callId } : {},
       ...request.reason !== undefined ? { reason: request.reason } : {},
-    }, request.signal).then(
-      result => permissionOutcome(result),
-      () => 'unavailable',
+    }, signal).then(
+      (result) => {
+        if (timeout !== undefined) clearTimeout(timeout)
+        return permissionOutcome(result)
+      },
+      () => {
+        if (timeout !== undefined) clearTimeout(timeout)
+        return 'unavailable'
+      },
     )
   }
+}
+
+/** Prefer the sole defined signal; otherwise abort when either fires. */
+function combineSignals(left?: AbortSignal, right?: AbortSignal): AbortSignal | undefined {
+  if (left === undefined) return right
+  if (right === undefined) return left
+  return AbortSignal.any([left, right])
 }

@@ -15,7 +15,7 @@ import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import SubagentRuntime, { type SubagentResult, type SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
 import type { JsonRpcTransportPeer } from '@deepseek-ai/dsh-sdk-protocol'
 import type { ApprovalOutcome, ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
-import { HarnessSdkJsonRpcServer } from '../src/index.ts'
+import { HarnessSdkJsonRpcServer, type HarnessSdkJsonRpcServerOptions } from '../src/index.ts'
 
 type ApprovalHandler = (
   request: ApprovalRequest,
@@ -40,7 +40,10 @@ class FakeTransport implements JsonRpcTransportPeer {
 }
 
 /** Drive the server's `approval/request` listener without a live model turn. */
-async function approvalFixture(capabilities?: { approvals: boolean }) {
+async function approvalFixture(
+  capabilities?: { approvals: boolean },
+  options: HarnessSdkJsonRpcServerOptions = {},
+) {
   const followup = vi.fn<Agent['followup']>()
   const agent = ({
     id: SessionId('main'),
@@ -61,7 +64,7 @@ async function approvalFixture(capabilities?: { approvals: boolean }) {
     get: () => ({ listProviders: () => [{ id: 'mock', name: 'Mock' }] }),
   } as unknown as Context
   const transport = new FakeTransport()
-  const server = new HarnessSdkJsonRpcServer(ctx, transport)
+  const server = new HarnessSdkJsonRpcServer(ctx, transport, options)
   await server.initialize({
     cwd: '/tmp',
     provider: 'mock',
@@ -77,6 +80,7 @@ async function approvalFixture(capabilities?: { approvals: boolean }) {
     toolName: 'bash',
     callId: CallId('call-1'),
     reason: 'escalate sandbox to workspace-write: write a file',
+    signal: new AbortController().signal,
   }
   return {
     server,
@@ -565,6 +569,64 @@ describe('HarnessSdkJsonRpcServer', () => {
     await expect(ask()).resolves.toBe('cancelled')
     transport.requestImpl = async () => ({ outcome: 'unavailable' })
     await expect(ask()).resolves.toBe('unavailable')
+
+    await server.shutdown()
+  })
+
+  it('does not wait unbounded when an advertising client never answers an ask that has no signal', async () => {
+    const { server, transport, handler, next, agent } = await approvalFixture({ approvals: true })
+    transport.requestImpl = () => new Promise(() => {})
+
+    await expect(handler({ agent, toolName: 'bash' }, next)).resolves.toBe('unavailable')
+    expect(next).toHaveBeenCalledOnce()
+    expect(transport.requests).toEqual([])
+
+    await server.shutdown()
+  })
+
+  it('times out a silent advertising client when approvalRequestTimeoutMs elapses', async () => {
+    const { server, transport, ask, next } = await approvalFixture(
+      { approvals: true },
+      { approvalRequestTimeoutMs: 20 },
+    )
+    transport.requestImpl = (_method, _params, signal) => new Promise((_resolve, reject) => {
+      if (signal === undefined) throw new Error('relay must pass a bound signal')
+      signal.addEventListener('abort', () => { reject(new Error('approval request timed out')) }, { once: true })
+    })
+
+    await expect(ask()).resolves.toBe('unavailable')
+    expect(next).not.toHaveBeenCalled()
+    expect(transport.requests).toHaveLength(1)
+
+    await server.shutdown()
+  })
+
+  it('still applies a timely answer when approvalRequestTimeoutMs is configured', async () => {
+    const { server, transport, ask, next } = await approvalFixture(
+      { approvals: true },
+      { approvalRequestTimeoutMs: 5_000 },
+    )
+    transport.requestImpl = async () => ({ outcome: 'allowed-once' })
+
+    await expect(ask()).resolves.toBe('allowed-once')
+    expect(next).not.toHaveBeenCalled()
+
+    await server.shutdown()
+  })
+
+  it('bounds a silent ask that has no signal when approvalRequestTimeoutMs is set', async () => {
+    const { server, transport, handler, next, agent } = await approvalFixture(
+      { approvals: true },
+      { approvalRequestTimeoutMs: 20 },
+    )
+    transport.requestImpl = (_method, _params, signal) => new Promise((_resolve, reject) => {
+      if (signal === undefined) throw new Error('relay must pass a bound signal')
+      signal.addEventListener('abort', () => { reject(new Error('approval request timed out')) }, { once: true })
+    })
+
+    await expect(handler({ agent, toolName: 'bash' }, next)).resolves.toBe('unavailable')
+    expect(next).not.toHaveBeenCalled()
+    expect(transport.requests).toHaveLength(1)
 
     await server.shutdown()
   })

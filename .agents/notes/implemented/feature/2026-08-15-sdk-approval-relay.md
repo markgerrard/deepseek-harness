@@ -28,8 +28,8 @@ The method is one-shot allow/reject over JSON-RPC, shaped after ACP's `session/r
 
 **Bought**: an advertising client can grant or reject a live approval without a UI plugin on the runtime side.
 
-**Paid**: `DeepSeekHarness` does not advertise, so the high-level `run()` path stays byte-identical. Child subagents the server did not create fail closed unless something else answers. A live but silent advertising client still blocks the ask until the tool signal aborts or the transport closes.
+**Paid**: `DeepSeekHarness` does not advertise, so the high-level `run()` path stays byte-identical. Child subagents the server did not create fail closed unless something else answers. A silent advertising client is bounded by the [approval-relay hang](../../bug-fix/2026-08-15-sdk-approval-relay-hang.md) close: missing ask signal and missing timeout delegate; a configured timeout or the ask signal becomes `unavailable`; the Python client answers `-32601` when no `next_request()` waiter is registered.
 
 ## Testing
 
-Keyless unit: `does not send a server-to-client request unless the client advertised approvals` fails if the capability check is removed (the fixture records every `transport.request`). Advertising tests cover the closed outcomes, garbage → `rejected`, transport loss → `unavailable`, and foreign-agent delegation. `HarnessClient` and the Python client record the handshake field and the permission answer.
+Keyless unit: `does not send a server-to-client request unless the client advertised approvals` fails if the capability check is removed (the fixture records every `transport.request`). Advertising tests cover the closed outcomes, garbage → `rejected`, transport loss → `unavailable`, and foreign-agent delegation. The hang-close tests live on the [approval-relay hang](../../bug-fix/2026-08-15-sdk-approval-relay-hang.md) note. `HarnessClient` and the Python client record the handshake field and the permission answer.
