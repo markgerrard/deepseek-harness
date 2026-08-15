@@ -16,7 +16,7 @@ DeepSeek Harness SDK 运行时的共享协议格式（wire format）：一个按
 |---|---|---|
 | client→server | `initialize` | `InitializeParams` → `InitializeResult` |
 | client→server | `session/prompt` | `SessionPromptParams` → `SessionPromptResult`（持久入队回执） |
-| client→server | `session/cancel` | `SessionCancelParams` → `{}`（未知 id 为空操作） |
+| client→server | `session/cancel` | `SessionCancelParams` → `{}`（未知 id 为空操作；进行中的创建/恢复会被取消） |
 | client→server | `session/resume` | `SessionResumeParams` → `{}`（重新水合已持久化的 id；从不创建） |
 | client→server | `shutdown` | 无参数 → `{}` |
 | server→client | `session/request_permission` | `SessionRequestPermissionParams` → `SessionRequestPermissionResult`（仅在 `clientCapabilities.approvals` 之后） |

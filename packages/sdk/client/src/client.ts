@@ -309,6 +309,7 @@ export class HarnessClient {
 
   /**
    * Abort one session's in-flight turn. Unknown session ids are a no-op.
+   * An in-flight lazy create or resume is cancelled, not unknown.
    * @param sessionId - the session to cancel.
    */
   async cancel(sessionId: string): Promise<void> {

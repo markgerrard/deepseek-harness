@@ -81,6 +81,7 @@ export class HarnessSdkJsonRpcServer {
   private llmFiber: { dispose(): Promise<void> } | undefined
   private readonly sessions = new Map<string, SessionRecord>()
   private readonly sessionCreations = new Map<string, Promise<SessionRecord>>()
+  private readonly pendingCancels = new Set<string>()
   private readonly disposers: (() => void)[] = []
   private shutdownTask: Promise<Record<string, never>> | undefined
   private shuttingDown = false
@@ -167,30 +168,52 @@ export class HarnessSdkJsonRpcServer {
    */
   async prompt(params: SessionPromptParams): Promise<SessionPromptResult> {
     const rec = await this.getOrCreateSession(params.sessionId)
-    // An agent-loop-only reload disposes the loop's agents while this record
-    // survives; a retained agent accepts followup() silently, so validate the
-    // record against the live registry before delivery (as the ACP bridge does).
-    if (this.ctx.agents.get(rec.handle.agent.id) !== rec.handle.agent) {
-      throw new Error(`session agent was disposed outside the server: ${params.sessionId}`)
+    try {
+      // An agent-loop-only reload disposes the loop's agents while this record
+      // survives; a retained agent accepts followup() silently, so validate the
+      // record against the live registry before delivery (as the ACP bridge does).
+      if (this.ctx.agents.get(rec.handle.agent.id) !== rec.handle.agent) {
+        throw new Error(`session agent was disposed outside the server: ${params.sessionId}`)
+      }
+      const message = createUserMessage({ content: params.contentBlocks, source: { kind: 'user' } })
+      rec.handle.agent.followup(message)
+      return { messageId: message.id }
+    } finally {
+      this.applyPendingCancel(params.sessionId, rec)
     }
-    const message = createUserMessage({ content: params.contentBlocks, source: { kind: 'user' } })
-    rec.handle.agent.followup(message)
-    return { messageId: message.id }
   }
 
   /**
    * Abort the addressed session's in-flight turn and queued inbox work.
    * Unknown session ids are a no-op so a late cancel after teardown cannot
-   * fail the client. There is no pending `session/prompt` RPC to settle:
-   * that method already returned its enqueue receipt.
+   * fail the client. An in-flight lazy create or resume is not unknown:
+   * cancel waits for that load and aborts the resulting agent. A cancel
+   * that arrives before the first `followup` is remembered and applied
+   * after enqueue — `agent.cancel` does not arm later work. There is no
+   * pending `session/prompt` RPC to settle: that method already returned
+   * its enqueue receipt.
    * @param params - the session to cancel.
    * @returns empty JSON-RPC result.
    */
   cancel(params: SessionCancelParams): Promise<Record<string, never>> {
     const rec = this.sessions.get(params.sessionId)
-    if (rec === undefined) return Promise.resolve({})
-    rec.handle.agent.cancel({ kind: 'user' })
-    return Promise.resolve({})
+    if (rec !== undefined) {
+      rec.handle.agent.cancel({ kind: 'user' })
+      return Promise.resolve({})
+    }
+    const pending = this.sessionCreations.get(params.sessionId)
+    if (pending === undefined) return Promise.resolve({})
+    this.pendingCancels.add(params.sessionId)
+    return pending.then(
+      (loaded) => {
+        loaded.handle.agent.cancel({ kind: 'user' })
+        return {}
+      },
+      () => {
+        this.pendingCancels.delete(params.sessionId)
+        return {}
+      },
+    )
   }
 
   /**
@@ -267,6 +290,11 @@ export class HarnessSdkJsonRpcServer {
       default:
         throw new Error(`unknown DeepSeek Harness SDK runtime method: ${method}`)
     }
+  }
+
+  private applyPendingCancel(sessionId: string, rec: SessionRecord): void {
+    if (!this.pendingCancels.delete(sessionId)) return
+    rec.handle.agent.cancel({ kind: 'user' })
   }
 
   private getOrCreateSession(sessionId: string): Promise<SessionRecord> {

@@ -158,7 +158,7 @@ class HarnessClient:
         return response.messageId
 
     def session_cancel(self, session_id: str) -> None:
-        """Abort one session's in-flight turn. Unknown ids are a no-op."""
+        """Abort one session's in-flight turn. Unknown ids are a no-op. An in-flight lazy create or resume is cancelled, not unknown."""
         self.request("session/cancel", {"sessionId": session_id}, response_model=_ShutdownResponse)
 
     def session_resume(self, session_id: str) -> None:

@@ -16,7 +16,7 @@ The shared wire protocol for the DeepSeek Harness SDK runtime: one newline-delim
 |---|---|---|
 | client→server | `initialize` | `InitializeParams` → `InitializeResult` |
 | client→server | `session/prompt` | `SessionPromptParams` → `SessionPromptResult` (durable enqueue receipt) |
-| client→server | `session/cancel` | `SessionCancelParams` → `{}` (unknown ids are a no-op) |
+| client→server | `session/cancel` | `SessionCancelParams` → `{}` (unknown ids are a no-op; in-flight create/resume is cancelled) |
 | client→server | `session/resume` | `SessionResumeParams` → `{}` (rehydrates a persisted id; never creates) |
 | client→server | `shutdown` | no params → `{}` |
 | server→client | `session/request_permission` | `SessionRequestPermissionParams` → `SessionRequestPermissionResult` (only after `clientCapabilities.approvals`) |

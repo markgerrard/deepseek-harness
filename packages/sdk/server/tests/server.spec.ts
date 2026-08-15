@@ -354,6 +354,89 @@ describe('HarnessSdkJsonRpcServer', () => {
     await server.shutdown()
   })
 
+  it('cancels a session whose lazy creation is still in flight', async () => {
+    let resolveCreate: ((handle: AgentHandle) => void) | undefined
+    const createGate = new Promise<AgentHandle>((resolve) => { resolveCreate = resolve })
+    const cancel = vi.fn<Agent['cancel']>()
+    const followup = vi.fn<Agent['followup']>()
+    const agent = ({
+      id: SessionId('s1'),
+      followup,
+      cancel,
+    } satisfies Pick<Agent, 'id' | 'followup' | 'cancel'>) as unknown as Agent
+    const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: {
+        create: vi.fn(() => createGate),
+        get: (id: SessionId) => String(id) === 's1' ? agent : undefined,
+      },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    const prompt = server.handleRequest('session/prompt', {
+      sessionId: 's1',
+      contentBlocks: [{ type: 'text', text: 'go' }],
+    })
+    expect(ctx.agents.create).toHaveBeenCalledOnce()
+
+    const cancelled = server.handleRequest('session/cancel', { sessionId: 's1' })
+    resolveCreate?.(handle)
+
+    await expect(cancelled).resolves.toEqual({})
+    await expect(prompt).resolves.toMatchObject({ messageId: expect.any(String) })
+    expect(followup).toHaveBeenCalledOnce()
+    expect(cancel).toHaveBeenCalledWith({ kind: 'user' })
+    expect(cancel.mock.invocationCallOrder.at(-1))
+      .toBeGreaterThan(followup.mock.invocationCallOrder[0]!)
+
+    await server.shutdown()
+  })
+
+  it('does not keep a pending cancel after lazy creation fails', async () => {
+    let rejectCreate: ((error: Error) => void) | undefined
+    const createGate = new Promise<AgentHandle>((_, reject) => { rejectCreate = reject })
+    const cancel = vi.fn<Agent['cancel']>()
+    const followup = vi.fn<Agent['followup']>()
+    const agent = ({
+      id: SessionId('s1'),
+      followup,
+      cancel,
+    } satisfies Pick<Agent, 'id' | 'followup' | 'cancel'>) as unknown as Agent
+    const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+    const create = vi.fn<() => Promise<AgentHandle>>()
+      .mockReturnValueOnce(createGate)
+      .mockResolvedValueOnce(handle)
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: {
+        create,
+        get: (id: SessionId) => String(id) === 's1' ? agent : undefined,
+      },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    const firstPrompt = server.handleRequest('session/prompt', {
+      sessionId: 's1',
+      contentBlocks: [{ type: 'text', text: 'go' }],
+    })
+    const cancelled = server.handleRequest('session/cancel', { sessionId: 's1' })
+    rejectCreate?.(new Error('creation failed'))
+    await expect(firstPrompt).rejects.toThrow('creation failed')
+    await expect(cancelled).resolves.toEqual({})
+
+    await expect(server.handleRequest('session/prompt', {
+      sessionId: 's1',
+      contentBlocks: [{ type: 'text', text: 'retry' }],
+    })).resolves.toMatchObject({ messageId: expect.any(String) })
+    expect(followup).toHaveBeenCalledOnce()
+    expect(cancel).not.toHaveBeenCalled()
+
+    await server.shutdown()
+  })
+
   it('resumes through ctx.agents.resume and then accepts a prompt', async () => {
     const followup = vi.fn<Agent['followup']>()
     const agent = ({

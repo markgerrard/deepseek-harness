@@ -10,7 +10,7 @@ The SDK JSON-RPC transport had no way to abort a live turn. A client that needed
 
 ## Decision
 
-`session/cancel` is a client→server request whose params are `{ sessionId }`. The server looks the id up in its own session map. A miss returns `{}` without creating a session. A hit calls `agent.cancel({ kind: 'user' })`, which aborts the in-flight turn and clears queued inbox work, then returns `{}`.
+`session/cancel` is a client→server request whose params are `{ sessionId }`. The server looks the id up in its own session map. A hit calls `agent.cancel({ kind: 'user' })`, which aborts the in-flight turn and clears queued inbox work, then returns `{}`. An in-flight lazy create or resume is not a miss: cancel waits for that load, then aborts the resulting agent. A cancel that arrives before the first `followup` is remembered and applied after enqueue, because `agent.cancel` does not arm later work. A true miss — no live record and no in-flight load — returns `{}` without creating a session.
 
 `session/prompt` already returned its enqueue receipt, so there is no pending prompt RPC to settle. Cancel does not wait for idle and does not dispose the agent.
 
@@ -22,14 +22,16 @@ The SDK JSON-RPC transport had no way to abort a live turn. A client that needed
 
 **Treat transport close of one request as cancel.** JSON-RPC request abandonment already drops the client-side waiter without telling the server, so a timed-out prompt would still run. An explicit method is the only way to abort without tearing down the process.
 
+**Treat an in-flight lazy create as unknown and no-op, matching ACP.** ACP inserts the session in `session/new` before `session/prompt` or `session/cancel`, so an unknown id is truly absent. The SDK creates lazily on first prompt; a no-op there reports success and then lets the turn run uncancelled.
+
 **Cancel every descendant of the addressed session.** ACP cancels only the addressed session. Child subagents keep their own cancel path.
 
 ## Consequences
 
 **Bought**: a client can abort one session without killing the runtime or burning the session id.
 
-**Paid**: a cancel that races the first `session/prompt`'s session creation no-ops, matching ACP's unknown-id rule. There is still no session-close method.
+**Paid**: there is still no session-close method. A truly unknown id remains a no-op.
 
 ## Testing
 
-Keyless unit: `packages/sdk/server/tests/server.spec.ts` asserts unknown ids no-op and only the addressed agent is cancelled. `packages/sdk/client/tests/sdk-client.spec.ts` records the wire params through the fake runtime. `python/sdk/tests/test_client.py` covers `session_cancel`.
+Keyless unit: `cancels a session whose lazy creation is still in flight` fails if cancel treats an in-flight create as unknown. `cancels only the addressed live session and no-ops unknown ids` still pins the true-miss no-op. `packages/sdk/client/tests/sdk-client.spec.ts` records the wire params through the fake runtime. `python/sdk/tests/test_client.py` covers `session_cancel`.

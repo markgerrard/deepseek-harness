@@ -68,7 +68,7 @@ export interface SessionPromptResult {
 
 /** Parameters for cancelling one SDK session's in-flight turn. */
 export interface SessionCancelParams {
-  /** The SDK-side session id; an unknown id is a no-op. */
+  /** The SDK-side session id; an unknown id is a no-op. An in-flight lazy create or resume is cancelled, not unknown. */
   sessionId: string
 }
 

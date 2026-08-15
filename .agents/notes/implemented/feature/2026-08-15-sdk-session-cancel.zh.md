@@ -10,7 +10,7 @@ SDK JSON-RPC 传输没有中止仍在进行的轮次的方法。需要停下手�
 
 ## 决策
 
-`session/cancel` 是一条 client→server 请求，参数为 `{ sessionId }`。服务器在自己的会话表中查找该 id。未命中则返回 `{}`，且不创建会话。命中则调用 `agent.cancel({ kind: 'user' })`——这会中止正在进行的轮次并清空排队的 inbox 工作——然后返回 `{}`。
+`session/cancel` 是一条 client→server 请求，参数为 `{ sessionId }`。服务器在自己的会话表中查找该 id。命中则调用 `agent.cancel({ kind: 'user' })`——这会中止正在进行的轮次并清空排队的 inbox 工作——然后返回 `{}`。进行中的惰性创建或恢复不是未命中：取消会等待该加载结束，再中止得到的 agent。若取消到达时第一次 `followup` 尚未发生，服务器会记住这次取消并在入队之后再应用，因为 `agent.cancel` 不会预先武装后续工作。真正的未命中——既没有仍存活记录，也没有进行中的加载——返回 `{}`，且不创建会话。
 
 `session/prompt` 已经返回了入队回执，因此没有待结算的提示词 RPC。取消不等待 idle，也不会 dispose（资源释放）该 agent。
 
@@ -22,14 +22,16 @@ SDK JSON-RPC 传输没有中止仍在进行的轮次的方法。需要停下手�
 
 **把单条请求的传输关闭当作取消。** JSON-RPC 请求放弃已经会丢掉客户端等待者而不通知服务器，因此超时的 prompt 仍会继续运行。显式方法是在不拆掉进程的前提下中止的唯一途径。
 
+**把进行中的惰性创建当作未知 id 并空操作，以匹配 ACP。** ACP 在 `session/new` 中插入会话，早于 `session/prompt` 或 `session/cancel`，因此未知 id 确实不存在。SDK 在第一次 prompt 时才惰性创建；此时空操作会报告成功，随后让该轮次在未被取消的情况下运行。
+
 **取消指定会话的每一个后代。** ACP 只取消指定会话。子 subagent 保留各自的取消路径。
 
 ## 后果
 
 **收益**：客户端可以中止一个会话，而不必杀死运行时或烧毁会话 id。
 
-**代价**：与第一次 `session/prompt` 的会话创建竞态的取消会空操作，这与 ACP 的未知 id 规则一致。仍然没有会话关闭方法。
+**代价**：仍然没有会话关闭方法。真正未知的 id 仍为空操作。
 
 ## 测试
 
-无需密钥的单元测试：`packages/sdk/server/tests/server.spec.ts` 断言未知 id 为空操作，且只有指定 agent 被取消。`packages/sdk/client/tests/sdk-client.spec.ts` 通过假运行时记录协议参数。`python/sdk/tests/test_client.py` 覆盖 `session_cancel`。
+无需密钥的单元测试：若取消把进行中的创建当作未知 id，`cancels a session whose lazy creation is still in flight` 会失败。`cancels only the addressed live session and no-ops unknown ids` 仍钉住真正未命中的空操作。`packages/sdk/client/tests/sdk-client.spec.ts` 通过假运行时记录协议参数。`python/sdk/tests/test_client.py` 覆盖 `session_cancel`。
