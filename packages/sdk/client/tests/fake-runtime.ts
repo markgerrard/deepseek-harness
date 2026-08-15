@@ -42,6 +42,7 @@
  * - `FAKE_STDERR`: write this line to stderr at boot (diagnostics-tail probe).
  * - `FAKE_STDERR_NO_NEWLINE`: write this to stderr WITHOUT a newline (buffer-flush probe).
  * - `FAKE_RECORD_INIT`: append each `initialize` params JSON to this file (handshake probe).
+ * - `FAKE_RECORD_CANCEL`: append each `session/cancel` params JSON to this file.
  */
 
 import { appendFileSync, existsSync, writeFileSync } from 'node:fs'
@@ -222,6 +223,10 @@ reader.on('line', (line) => {
       respond({ messageId })
       return
     }
+    case 'session/cancel':
+      if (env.FAKE_RECORD_CANCEL !== undefined) appendFileSync(env.FAKE_RECORD_CANCEL, `${JSON.stringify(frame.params)}\n`)
+      respond({})
+      return
     case 'shutdown':
       respond({})
       // An EOF-ignoring fake also refuses the protocol exit, so the client's

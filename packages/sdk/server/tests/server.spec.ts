@@ -209,6 +209,46 @@ describe('HarnessSdkJsonRpcServer', () => {
     expect(otherHandle.dispose).toHaveBeenCalledOnce()
   })
 
+  it('cancels only the addressed live session and no-ops unknown ids', async () => {
+    const mainCancel = vi.fn<Agent['cancel']>()
+    const otherCancel = vi.fn<Agent['cancel']>()
+    const mainAgent = ({
+      id: SessionId('main'),
+      followup: vi.fn(),
+      cancel: mainCancel,
+    } satisfies Pick<Agent, 'id' | 'followup' | 'cancel'>) as unknown as Agent
+    const otherAgent = ({
+      id: SessionId('other'),
+      followup: vi.fn(),
+      cancel: otherCancel,
+    } satisfies Pick<Agent, 'id' | 'followup' | 'cancel'>) as unknown as Agent
+    const mainHandle = { agent: mainAgent, dispose: vi.fn(() => Promise.resolve()) }
+    const otherHandle = { agent: otherAgent, dispose: vi.fn(() => Promise.resolve()) }
+    const liveAgents = new Map<string, Agent>([['main', mainAgent], ['other', otherAgent]])
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: {
+        create: vi.fn(async (options: { sessionId: SessionId }) =>
+          String(options.sessionId) === 'main' ? mainHandle : otherHandle),
+        get: (id: SessionId) => liveAgents.get(String(id)),
+      },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+    await server.prompt({ sessionId: 'main', contentBlocks: [{ type: 'text', text: 'go' }] })
+    await server.prompt({ sessionId: 'other', contentBlocks: [{ type: 'text', text: 'go' }] })
+
+    await expect(server.handleRequest('session/cancel', { sessionId: 'missing' })).resolves.toEqual({})
+    expect(mainCancel).not.toHaveBeenCalled()
+    expect(otherCancel).not.toHaveBeenCalled()
+
+    await expect(server.handleRequest('session/cancel', { sessionId: 'main' })).resolves.toEqual({})
+    expect(mainCancel).toHaveBeenCalledExactlyOnceWith({ kind: 'user' })
+    expect(otherCancel).not.toHaveBeenCalled()
+
+    await server.shutdown()
+  })
+
   it('rejects a prompt for a session whose agent was disposed outside the server', async () => {
     const followup = vi.fn<Agent['followup']>()
     const agent = ({

@@ -18,6 +18,7 @@ import type {
   InitializeParams,
   InitializeResult,
   JsonRpcTransportPeer,
+  SessionCancelParams,
   SessionEventNotification,
   SessionPromptParams,
   SessionPromptResult,
@@ -143,6 +144,21 @@ export class HarnessSdkJsonRpcServer {
   }
 
   /**
+   * Abort the addressed session's in-flight turn and queued inbox work.
+   * Unknown session ids are a no-op so a late cancel after teardown cannot
+   * fail the client. There is no pending `session/prompt` RPC to settle:
+   * that method already returned its enqueue receipt.
+   * @param params - the session to cancel.
+   * @returns empty JSON-RPC result.
+   */
+  cancel(params: SessionCancelParams): Promise<Record<string, never>> {
+    const rec = this.sessions.get(params.sessionId)
+    if (rec === undefined) return Promise.resolve({})
+    rec.handle.agent.cancel({ kind: 'user' })
+    return Promise.resolve({})
+  }
+
+  /**
    * Dispose server-owned agents, adapter, and subscriptions to quiescence.
    * The surrounding context remains running.
    * @returns empty JSON-RPC result.
@@ -193,6 +209,8 @@ export class HarnessSdkJsonRpcServer {
         return this.initialize(params as unknown as InitializeParams)
       case 'session/prompt':
         return this.prompt(params as unknown as SessionPromptParams)
+      case 'session/cancel':
+        return this.cancel(params as unknown as SessionCancelParams)
       case 'shutdown':
         return this.shutdown()
       default:

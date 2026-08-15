@@ -485,6 +485,40 @@ for line in sys.stdin:
     assert notification.payload["sessionId"] == "main"
 
 
+def test_client_cancels_an_addressed_session(tmp_path: Path) -> None:
+    script = tmp_path / "fake_cancel.py"
+    cancel_dump = tmp_path / "cancel.json"
+    script.write_text(
+        """
+import json
+import os
+import sys
+
+for line in sys.stdin:
+    msg = json.loads(line)
+    method = msg.get("method")
+    if method == "initialize":
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"serverInfo": {"name": "fake-dsh"}}}), flush=True)
+    elif method == "session/cancel":
+        json.dump(msg.get("params"), open(os.environ["CANCEL_DUMP"], "w"))
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {}}), flush=True)
+    elif method == "shutdown":
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {}}), flush=True)
+        break
+""".strip()
+    )
+
+    with HarnessClient(
+        HarnessConfig(
+            launch_args_override=(sys.executable, str(script)),
+            env={"CANCEL_DUMP": str(cancel_dump)},
+        )
+    ) as client:
+        client.initialize(provider="deepseek-official", cwd="/workspace", model="dsagent")
+        client.session_cancel("main")
+    assert json.loads(cancel_dump.read_text()) == {"sessionId": "main"}
+
+
 def test_client_keeps_unmatched_notifications_available_globally_while_subscribed() -> None:
     client = HarnessClient()
     with client.subscribe_session_notifications("main"):

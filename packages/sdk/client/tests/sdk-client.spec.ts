@@ -243,6 +243,16 @@ describe('DeepSeekHarness', () => {
 })
 
 describe('HarnessClient', () => {
+  it('cancels an addressed session over the wire', async () => {
+    const record = join(await tempDir('dsh-sdk-cancel-'), 'cancel.jsonl')
+    const client = new HarnessClient(fakeLaunch({ FAKE_RECORD_CANCEL: record }))
+    cleanups.push(() => client.close())
+    await client.initialize({ cwd: process.cwd(), provider: 'p', model: 'm' })
+    await client.cancel('main')
+    await expect(readFile(record, 'utf8')).resolves.toBe('{"sessionId":"main"}\n')
+    await client.close()
+  })
+
   it('times out a hung request at the per-call bound', async () => {
     const client = new HarnessClient(fakeLaunch({ FAKE_HANG_PROMPT: '1' }))
     cleanups.push(() => client.close())

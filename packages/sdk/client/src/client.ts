@@ -177,9 +177,9 @@ class NotificationSubscriptionImpl implements NotificationSubscription {
  *
  * The subprocess starts lazily on {@link start} and is owned by this instance
  * until {@link close}, which requests protocol `shutdown` and then walks the
- * shared EOF → SIGTERM → SIGKILL dispose ladder to quiescence. There is no
- * wire-level cancel: a timed-out request stays running server-side until the
- * runtime is closed.
+ * shared EOF → SIGTERM → SIGKILL dispose ladder to quiescence. {@link cancel}
+ * aborts one live session's turn; a timed-out request that is not cancelled
+ * stays running server-side until the runtime is closed.
  */
 export class HarnessClient {
   private child: ChildProcess | undefined
@@ -287,6 +287,14 @@ export class HarnessClient {
       throw new SdkProtocolError(`session/prompt returned no message id: ${JSON.stringify(result)}`)
     }
     return result.messageId
+  }
+
+  /**
+   * Abort one session's in-flight turn. Unknown session ids are a no-op.
+   * @param sessionId - the session to cancel.
+   */
+  async cancel(sessionId: string): Promise<void> {
+    await this.request('session/cancel', { sessionId })
   }
 
   /**

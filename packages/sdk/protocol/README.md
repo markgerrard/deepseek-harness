@@ -16,6 +16,7 @@ The shared wire protocol for the DeepSeek Harness SDK runtime: one newline-delim
 |---|---|---|
 | client→server | `initialize` | `InitializeParams` → `InitializeResult` |
 | client→server | `session/prompt` | `SessionPromptParams` → `SessionPromptResult` (durable enqueue receipt) |
+| client→server | `session/cancel` | `SessionCancelParams` → `{}` (unknown ids are a no-op) |
 | client→server | `shutdown` | no params → `{}` |
 | server→client | `session.event` | `SessionEventNotification` (every session in the runtime, unfiltered) |
 | server→client | `session.status` | `SessionStatusNotification` (whole-agent `running`/`idle` transition) |
@@ -35,5 +36,5 @@ None; this package neither assembles nor sends a provider request.
 ## Known Limitations and Deferred Work
 
 - **No protocol-version negotiation** — the handshake carries only `serverInfo.version` (`0.0.1`, unvalidated by clients); pre-release stance, no compatibility promise.
-- **No cancel or session-close methods** — a client abandons a turn by closing the runtime process; see the [`dsh-sdk-jsonrpc-server` README](../server/README.md).
+- **No session-close method** — `session/cancel` aborts one live session's turn without disposing it; the runtime still owns the agent until process shutdown. See the [`dsh-sdk-jsonrpc-server` README](../server/README.md).
 - **Server→client requests are dead capability** — the transport supports them, but the server never sends one; the Python SDK's responder surface exists for future approval flows.

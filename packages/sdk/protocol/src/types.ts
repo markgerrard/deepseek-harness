@@ -1,5 +1,5 @@
 /**
- * Named wire types for the DeepSeek Harness SDK runtime protocol: the three
+ * Named wire types for the DeepSeek Harness SDK runtime protocol: the four
  * request/result pairs and the four server-to-client notification payloads
  * exchanged over the newline-delimited JSON-RPC stdio transport. The server
  * plugin (`@deepseek-ai/dsh-sdk-jsonrpc-server`) and SDK clients share these shapes;
@@ -42,6 +42,12 @@ export interface SessionPromptParams {
 export interface SessionPromptResult {
   /** Identity of the queued user message. */
   messageId: string
+}
+
+/** Parameters for cancelling one SDK session's in-flight turn. */
+export interface SessionCancelParams {
+  /** The SDK-side session id; an unknown id is a no-op. */
+  sessionId: string
 }
 
 /** Deployment-mapped SDK outcome: `ok` for an accepted result, `error` otherwise. */
@@ -101,5 +107,6 @@ export interface HarnessSdkNotificationMap {
 export interface HarnessSdkRequestMap {
   'initialize': { params: InitializeParams; result: InitializeResult }
   'session/prompt': { params: SessionPromptParams; result: SessionPromptResult }
+  'session/cancel': { params: SessionCancelParams; result: Record<string, never> }
   'shutdown': { params: undefined; result: Record<string, never> }
 }
