@@ -25,6 +25,11 @@ export const inject = ['agents']
 export interface JsonRpcConfig {
   /** Report max-token turn/subagent termination as a successful SDK result. */
   maxTokensAsSuccess?: boolean
+  /**
+   * Bound, in milliseconds, for one relayed `session/request_permission`.
+   * Expiry becomes `'unavailable'`. Omitted: wait only on the ask signal.
+   */
+  approvalRequestTimeoutMs?: number
   /** Transport input override; production uses `process.stdin`. */
   input?: Readable
   /** Transport output override; production uses `process.stdout`. */
@@ -35,6 +40,7 @@ export interface JsonRpcConfig {
 
 export const Config: Schema<JsonRpcConfig> = Schema.object({
   maxTokensAsSuccess: Schema.boolean().default(false),
+  approvalRequestTimeoutMs: Schema.number().step(1).min(1),
 })
 
 /**
@@ -59,6 +65,9 @@ export function apply(ctx: Context, config: JsonRpcConfig): void {
   const transport = new JsonRpcLineTransport(input, output)
   const server = new HarnessSdkJsonRpcServer(ctx, transport, {
     maxTokensAsSuccess: resolvedConfig.maxTokensAsSuccess,
+    ...config.approvalRequestTimeoutMs === undefined
+      ? {}
+      : { approvalRequestTimeoutMs: config.approvalRequestTimeoutMs },
   })
 
   // Share one exit task so racing shutdown requests cannot dispose the root or

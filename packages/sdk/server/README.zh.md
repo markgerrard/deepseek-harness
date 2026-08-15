@@ -10,7 +10,7 @@
 
 ## 配置
 
-`maxTokensAsSuccess` 默认为 `false`，且只影响 `subagent.finished` 上由部署映射的状态；根会话提示词没有提示词级状态。`JsonRpcConfig.input`、`output` 和 `exit` 是仅供运行时使用的传输钩子；生产环境使用进程 stdio 和 `process.exit`。
+`maxTokensAsSuccess` 默认为 `false`，且只影响 `subagent.finished` 上由部署映射的状态；根会话提示词没有提示词级状态。`approvalRequestTimeoutMs` 是一次转发的 `session/request_permission` 的可选正整数毫秒上限；到期变为 `unavailable`。省略时只等待该询问的 `AbortSignal`；既无信号也无上限的询问会被委托，而不会一直等待。`JsonRpcConfig.input`、`output` 和 `exit` 是仅供运行时使用的传输钩子；生产环境使用进程 stdio 和 `process.exit`。
 
 ## stdout 即协议
 
@@ -22,7 +22,7 @@ Stdout 只承载 JSON-RPC 帧。部署不得组合 stdout logger；诊断应写�
 
 ## 协议说明
 
-`initialize.serverInfo.name` 的协议稳定值为 `deepseek-harness-sdk-runtime`。可选的正整数 `initialize.maxTokens` 会成为每个 SDK 创建的 agent 及其进程内后代的请求输出上限；非法值会使初始化失败，省略时则不发送 SDK 上限，并应用所选适配器或提供方路由的默认值。`session/prompt` 将一条带标识的用户消息排入队列，并立即返回 `{ messageId }`。未知 id 会惰性创建全新的 agent+会话对，不会重新水合已持久化的日志。`session/resume` 对该 id 调用 `ctx.agents.resume()` 并返回 `{}`；已存活的 id 无需重新加载即成功。同一 id 上仍在进行的惰性创建会拒绝 resume，而不是把该全新会话报告成已重新水合。并发的 prompt 会等完进行中的 resume，并在 resume 失败时仍惰性创建。缺少持久化后端、缺少日志、损坏的日志，或由更新的 harness 写入的日志，会以该后端的消息拒绝。`session/cancel` 对指定的仍存活会话调用 `agent.cancel({ kind: 'user' })` 并返回 `{}`；进行中的惰性创建或恢复会先等到加载结束再取消；未知 id 为空操作，不会创建会话。当 `initialize` 携带 `clientCapabilities.approvals: true` 时，服务器对其创建的 agent 应答 `approval/request`，发送 `session/request_permission` 并应用客户端的 `{ outcome }`；省略该字段的客户端走今天的失败关闭路径（没有 server→client 请求）。传输中断变为 `unavailable`；封闭 outcome 集合之外的结果变为 `rejected`，且永不授予。服务器将每个持久事实作为 `session.event` 流式发出，并将整个 agent 生命周期的每次状态转换作为 `session.status` 发出；它不会把某条助手消息或 `turn/end` 归属于该提示词。同一会话上的独立请求可以继续排入更多工作。持久化根目录和 persona 由 `cordis.yml` 提供。
+`initialize.serverInfo.name` 的协议稳定值为 `deepseek-harness-sdk-runtime`。可选的正整数 `initialize.maxTokens` 会成为每个 SDK 创建的 agent 及其进程内后代的请求输出上限；非法值会使初始化失败，省略时则不发送 SDK 上限，并应用所选适配器或提供方路由的默认值。`session/prompt` 将一条带标识的用户消息排入队列，并立即返回 `{ messageId }`。未知 id 会惰性创建全新的 agent+会话对，不会重新水合已持久化的日志。`session/resume` 对该 id 调用 `ctx.agents.resume()` 并返回 `{}`；已存活的 id 无需重新加载即成功。同一 id 上仍在进行的惰性创建会拒绝 resume，而不是把该全新会话报告成已重新水合。并发的 prompt 会等完进行中的 resume，并在 resume 失败时仍惰性创建。缺少持久化后端、缺少日志、损坏的日志，或由更新的 harness 写入的日志，会以该后端的消息拒绝。既无 `AbortSignal` 也无 `approvalRequestTimeoutMs` 的询问会被委托，而不会一直等待。传输中断或超时到期变为 `unavailable`；封闭 outcome 集合之外的结果变为 `rejected`，且永不授予。`session/cancel` 对指定的仍存活会话调用 `agent.cancel({ kind: 'user' })` 并返回 `{}`；进行中的惰性创建或恢复会先等到加载结束再取消；未知 id 为空操作，不会创建会话。当 `initialize` 携带 `clientCapabilities.approvals: true` 时，服务器对其创建的 agent 应答 `approval/request`，发送 `session/request_permission` 并应用客户端的 `{ outcome }`；省略该字段的客户端走今天的失败关闭路径（没有 server→client 请求）。传输中断变为 `unavailable`；封闭 outcome 集合之外的结果变为 `rejected`，且永不授予。服务器将每个持久事实作为 `session.event` 流式发出，并将整个 agent 生命周期的每次状态转换作为 `session.status` 发出；它不会把某条助手消息或 `turn/end` 归属于该提示词。同一会话上的独立请求可以继续排入更多工作。持久化根目录和 persona 由 `cordis.yml` 提供。
 
 ## 模型体验
 

@@ -49,6 +49,7 @@ class HarnessClient:
         ] = {}
         self._session_parents: dict[str, str] = {}
         self._requests: queue.Queue[IncomingRequest | BaseException] = queue.Queue()
+        self._request_waiters = 0
         self._stderr_lines: deque[str] = deque(maxlen=400)
         self._reader_thread: threading.Thread | None = None
         self._stderr_thread: threading.Thread | None = None
@@ -215,7 +216,19 @@ class HarnessClient:
         return self.subscribe_notifications(self._notification_belongs_to_session_tree(session_id))
 
     def next_request(self) -> IncomingRequest:
-        item = self._requests.get()
+        """Take the next server-to-client request.
+
+        A `session/request_permission` with no waiter is answered `-32601`
+        instead of being queued, matching a TypeScript client that has not
+        installed `onRequest`.
+        """
+        with self._lock:
+            self._request_waiters += 1
+        try:
+            item = self._requests.get()
+        finally:
+            with self._lock:
+                self._request_waiters -= 1
         if isinstance(item, BaseException):
             raise item
         return item
@@ -357,6 +370,12 @@ class HarnessClient:
         msg_id = message.get("id")
         method = message.get("method")
         if isinstance(msg_id, (str, int)) and isinstance(method, str):
+            if method == "session/request_permission":
+                with self._lock:
+                    has_waiter = self._request_waiters > 0
+                if not has_waiter:
+                    self.respond_error(msg_id, code=-32601, message=f"method not found: {method}")
+                    return
             params = message.get("params")
             self._requests.put(IncomingRequest(id=msg_id, method=method, payload=params if isinstance(params, dict) else {}))
             return

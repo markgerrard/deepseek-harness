@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-15-sdk-approval-relay.md
-2026-08-15-sdk-approval-relay.md: 3551f1239335213b91affe7fbf9f0bd849a2df0b
-2026-08-15-sdk-approval-relay.zh.md: 3ec52f3a35d65c5de3f16d4cb7e9b055ce536b60
+2026-08-15-sdk-approval-relay.md: cb49616b728ba8750321a77f2ceb5ce8b16a3bb6
+2026-08-15-sdk-approval-relay.zh.md: 785762d39c9766b9e46866d6947d864afbac34ac
