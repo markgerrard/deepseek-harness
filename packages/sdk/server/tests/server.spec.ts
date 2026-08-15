@@ -1,4 +1,4 @@
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { CallId, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -14,17 +14,77 @@ import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import SubagentRuntime, { type SubagentResult, type SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
 import type { JsonRpcTransportPeer } from '@deepseek-ai/dsh-sdk-protocol'
+import type { ApprovalOutcome, ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 import { HarnessSdkJsonRpcServer } from '../src/index.ts'
+
+type ApprovalHandler = (
+  request: ApprovalRequest,
+  next: () => Promise<ApprovalOutcome>,
+) => Promise<ApprovalOutcome>
 
 class FakeTransport implements JsonRpcTransportPeer {
   notifications: { method: string; params?: Record<string, unknown> }[] = []
-
-  async request(method: string, params: object): Promise<unknown> {
+  requests: { method: string; params: object }[] = []
+  requestImpl: (method: string, params: object, signal?: AbortSignal) => Promise<unknown> = async (method, params) => {
     throw new Error(`the SDK server should not call host JSON-RPC method ${method} with ${JSON.stringify(params)}`)
+  }
+
+  async request(method: string, params: object, signal?: AbortSignal): Promise<unknown> {
+    this.requests.push({ method, params })
+    return this.requestImpl(method, params, signal)
   }
 
   notify(method: string, params?: object): void {
     this.notifications.push(params === undefined ? { method } : { method, params: params as Record<string, unknown> })
+  }
+}
+
+/** Drive the server's `approval/request` listener without a live model turn. */
+async function approvalFixture(capabilities?: { approvals: boolean }) {
+  const followup = vi.fn<Agent['followup']>()
+  const agent = ({
+    id: SessionId('main'),
+    session: { id: SessionId('main') },
+    followup,
+  } satisfies Pick<Agent, 'id' | 'followup'> & { session: { id: ReturnType<typeof SessionId> } }) as unknown as Agent
+  const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+  const approvalListeners: ApprovalHandler[] = []
+  const ctx = {
+    on: vi.fn((event: string, handler: ApprovalHandler) => {
+      if (event === 'approval/request') approvalListeners.push(handler)
+      return () => undefined
+    }),
+    agents: {
+      create: vi.fn(async () => handle),
+      get: (id: SessionId) => String(id) === 'main' ? agent : undefined,
+    },
+    get: () => ({ listProviders: () => [{ id: 'mock', name: 'Mock' }] }),
+  } as unknown as Context
+  const transport = new FakeTransport()
+  const server = new HarnessSdkJsonRpcServer(ctx, transport)
+  await server.initialize({
+    cwd: '/tmp',
+    provider: 'mock',
+    model: 'model',
+    ...capabilities === undefined ? {} : { clientCapabilities: capabilities },
+  })
+  await server.prompt({ sessionId: 'main', contentBlocks: [{ type: 'text', text: 'go' }] })
+  const handler = approvalListeners[0]
+  if (handler === undefined) throw new Error('server did not subscribe to approval/request')
+  const next = vi.fn(() => Promise.resolve<ApprovalOutcome>('unavailable'))
+  const request: ApprovalRequest = {
+    agent,
+    toolName: 'bash',
+    callId: CallId('call-1'),
+    reason: 'escalate sandbox to workspace-write: write a file',
+  }
+  return {
+    server,
+    transport,
+    handler,
+    next,
+    agent,
+    ask: () => handler(request, next),
   }
 }
 
@@ -245,6 +305,74 @@ describe('HarnessSdkJsonRpcServer', () => {
     await expect(server.handleRequest('session/cancel', { sessionId: 'main' })).resolves.toEqual({})
     expect(mainCancel).toHaveBeenCalledExactlyOnceWith({ kind: 'user' })
     expect(otherCancel).not.toHaveBeenCalled()
+
+    await server.shutdown()
+  })
+
+  it('does not send a server-to-client request unless the client advertised approvals', async () => {
+    const { server, transport, ask, next } = await approvalFixture()
+
+    await expect(ask()).resolves.toBe('unavailable')
+    expect(next).toHaveBeenCalledOnce()
+    expect(transport.requests).toEqual([])
+
+    await server.shutdown()
+  })
+
+  it('relays an advertised approval and applies the closed outcomes', async () => {
+    const { server, transport, ask, next } = await approvalFixture({ approvals: true })
+    transport.requestImpl = async () => ({ outcome: 'allowed-once' })
+
+    await expect(ask()).resolves.toBe('allowed-once')
+    expect(next).not.toHaveBeenCalled()
+    expect(transport.requests).toEqual([{
+      method: 'session/request_permission',
+      params: {
+        sessionId: 'main',
+        toolName: 'bash',
+        callId: 'call-1',
+        reason: 'escalate sandbox to workspace-write: write a file',
+      },
+    }])
+
+    transport.requestImpl = async () => ({ outcome: 'rejected' })
+    await expect(ask()).resolves.toBe('rejected')
+    transport.requestImpl = async () => ({ outcome: 'cancelled' })
+    await expect(ask()).resolves.toBe('cancelled')
+    transport.requestImpl = async () => ({ outcome: 'unavailable' })
+    await expect(ask()).resolves.toBe('unavailable')
+
+    await server.shutdown()
+  })
+
+  it('fails closed when an advertising client goes away or answers with garbage', async () => {
+    const { server, transport, ask, next } = await approvalFixture({ approvals: true })
+
+    transport.requestImpl = async () => { throw new Error('JSON-RPC input closed') }
+    await expect(ask()).resolves.toBe('unavailable')
+    expect(next).not.toHaveBeenCalled()
+
+    transport.requestImpl = async () => ({ outcome: 'please-grant-forever' })
+    await expect(ask()).resolves.toBe('rejected')
+    transport.requestImpl = async () => 'allowed-once'
+    await expect(ask()).resolves.toBe('rejected')
+    transport.requestImpl = async () => ({})
+    await expect(ask()).resolves.toBe('rejected')
+
+    await server.shutdown()
+  })
+
+  it('delegates a same-id foreign agent and an unknown session', async () => {
+    const { server, transport, handler, next, agent } = await approvalFixture({ approvals: true })
+    const foreign = { session: { id: agent.session.id } } as unknown as Agent
+
+    await expect(handler({ agent: foreign, toolName: 'bash' }, next)).resolves.toBe('unavailable')
+    await expect(handler({
+      agent: { session: { id: SessionId('other') } } as unknown as Agent,
+      toolName: 'bash',
+    }, next)).resolves.toBe('unavailable')
+    expect(transport.requests).toEqual([])
+    expect(next).toHaveBeenCalledTimes(2)
 
     await server.shutdown()
   })
@@ -1003,6 +1131,6 @@ describe('HarnessSdkJsonRpcServer', () => {
     const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
 
     await expect(server.shutdown()).rejects.toBe(listenerFailure)
-    expect(on).toHaveBeenCalledTimes(4)
+    expect(on).toHaveBeenCalledTimes(5)
   })
 })

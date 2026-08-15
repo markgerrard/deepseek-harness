@@ -18,6 +18,7 @@ import type {
   InitializeParams,
   InitializeResult,
   JsonRpcTransportPeer,
+  SdkPermissionOutcome,
   SessionCancelParams,
   SessionEventNotification,
   SessionPromptParams,
@@ -25,6 +26,26 @@ import type {
   SubagentFinishedNotification,
   SubagentStartedNotification,
 } from '@deepseek-ai/dsh-sdk-protocol'
+import type { ApprovalOutcome, ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
+
+const PERMISSION_OUTCOMES: readonly SdkPermissionOutcome[] = [
+  'allowed-once', 'rejected', 'cancelled', 'unavailable',
+]
+
+/** Map a wire result to a closed outcome. Unknown values never grant. */
+function permissionOutcome(result: unknown): ApprovalOutcome {
+  if (result === null || typeof result !== 'object' || Array.isArray(result)) return 'rejected'
+  const outcome = (result as { outcome?: unknown }).outcome
+  return typeof outcome === 'string' && PERMISSION_OUTCOMES.includes(outcome as SdkPermissionOutcome)
+    ? outcome as ApprovalOutcome
+    : 'rejected'
+}
+
+/** `approvals: true` only — any other wire value is treated as absent. */
+function clientAdvertisesApprovals(value: unknown): boolean {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    && (value as { approvals?: unknown }).approvals === true
+}
 
 interface SessionRecord {
   handle: AgentHandle
@@ -62,6 +83,7 @@ export class HarnessSdkJsonRpcServer {
   private readonly disposers: (() => void)[] = []
   private shutdownTask: Promise<Record<string, never>> | undefined
   private shuttingDown = false
+  private clientApprovals = false
 
   constructor(
     private readonly ctx: Context,
@@ -102,10 +124,21 @@ export class HarnessSdkJsonRpcServer {
       }
       transport.notify('subagent.finished', payload)
     }))
+    // Relays only after initialize sees `clientCapabilities.approvals === true`.
+    // A client that omitted the field must observe today's fail-closed path:
+    // this listener calls next() and never writes a server-to-client request.
+    this.disposers.push(ctx.on('approval/request', (request, next) => {
+      if (!this.clientApprovals) return next()
+      const rec = this.sessions.get(String(request.agent.session.id))
+      if (rec === undefined || rec.handle.agent !== request.agent) return next()
+      return this.relayApproval(request)
+    }))
   }
 
   /**
    * Configure the SDK route, mounting the DeepSeek fallback only when unowned.
+   * `clientCapabilities.approvals === true` is the only advertisement that
+   * enables `session/request_permission`.
    * @param params - SDK handshake parameters.
    * @returns server identity for the handshake.
    */
@@ -118,6 +151,7 @@ export class HarnessSdkJsonRpcServer {
     this.provider = params.provider
     this.model = params.model
     this.maxTokens = params.maxTokens
+    this.clientApprovals = clientAdvertisesApprovals(params.clientCapabilities)
     if (!this.hasAdapterFor(this.provider)) {
       if (this.provider !== 'deepseek-official') throw new Error(`no adapter registered for provider "${this.provider}"`)
       this.llmFiber = await this.ctx.plugin(LlmDeepSeek, {})
@@ -254,5 +288,22 @@ export class HarnessSdkJsonRpcServer {
 
   private hasAdapterFor(provider: string): boolean {
     return this.ctx.get('llm')?.listProviders().some(entry => entry.id === provider) ?? false
+  }
+
+  /**
+   * Ask the advertising client and map the answer. Transport loss or a
+   * thrown handler becomes `'unavailable'` so the turn is not wedged.
+   * A garbage result becomes `'rejected'` and never grants.
+   */
+  private relayApproval(request: ApprovalRequest): Promise<ApprovalOutcome> {
+    return this.transport.request('session/request_permission', {
+      sessionId: String(request.agent.session.id),
+      toolName: request.toolName,
+      ...request.callId !== undefined ? { callId: request.callId } : {},
+      ...request.reason !== undefined ? { reason: request.reason } : {},
+    }, request.signal).then(
+      result => permissionOutcome(result),
+      () => 'unavailable',
+    )
   }
 }

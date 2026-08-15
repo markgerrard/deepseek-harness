@@ -43,6 +43,9 @@
  * - `FAKE_STDERR_NO_NEWLINE`: write this to stderr WITHOUT a newline (buffer-flush probe).
  * - `FAKE_RECORD_INIT`: append each `initialize` params JSON to this file (handshake probe).
  * - `FAKE_RECORD_CANCEL`: append each `session/cancel` params JSON to this file.
+ * - `FAKE_ASK_PERMISSION` + `FAKE_RECORD_PERMISSION`: after answering
+ *   `initialize`, send one `session/request_permission` and append the
+ *   client's response frame to the record file.
  */
 
 import { appendFileSync, existsSync, writeFileSync } from 'node:fs'
@@ -157,7 +160,13 @@ function sessionIdOf(params: Record<string, unknown> | undefined): string {
 const reader = createInterface({ input: process.stdin })
 reader.on('line', (line) => {
   if (line.trim().length === 0) return
-  const frame = JSON.parse(line) as { id?: string | number; method?: string; params?: Record<string, unknown> }
+  const frame = JSON.parse(line) as { id?: string | number; method?: string; params?: Record<string, unknown>; result?: unknown }
+  if (frame.method === undefined && frame.id !== undefined) {
+    if (env.FAKE_RECORD_PERMISSION !== undefined) {
+      appendFileSync(env.FAKE_RECORD_PERMISSION, `${JSON.stringify(frame)}\n`)
+    }
+    return
+  }
   if (frame.method === undefined || frame.id === undefined) return
   const respond = (result: object): void => { write({ jsonrpc: '2.0', id: frame.id, result }) }
   switch (frame.method) {
@@ -193,6 +202,19 @@ reader.on('line', (line) => {
         return
       }
       respond({ serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } })
+      if (env.FAKE_ASK_PERMISSION !== undefined) {
+        write({
+          jsonrpc: '2.0',
+          id: 'perm-1',
+          method: 'session/request_permission',
+          params: {
+            sessionId: 'main',
+            toolName: 'bash',
+            callId: 'call-1',
+            reason: 'escalate sandbox to workspace-write: write a file',
+          },
+        })
+      }
       return
     case 'session/prompt': {
       const sessionId = sessionIdOf(frame.params)

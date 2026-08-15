@@ -1,8 +1,9 @@
 /**
  * Named wire types for the DeepSeek Harness SDK runtime protocol: the four
- * request/result pairs and the four server-to-client notification payloads
- * exchanged over the newline-delimited JSON-RPC stdio transport. The server
- * plugin (`@deepseek-ai/dsh-sdk-jsonrpc-server`) and SDK clients share these shapes;
+ * client-to-server request/result pairs, the one server-to-client request,
+ * and the four server-to-client notification payloads exchanged over the
+ * newline-delimited JSON-RPC stdio transport. The server plugin
+ * (`@deepseek-ai/dsh-sdk-jsonrpc-server`) and SDK clients share these shapes;
  * `serverInfo.name` stays the wire-stable `deepseek-harness-sdk-runtime`.
  *
  * @module @deepseek-ai/dsh-sdk-protocol/types
@@ -11,6 +12,18 @@
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SubagentStopReason } from '@deepseek-ai/dsh-subagent'
+
+/**
+ * Optional client features advertised at `initialize`. Omitted or false keeps
+ * today's server behaviour: no server-to-client request is sent.
+ */
+export interface ClientCapabilities {
+  /**
+   * When `true`, the client answers `session/request_permission`. Any other
+   * value is treated as absent.
+   */
+  approvals?: boolean
+}
 
 /** Parameters for the process-wide SDK handshake. */
 export interface InitializeParams {
@@ -22,6 +35,11 @@ export interface InitializeParams {
   model: string
   /** Optional positive output-token cap inherited by SDK-created agents and their in-process descendants. */
   maxTokens?: number
+  /**
+   * Features this client implements. The server relays approval asks only when
+   * {@link ClientCapabilities.approvals} is exactly `true`.
+   */
+  clientCapabilities?: ClientCapabilities
 }
 
 /** Wire-stable server identity returned by initialization. */
@@ -48,6 +66,31 @@ export interface SessionPromptResult {
 export interface SessionCancelParams {
   /** The SDK-side session id; an unknown id is a no-op. */
   sessionId: string
+}
+
+/**
+ * Closed one-shot answers a client may return for
+ * {@link SessionRequestPermissionParams}. Matches the approval seam's
+ * `ApprovalOutcome` so a grant is only `'allowed-once'`.
+ */
+export type SdkPermissionOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
+
+/** One approval ask the server relays to an advertising client. */
+export interface SessionRequestPermissionParams {
+  /** The SDK session whose agent is waiting. */
+  sessionId: string
+  /** Tool the ask is about. */
+  toolName: string
+  /** Tool-call id when the asker had one. */
+  callId?: string
+  /** Asker's human-readable explanation. */
+  reason?: string
+}
+
+/** Client answer for one {@link SessionRequestPermissionParams}. */
+export interface SessionRequestPermissionResult {
+  /** Closed outcome; anything else on the wire is treated as `'rejected'`. */
+  outcome: SdkPermissionOutcome
 }
 
 /** Deployment-mapped SDK outcome: `ok` for an accepted result, `error` otherwise. */
@@ -109,4 +152,12 @@ export interface HarnessSdkRequestMap {
   'session/prompt': { params: SessionPromptParams; result: SessionPromptResult }
   'session/cancel': { params: SessionCancelParams; result: Record<string, never> }
   'shutdown': { params: undefined; result: Record<string, never> }
+}
+
+/** Server-to-client request methods. Sent only after an approvals advertisement. */
+export interface HarnessSdkServerRequestMap {
+  'session/request_permission': {
+    params: SessionRequestPermissionParams
+    result: SessionRequestPermissionResult
+  }
 }

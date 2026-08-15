@@ -519,6 +519,42 @@ for line in sys.stdin:
     assert json.loads(cancel_dump.read_text()) == {"sessionId": "main"}
 
 
+def test_client_advertises_approvals_on_initialize(tmp_path: Path) -> None:
+    init_dump = tmp_path / "init.json"
+    script = tmp_path / "fake_bridge.py"
+    script.write_text(
+        """
+import json
+import os
+import sys
+
+for line in sys.stdin:
+    msg = json.loads(line)
+    method = msg.get("method")
+    if method == "initialize":
+        json.dump(msg.get("params"), open(os.environ["INIT_DUMP"], "w"))
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"serverInfo": {"name": "fake-dsh"}}}), flush=True)
+    elif method == "shutdown":
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {}}), flush=True)
+        break
+""".strip()
+    )
+
+    with HarnessClient(
+        HarnessConfig(
+            launch_args_override=(sys.executable, str(script)),
+            env={"INIT_DUMP": str(init_dump)},
+        )
+    ) as client:
+        client.initialize(
+            provider="deepseek-official",
+            cwd="/workspace",
+            model="dsagent",
+            client_capabilities={"approvals": True},
+        )
+    assert json.loads(init_dump.read_text())["clientCapabilities"] == {"approvals": True}
+
+
 def test_client_keeps_unmatched_notifications_available_globally_while_subscribed() -> None:
     client = HarnessClient()
     with client.subscribe_session_notifications("main"):
@@ -856,6 +892,7 @@ def test_public_signatures_omit_unsupported_wire_parameters() -> None:
     assert "system_prompt" not in DeepSeekHarnessConfig.__dataclass_fields__
     assert "max_tokens" in DeepSeekHarnessConfig.__dataclass_fields__
     assert "max_tokens" in inspect.signature(HarnessClient.initialize).parameters
+    assert "client_capabilities" in inspect.signature(HarnessClient.initialize).parameters
     assert "client_name" not in HarnessConfig.__dataclass_fields__
     assert "client_version" not in HarnessConfig.__dataclass_fields__
 
