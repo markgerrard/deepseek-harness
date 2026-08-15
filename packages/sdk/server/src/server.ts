@@ -52,6 +52,13 @@ interface SessionRecord {
   handle: AgentHandle
 }
 
+type SessionLoadKind = 'create' | 'resume'
+
+interface PendingSessionLoad {
+  kind: SessionLoadKind
+  task: Promise<SessionRecord>
+}
+
 /** Recover the delegating parent from the service-owned scoped carrier. */
 function subagentParentOf(carrier: Scoped<SubagentRuntime>): Agent {
   return carrierKeyOf(carrier) as Agent
@@ -80,7 +87,7 @@ export class HarnessSdkJsonRpcServer {
   private maxTokens: number | undefined
   private llmFiber: { dispose(): Promise<void> } | undefined
   private readonly sessions = new Map<string, SessionRecord>()
-  private readonly sessionCreations = new Map<string, Promise<SessionRecord>>()
+  private readonly sessionCreations = new Map<string, PendingSessionLoad>()
   private readonly pendingCancels = new Set<string>()
   private readonly disposers: (() => void)[] = []
   private shutdownTask: Promise<Record<string, never>> | undefined
@@ -204,7 +211,7 @@ export class HarnessSdkJsonRpcServer {
     const pending = this.sessionCreations.get(params.sessionId)
     if (pending === undefined) return Promise.resolve({})
     this.pendingCancels.add(params.sessionId)
-    return pending.then(
+    return pending.task.then(
       (loaded) => {
         loaded.handle.agent.cancel({ kind: 'user' })
         return {}
@@ -218,10 +225,13 @@ export class HarnessSdkJsonRpcServer {
 
   /**
    * Rehydrate a persisted session through `ctx.agents.resume()`. An already-live
-   * id succeeds without reloading. This never creates a fresh session: a missing
-   * persistence backend, missing log, corrupt log, or log written by a newer
-   * harness rejects with that backend's message. Compression mismatches stay
-   * the persistence backend's refusal.
+   * id succeeds without reloading. An in-flight lazy create for the same id
+   * rejects rather than reporting rehydration of that fresh session. A
+   * concurrent prompt waits out this resume and still lazily creates if it
+   * fails. This never creates a fresh session: a missing persistence backend,
+   * missing log, corrupt log, or log written by a newer harness rejects with
+   * that backend's message. Compression mismatches stay the persistence
+   * backend's refusal.
    * @param params - the persisted session id.
    * @returns empty JSON-RPC result.
    */
@@ -242,7 +252,7 @@ export class HarnessSdkJsonRpcServer {
 
   private async performShutdown(): Promise<Record<string, never>> {
     this.shuttingDown = true
-    const pendingCreations = [...this.sessionCreations.values()]
+    const pendingCreations = [...this.sessionCreations.values()].map(pending => pending.task)
     await Promise.allSettled(pendingCreations)
     this.sessionCreations.clear()
     const records = [...this.sessions.values()]
@@ -298,24 +308,40 @@ export class HarnessSdkJsonRpcServer {
   }
 
   private getOrCreateSession(sessionId: string): Promise<SessionRecord> {
-    return this.beginSessionLoad(sessionId, () => this.createSession(sessionId))
+    return this.beginSessionLoad(sessionId, 'create', () => this.createSession(sessionId))
   }
 
   private getOrResumeSession(sessionId: string): Promise<SessionRecord> {
-    return this.beginSessionLoad(sessionId, () => this.resumeSession(sessionId))
+    return this.beginSessionLoad(sessionId, 'resume', () => this.resumeSession(sessionId))
   }
 
+  /**
+   * Dedup same-kind loads for one id. A prompt may wait out a resume
+   * (inherit success, or lazily create after failure). A resume must not
+   * inherit an in-flight create: that would report rehydration of a fresh
+   * session.
+   */
   private async beginSessionLoad(
     sessionId: string,
+    kind: SessionLoadKind,
     load: () => Promise<SessionRecord>,
   ): Promise<SessionRecord> {
     if (this.shuttingDown) throw new Error('SDK server is shutting down')
     const existing = this.sessions.get(sessionId)
     if (existing) return existing
     const pending = this.sessionCreations.get(sessionId)
-    if (pending) return pending
+    if (pending) {
+      if (pending.kind === kind) return pending.task
+      if (kind === 'create') {
+        return pending.task.then(
+          rec => rec,
+          () => this.beginSessionLoad(sessionId, kind, load),
+        )
+      }
+      throw new Error(`session ${sessionId} is already being created`)
+    }
     const task = load()
-    this.sessionCreations.set(sessionId, task)
+    this.sessionCreations.set(sessionId, { kind, task })
     void task.then(
       () => { this.sessionCreations.delete(sessionId) },
       () => { this.sessionCreations.delete(sessionId) },

@@ -12,6 +12,8 @@ The SDK JSON-RPC transport lazily creates a fresh agent for an unknown session i
 
 `session/resume` is a client→server request whose params are `{ sessionId }`. The server looks the id up in its own session map. A hit returns `{}` without reloading. A miss calls `ctx.agents.resume({ resumeSessionId, agentOptions })` with the handshake provider/model/`maxTokens`, then stores the handle. Persistence, missing-log, corrupt-log, newer-harness, and compression-mismatch failures propagate as the JSON-RPC error. The method never creates a fresh session.
 
+In-flight loads are keyed by session id and load kind (`create` vs `resume`). Same-kind joiners share one loader. A `session/resume` that arrives while a lazy create is in flight rejects rather than inheriting the fresh session and reporting rehydration. A `session/prompt` that arrives while a resume is in flight waits: it uses the resumed session on success, and still lazily creates if that resume fails.
+
 `session/prompt` on an unknown id still lazily creates. That default is not implicit resume.
 
 `HarnessClient.resume` and the Python client's `session_resume` send this method. No `clientCapabilities` flag: old clients simply never call it.
@@ -24,6 +26,8 @@ The SDK JSON-RPC transport lazily creates a fresh agent for an unknown session i
 
 **Advertise resume through `clientCapabilities`.** Resume is a client-to-server method. Clients that do not know it never send it, so an advertisement would add handshake state with no compatibility to protect.
 
+**Dedupe in-flight create and resume on session id alone.** The first loader would win. `resume` after an in-flight `prompt` would report rehydration of a fresh empty session, and `prompt` after a failing in-flight `resume` would inherit that error instead of lazily creating.
+
 ## Consequences
 
 **Bought**: a client can rehydrate a persisted session after the runtime process exits, including after a kill, without burning the id.
@@ -32,4 +36,4 @@ The SDK JSON-RPC transport lazily creates a fresh agent for an unknown session i
 
 ## Testing
 
-Keyless unit: `resumes a persisted session and then accepts a prompt` fails if the method is removed. `prompt of a persisted unknown id still lazily creates and collides` fails if prompt starts calling `resume`. Missing persistence, missing log, and corrupt log reject. `HarnessClient` and the Python client record the wire params.
+Keyless unit: `resumes a persisted session and then accepts a prompt` fails if the method is removed. `prompt of a persisted unknown id still lazily creates and collides` fails if prompt starts calling `resume`. `does not let resume join an in-flight create` and `does not let prompt inherit an in-flight resume failure` fail if create and resume share one pending loader. Missing persistence, missing log, and corrupt log reject. `HarnessClient` and the Python client record the wire params.

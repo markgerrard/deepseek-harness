@@ -76,8 +76,9 @@ export interface SessionCancelParams {
 export interface SessionResumeParams {
   /**
    * The persisted session id. Already-live ids succeed without reloading.
-   * A miss, corrupt log, newer-harness log, or missing persistence backend
-   * rejects; this method never creates a fresh session.
+   * An in-flight lazy create for the same id rejects. A miss, corrupt log,
+   * newer-harness log, or missing persistence backend rejects; this method
+   * never creates a fresh session.
    */
   sessionId: string
 }

@@ -1379,6 +1379,150 @@ describe('HarnessSdkJsonRpcServer', () => {
     await expect(server.getOrCreateSession('after-shutdown')).rejects.toThrow('SDK server is shutting down')
   })
 
+  it('shutdown waits out an in-flight session load', async () => {
+    let resolveCreate: ((handle: AgentHandle) => void) | undefined
+    const createGate = new Promise<AgentHandle>((resolve) => { resolveCreate = resolve })
+    const dispose = vi.fn(() => Promise.resolve())
+    const followup = vi.fn<Agent['followup']>()
+    const agent = ({
+      id: SessionId('s1'),
+      followup,
+    } satisfies Pick<Agent, 'id' | 'followup'>) as unknown as Agent
+    const handle = { agent, dispose }
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: {
+        create: vi.fn(() => createGate),
+        get: (id: SessionId) => String(id) === 's1' ? agent : undefined,
+      },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+    const prompted = server.handleRequest('session/prompt', {
+      sessionId: 's1',
+      contentBlocks: [{ type: 'text', text: 'go' }],
+    })
+    const down = server.shutdown()
+    resolveCreate?.(handle)
+    await expect(down).resolves.toEqual({})
+    expect(dispose).toHaveBeenCalledOnce()
+    await prompted.catch(() => undefined)
+  })
+
+  it('does not let resume join an in-flight create', async () => {
+    let resolveCreate: ((handle: AgentHandle) => void) | undefined
+    const createGate = new Promise<AgentHandle>((resolve) => { resolveCreate = resolve })
+    const followup = vi.fn<Agent['followup']>()
+    const agent = ({
+      id: SessionId('s1'),
+      followup,
+    } satisfies Pick<Agent, 'id' | 'followup'>) as unknown as Agent
+    const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+    const create = vi.fn(() => createGate)
+    const resume = vi.fn(async () => {
+      throw new Error('session/resume must not join an in-flight create')
+    })
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: {
+        create,
+        resume,
+        get: (id: SessionId) => String(id) === 's1' ? agent : undefined,
+      },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    const prompted = server.handleRequest('session/prompt', {
+      sessionId: 's1',
+      contentBlocks: [{ type: 'text', text: 'go' }],
+    })
+    expect(create).toHaveBeenCalledOnce()
+    const resumed = server.handleRequest('session/resume', { sessionId: 's1' })
+    resolveCreate?.(handle)
+
+    await expect(resumed).rejects.toThrow(/already being created/)
+    await expect(prompted).resolves.toMatchObject({ messageId: expect.any(String) })
+    expect(resume).not.toHaveBeenCalled()
+    expect(followup).toHaveBeenCalledOnce()
+    await server.shutdown()
+  })
+
+  it('does not let prompt inherit an in-flight resume failure', async () => {
+    let rejectResume: ((error: Error) => void) | undefined
+    const resumeGate = new Promise<AgentHandle>((_, reject) => { rejectResume = reject })
+    const followup = vi.fn<Agent['followup']>()
+    const agent = ({
+      id: SessionId('s2'),
+      followup,
+    } satisfies Pick<Agent, 'id' | 'followup'>) as unknown as Agent
+    const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+    const create = vi.fn(async () => handle)
+    const resume = vi.fn(() => resumeGate)
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: {
+        create,
+        resume,
+        get: (id: SessionId) => String(id) === 's2' ? agent : undefined,
+      },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    const resumed = server.handleRequest('session/resume', { sessionId: 's2' })
+    expect(resume).toHaveBeenCalledOnce()
+    const prompted = server.handleRequest('session/prompt', {
+      sessionId: 's2',
+      contentBlocks: [{ type: 'text', text: 'go' }],
+    })
+    rejectResume?.(new Error('no persisted log'))
+
+    await expect(resumed).rejects.toThrow('no persisted log')
+    await expect(prompted).resolves.toMatchObject({ messageId: expect.any(String) })
+    expect(create).toHaveBeenCalledOnce()
+    expect(followup).toHaveBeenCalledOnce()
+    await server.shutdown()
+  })
+
+  it('lets prompt join a successful in-flight resume', async () => {
+    let resolveResume: ((handle: AgentHandle) => void) | undefined
+    const resumeGate = new Promise<AgentHandle>((resolve) => { resolveResume = resolve })
+    const followup = vi.fn<Agent['followup']>()
+    const agent = ({
+      id: SessionId('s2'),
+      followup,
+    } satisfies Pick<Agent, 'id' | 'followup'>) as unknown as Agent
+    const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+    const create = vi.fn(async () => {
+      throw new Error('prompt must inherit a successful in-flight resume')
+    })
+    const resume = vi.fn(() => resumeGate)
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: {
+        create,
+        resume,
+        get: (id: SessionId) => String(id) === 's2' ? agent : undefined,
+      },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    const resumed = server.handleRequest('session/resume', { sessionId: 's2' })
+    const prompted = server.handleRequest('session/prompt', {
+      sessionId: 's2',
+      contentBlocks: [{ type: 'text', text: 'go' }],
+    })
+    resolveResume?.(handle)
+
+    await expect(resumed).resolves.toEqual({})
+    await expect(prompted).resolves.toMatchObject({ messageId: expect.any(String) })
+    expect(create).not.toHaveBeenCalled()
+    expect(followup).toHaveBeenCalledOnce()
+    await server.shutdown()
+  })
+
   it('resolves a relative cwd before creating the session', async () => {
     const create = vi.fn<(options: unknown) => Promise<AgentHandle>>()
       .mockResolvedValue({ agent: {} as Agent, dispose: () => Promise.resolve() })

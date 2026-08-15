@@ -12,6 +12,8 @@ SDK JSON-RPC 传输对未知会话 id 会惰性创建一个全新 agent。因此
 
 `session/resume` 是一条 client→server 请求，参数为 `{ sessionId }`。服务器在自己的会话表中查找该 id。命中则返回 `{}`，不重新加载。未命中则调用 `ctx.agents.resume({ resumeSessionId, agentOptions })`，带上手握中的 provider/model/`maxTokens`，然后存下 handle。持久化缺失、日志缺失、日志损坏、由更新 harness 写入，以及压缩模式不匹配，都以 JSON-RPC 错误原样传出。该方法从不创建全新会话。
 
+进行中的加载按会话 id 与加载种类（`create` 与 `resume`）去重。同一种类的并发调用共享同一个 loader。若 `session/resume` 到达时惰性创建仍在进行，请求会被拒绝，而不是继承那个全新会话并报告已重新水合。若 `session/prompt` 到达时恢复仍在进行，它会等待：恢复成功则使用该会话，恢复失败则仍惰性创建。
+
 对未知 id 的 `session/prompt` 仍会惰性创建。该默认行为不是隐式恢复。
 
 `HarnessClient.resume` 与 Python 客户端的 `session_resume` 发送此方法。没有 `clientCapabilities` 标志：旧客户端只是从不调用它。
@@ -24,6 +26,8 @@ SDK JSON-RPC 传输对未知会话 id 会惰性创建一个全新 agent。因此
 
 **通过 `clientCapabilities` 声明恢复能力。** 恢复是 client→server 方法。不认识它的客户端根本不会发送，因此再做握手声明只会增加状态，而没有需要保护的兼容性。
 
+**仅按会话 id 对进行中的创建与恢复去重。** 先到的 loader 会赢。在进行中的 `prompt` 之后调用 `resume` 会把全新空会话报告成已重新水合；在失败的进行中 `resume` 之后调用 `prompt` 会继承该错误，而不是惰性创建。
+
 ## 后果
 
 **收益**：客户端可以在运行时进程退出后（包括被杀死后）重新水合已持久化的会话，而不烧毁该 id。
@@ -32,4 +36,4 @@ SDK JSON-RPC 传输对未知会话 id 会惰性创建一个全新 agent。因此
 
 ## 测试
 
-无需密钥的单元测试：去掉该方法时，`resumes a persisted session and then accepts a prompt` 会失败。若 prompt 开始调用 `resume`，`prompt of a persisted unknown id still lazily creates and collides` 会失败。缺少持久化、缺少日志和损坏日志都会被拒绝。`HarnessClient` 与 Python 客户端记录协议参数。
+无需密钥的单元测试：去掉该方法时，`resumes a persisted session and then accepts a prompt` 会失败。若 prompt 开始调用 `resume`，`prompt of a persisted unknown id still lazily creates and collides` 会失败。若创建与恢复共享同一个待定 loader，`does not let resume join an in-flight create` 与 `does not let prompt inherit an in-flight resume failure` 会失败。缺少持久化、缺少日志和损坏日志都会被拒绝。`HarnessClient` 与 Python 客户端记录协议参数。
