@@ -1,7 +1,7 @@
 import { CallId, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -126,6 +126,51 @@ async function makeHarness(storageDir: string) {
   await ctx.plugin(JsonlSessionPersistence, { root: storageDir })
   await new Promise(resolve => setTimeout(resolve, 50))
   return ctx
+}
+
+/** Create, prompt-to-idle, and dispose so only the JSONL log remains. */
+async function persistPromptedSession(storageDir: string, sessionId: string, text: string): Promise<void> {
+  const llmServer = await mockCompletionServer()
+  vi.stubEnv('DEEPSEEK_API_KEY', 'test-key')
+  vi.stubEnv('DEEPSEEK_BASE_URL', llmServer.url)
+  const ctx = await makeHarness(storageDir)
+  try {
+    const transport = new FakeTransport()
+    const server = new HarnessSdkJsonRpcServer(ctx, transport)
+    await server.handleRequest('initialize', {
+      cwd: storageDir,
+      provider: 'deepseek-official',
+      model: 'dsagent-model',
+    })
+    await server.handleRequest('session/prompt', {
+      sessionId,
+      contentBlocks: [{ type: 'text', text }],
+    })
+    await vi.waitFor(() => {
+      expect(transport.notifications.findLast(n => n.method === 'session.status')).toEqual({
+        method: 'session.status',
+        params: { sessionId, status: 'idle' },
+      })
+    })
+    await server.handleRequest('shutdown', undefined)
+  } finally {
+    await ctx.fiber.dispose()
+  }
+}
+
+/** Walk a persistence root for session transcript files. */
+async function findSessionLogs(root: string): Promise<string[]> {
+  const found: string[] = []
+  const walk = async (dir: string): Promise<void> => {
+    const entries = await readdir(dir, { withFileTypes: true })
+    for (const entry of entries) {
+      const path = join(dir, entry.name)
+      if (entry.isDirectory()) await walk(path)
+      else if (entry.name.startsWith('session.jsonl')) found.push(path)
+    }
+  }
+  await walk(root)
+  return found
 }
 
 /** Drive the owning service so test lifecycle events carry the real parent scope. */
@@ -307,6 +352,185 @@ describe('HarnessSdkJsonRpcServer', () => {
     expect(otherCancel).not.toHaveBeenCalled()
 
     await server.shutdown()
+  })
+
+  it('resumes through ctx.agents.resume and then accepts a prompt', async () => {
+    const followup = vi.fn<Agent['followup']>()
+    const agent = ({
+      id: SessionId('main'),
+      followup,
+    } satisfies Pick<Agent, 'id' | 'followup'>) as unknown as Agent
+    const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+    const resume = vi.fn(async () => handle)
+    const create = vi.fn(async () => {
+      throw new Error('session/resume must not call agents.create')
+    })
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: {
+        create,
+        resume,
+        get: (id: SessionId) => String(id) === 'main' ? agent : undefined,
+      },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    await expect(server.handleRequest('session/resume', { sessionId: 'main' })).resolves.toEqual({})
+    expect(resume).toHaveBeenCalledExactlyOnceWith({
+      resumeSessionId: SessionId('main'),
+      agentOptions: { provider: 'deepseek-official', model: 'deepseek-official' },
+    })
+    expect(create).not.toHaveBeenCalled()
+
+    expect((await server.prompt({
+      sessionId: 'main',
+      contentBlocks: [{ type: 'text', text: 'go' }],
+    })).messageId).toBeTypeOf('string')
+    expect(create).not.toHaveBeenCalled()
+    expect(followup).toHaveBeenCalledOnce()
+    await server.shutdown()
+  })
+
+  it('resume of an already-live session does not reload', async () => {
+    const followup = vi.fn<Agent['followup']>()
+    const agent = ({
+      id: SessionId('main'),
+      followup,
+    } satisfies Pick<Agent, 'id' | 'followup'>) as unknown as Agent
+    const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+    const resume = vi.fn(async () => {
+      throw new Error('already-live resume must not call agents.resume')
+    })
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: {
+        create: vi.fn(async () => handle),
+        resume,
+        get: (id: SessionId) => String(id) === 'main' ? agent : undefined,
+      },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+    await server.prompt({ sessionId: 'main', contentBlocks: [{ type: 'text', text: 'go' }] })
+
+    await expect(server.handleRequest('session/resume', { sessionId: 'main' })).resolves.toEqual({})
+    expect(resume).not.toHaveBeenCalled()
+    await server.shutdown()
+  })
+
+  it('resumes a persisted session and then accepts a prompt', { timeout: 15_000 }, async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-resume-'))
+    try {
+      await persistPromptedSession(storageDir, 'main', 'remember zebra')
+      const llmServer = await mockCompletionServer()
+      vi.stubEnv('DEEPSEEK_API_KEY', 'test-key')
+      vi.stubEnv('DEEPSEEK_BASE_URL', llmServer.url)
+      const ctx = await makeHarness(storageDir)
+      try {
+        const transport = new FakeTransport()
+        const server = new HarnessSdkJsonRpcServer(ctx, transport)
+        await server.handleRequest('initialize', {
+          cwd: storageDir,
+          provider: 'deepseek-official',
+          model: 'dsagent-model',
+        })
+        await expect(server.handleRequest('session/resume', { sessionId: 'main' })).resolves.toEqual({})
+        const resumed = ctx.agents.get(SessionId('main'))
+        expect(JSON.stringify(resumed?.session.events)).toContain('remember zebra')
+        const receipt = await server.handleRequest('session/prompt', {
+          sessionId: 'main',
+          contentBlocks: [{ type: 'text', text: 'what was the word?' }],
+        })
+        expect((receipt as { messageId?: unknown }).messageId).toBeTypeOf('string')
+        await vi.waitFor(() => { expect(llmServer.requests).toHaveLength(1) })
+        await server.handleRequest('shutdown', undefined)
+      } finally {
+        await ctx.fiber.dispose()
+      }
+    } finally {
+      await rm(storageDir, { recursive: true, force: true })
+    }
+  })
+
+  it('prompt of a persisted unknown id still lazily creates and collides', { timeout: 15_000 }, async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-collide-'))
+    try {
+      await persistPromptedSession(storageDir, 'main', 'remember zebra')
+      vi.stubEnv('DEEPSEEK_API_KEY', 'test-key')
+      vi.stubEnv('DEEPSEEK_BASE_URL', (await mockCompletionServer()).url)
+      const ctx = await makeHarness(storageDir)
+      try {
+        const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+        await server.handleRequest('initialize', {
+          cwd: storageDir,
+          provider: 'deepseek-official',
+          model: 'dsagent-model',
+        })
+        const receipt = await server.handleRequest('session/prompt', {
+          sessionId: 'main',
+          contentBlocks: [{ type: 'text', text: 'again' }],
+        })
+        expect((receipt as { messageId?: unknown }).messageId).toBeTypeOf('string')
+        const created = ctx.agents.get(SessionId('main'))
+        if (created === undefined) throw new Error('lazy create did not publish an agent')
+        expect(JSON.stringify(created.session.events)).not.toContain('remember zebra')
+        await expect(ctx.sessions.flush(created.session)).rejects.toThrow(/id collision/)
+        await server.handleRequest('shutdown', undefined)
+      } finally {
+        await ctx.fiber.dispose()
+      }
+    } finally {
+      await rm(storageDir, { recursive: true, force: true })
+    }
+  })
+
+  it('resume rejects when session persistence is not configured', async () => {
+    const ctx = new Context()
+    await ctx.plugin(agentCore, { workspaceContext: false })
+    try {
+      const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+      await expect(server.handleRequest('session/resume', { sessionId: 'main' }))
+        .rejects.toThrow(/session persistence is not configured/)
+      await server.shutdown()
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('resume rejects when the id has no persisted log', { timeout: 15_000 }, async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-resume-miss-'))
+    const ctx = await makeHarness(storageDir)
+    try {
+      const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+      await expect(server.handleRequest('session/resume', { sessionId: 'missing' }))
+        .rejects.toThrow(/not found/)
+      await server.shutdown()
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(storageDir, { recursive: true, force: true })
+    }
+  })
+
+  it('resume rejects a corrupt persisted log', { timeout: 15_000 }, async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-resume-corrupt-'))
+    try {
+      await persistPromptedSession(storageDir, 'main', 'remember zebra')
+      const logs = await findSessionLogs(storageDir)
+      expect(logs.length).toBeGreaterThan(0)
+      await Promise.all(logs.map(path => writeFile(path, 'not-a-valid-session-log')))
+      const ctx = await makeHarness(storageDir)
+      try {
+        const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+        await expect(server.handleRequest('session/resume', { sessionId: 'main' }))
+          .rejects.toThrow()
+        await server.shutdown()
+      } finally {
+        await ctx.fiber.dispose()
+      }
+    } finally {
+      await rm(storageDir, { recursive: true, force: true })
+    }
   })
 
   it('does not send a server-to-client request unless the client advertised approvals', async () => {

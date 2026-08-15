@@ -519,6 +519,40 @@ for line in sys.stdin:
     assert json.loads(cancel_dump.read_text()) == {"sessionId": "main"}
 
 
+def test_client_resumes_an_addressed_session(tmp_path: Path) -> None:
+    script = tmp_path / "fake_resume.py"
+    resume_dump = tmp_path / "resume.json"
+    script.write_text(
+        """
+import json
+import os
+import sys
+
+for line in sys.stdin:
+    msg = json.loads(line)
+    method = msg.get("method")
+    if method == "initialize":
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"serverInfo": {"name": "fake-dsh"}}}), flush=True)
+    elif method == "session/resume":
+        json.dump(msg.get("params"), open(os.environ["RESUME_DUMP"], "w"))
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {}}), flush=True)
+    elif method == "shutdown":
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {}}), flush=True)
+        break
+""".strip()
+    )
+
+    with HarnessClient(
+        HarnessConfig(
+            launch_args_override=(sys.executable, str(script)),
+            env={"RESUME_DUMP": str(resume_dump)},
+        )
+    ) as client:
+        client.initialize(provider="deepseek-official", cwd="/workspace", model="dsagent")
+        client.session_resume("main")
+    assert json.loads(resume_dump.read_text()) == {"sessionId": "main"}
+
+
 def test_client_advertises_approvals_on_initialize(tmp_path: Path) -> None:
     init_dump = tmp_path / "init.json"
     script = tmp_path / "fake_bridge.py"

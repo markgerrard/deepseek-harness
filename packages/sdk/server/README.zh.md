@@ -6,7 +6,7 @@
 
 ## 组装
 
-`inject: ['agents']`。服务器按 `sessionId` 获取或创建一个 agent。只有服务对生命周期建立快照时记录的 `local` 标志为 true，服务器才会转发 subagent 完成事件；提供方名称、子级 id 和持久化谱系均不能证明本地性。已注册的适配器优先；尚无适配器负责的 `deepseek-official` 路由会挂载 `dsh-llm-deepseek`，任何其他尚无适配器负责的提供方都会导致初始化失败。其他能力由外围 `cordis.yml` 提供。
+`inject: ['agents']`。服务器在 `session/prompt` 上按 `sessionId` 获取或创建一个 agent。`session/resume` 则通过 `ctx.agents.resume()` 重新水合已持久化的 id。只有服务对生命周期建立快照时记录的 `local` 标志为 true，服务器才会转发 subagent 完成事件；提供方名称、子级 id 和持久化谱系均不能证明本地性。已注册的适配器优先；尚无适配器负责的 `deepseek-official` 路由会挂载 `dsh-llm-deepseek`，任何其他尚无适配器负责的提供方都会导致初始化失败。其他能力由外围 `cordis.yml` 提供。
 
 ## 配置
 
@@ -22,7 +22,7 @@ Stdout 只承载 JSON-RPC 帧。部署不得组合 stdout logger；诊断应写�
 
 ## 协议说明
 
-`initialize.serverInfo.name` 的协议稳定值为 `deepseek-harness-sdk-runtime`。可选的正整数 `initialize.maxTokens` 会成为每个 SDK 创建的 agent 及其进程内后代的请求输出上限；非法值会使初始化失败，省略时则不发送 SDK 上限，并应用所选适配器或提供方路由的默认值。`session/prompt` 将一条带标识的用户消息排入队列，并立即返回 `{ messageId }`。`session/cancel` 对指定的仍存活会话调用 `agent.cancel({ kind: 'user' })` 并返回 `{}`；未知 id 为空操作，不会创建会话。当 `initialize` 携带 `clientCapabilities.approvals: true` 时，服务器对其创建的 agent 应答 `approval/request`，发送 `session/request_permission` 并应用客户端的 `{ outcome }`；省略该字段的客户端走今天的失败关闭路径（没有 server→client 请求）。传输中断变为 `unavailable`；封闭 outcome 集合之外的结果变为 `rejected`，且永不授予。服务器将每个持久事实作为 `session.event` 流式发出，并将整个 agent 生命周期的每次状态转换作为 `session.status` 发出；它不会把某条助手消息或 `turn/end` 归属于该提示词。同一会话上的独立请求可以继续排入更多工作。持久化根目录和 persona 由 `cordis.yml` 提供。
+`initialize.serverInfo.name` 的协议稳定值为 `deepseek-harness-sdk-runtime`。可选的正整数 `initialize.maxTokens` 会成为每个 SDK 创建的 agent 及其进程内后代的请求输出上限；非法值会使初始化失败，省略时则不发送 SDK 上限，并应用所选适配器或提供方路由的默认值。`session/prompt` 将一条带标识的用户消息排入队列，并立即返回 `{ messageId }`。未知 id 会惰性创建全新的 agent+会话对，不会重新水合已持久化的日志。`session/resume` 对该 id 调用 `ctx.agents.resume()` 并返回 `{}`；已存活的 id 无需重新加载即成功。缺少持久化后端、缺少日志、损坏的日志，或由更新的 harness 写入的日志，会以该后端的消息拒绝。`session/cancel` 对指定的仍存活会话调用 `agent.cancel({ kind: 'user' })` 并返回 `{}`；未知 id 为空操作，不会创建会话。当 `initialize` 携带 `clientCapabilities.approvals: true` 时，服务器对其创建的 agent 应答 `approval/request`，发送 `session/request_permission` 并应用客户端的 `{ outcome }`；省略该字段的客户端走今天的失败关闭路径（没有 server→client 请求）。传输中断变为 `unavailable`；封闭 outcome 集合之外的结果变为 `rejected`，且永不授予。服务器将每个持久事实作为 `session.event` 流式发出，并将整个 agent 生命周期的每次状态转换作为 `session.status` 发出；它不会把某条助手消息或 `turn/end` 归属于该提示词。同一会话上的独立请求可以继续排入更多工作。持久化根目录和 persona 由 `cordis.yml` 提供。
 
 ## 模型体验
 

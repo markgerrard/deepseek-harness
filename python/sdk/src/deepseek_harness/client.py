@@ -161,6 +161,10 @@ class HarnessClient:
         """Abort one session's in-flight turn. Unknown ids are a no-op."""
         self.request("session/cancel", {"sessionId": session_id}, response_model=_ShutdownResponse)
 
+    def session_resume(self, session_id: str) -> None:
+        """Rehydrate a persisted session. Already-live ids succeed; a miss rejects."""
+        self.request("session/resume", {"sessionId": session_id}, response_model=_ShutdownResponse)
+
     def request(
         self,
         method: str,

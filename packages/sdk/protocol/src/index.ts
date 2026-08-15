@@ -24,6 +24,7 @@ export type {
   SessionCancelParams,
   SessionPromptParams,
   SessionPromptResult,
+  SessionResumeParams,
   SessionRequestPermissionParams,
   SessionRequestPermissionResult,
   SubagentFinishedNotification,

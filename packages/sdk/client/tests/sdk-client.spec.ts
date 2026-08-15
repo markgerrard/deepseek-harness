@@ -253,6 +253,16 @@ describe('HarnessClient', () => {
     await client.close()
   })
 
+  it('resumes an addressed session over the wire', async () => {
+    const record = join(await tempDir('dsh-sdk-resume-'), 'resume.jsonl')
+    const client = new HarnessClient(fakeLaunch({ FAKE_RECORD_RESUME: record }))
+    cleanups.push(() => client.close())
+    await client.initialize({ cwd: process.cwd(), provider: 'p', model: 'm' })
+    await client.resume('main')
+    await expect(readFile(record, 'utf8')).resolves.toBe('{"sessionId":"main"}\n')
+    await client.close()
+  })
+
   it('advertises approvals and answers session/request_permission', async () => {
     const dir = await tempDir('dsh-sdk-permission-')
     const initRecord = join(dir, 'init.jsonl')

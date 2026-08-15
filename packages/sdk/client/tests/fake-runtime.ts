@@ -43,6 +43,7 @@
  * - `FAKE_STDERR_NO_NEWLINE`: write this to stderr WITHOUT a newline (buffer-flush probe).
  * - `FAKE_RECORD_INIT`: append each `initialize` params JSON to this file (handshake probe).
  * - `FAKE_RECORD_CANCEL`: append each `session/cancel` params JSON to this file.
+ * - `FAKE_RECORD_RESUME`: append each `session/resume` params JSON to this file.
  * - `FAKE_ASK_PERMISSION` + `FAKE_RECORD_PERMISSION`: after answering
  *   `initialize`, send one `session/request_permission` and append the
  *   client's response frame to the record file.
@@ -247,6 +248,10 @@ reader.on('line', (line) => {
     }
     case 'session/cancel':
       if (env.FAKE_RECORD_CANCEL !== undefined) appendFileSync(env.FAKE_RECORD_CANCEL, `${JSON.stringify(frame.params)}\n`)
+      respond({})
+      return
+    case 'session/resume':
+      if (env.FAKE_RECORD_RESUME !== undefined) appendFileSync(env.FAKE_RECORD_RESUME, `${JSON.stringify(frame.params)}\n`)
       respond({})
       return
     case 'shutdown':

@@ -1,5 +1,5 @@
 /**
- * Named wire types for the DeepSeek Harness SDK runtime protocol: the four
+ * Named wire types for the DeepSeek Harness SDK runtime protocol: the five
  * client-to-server request/result pairs, the one server-to-client request,
  * and the four server-to-client notification payloads exchanged over the
  * newline-delimited JSON-RPC stdio transport. The server plugin
@@ -50,7 +50,11 @@ export interface InitializeResult {
 
 /** One user turn on one SDK session. */
 export interface SessionPromptParams {
-  /** The SDK-side session id; an unknown id lazily creates the agent+session pair. */
+  /**
+   * The SDK-side session id. An unknown id lazily creates a fresh agent+session
+   * pair and does not rehydrate a persisted log — send `session/resume` first
+   * when that is the intent.
+   */
   sessionId: string
   /** The prompt content blocks, sent verbatim as the user message. */
   contentBlocks: ContentBlock[]
@@ -65,6 +69,16 @@ export interface SessionPromptResult {
 /** Parameters for cancelling one SDK session's in-flight turn. */
 export interface SessionCancelParams {
   /** The SDK-side session id; an unknown id is a no-op. */
+  sessionId: string
+}
+
+/** Parameters for rehydrating one persisted SDK session. */
+export interface SessionResumeParams {
+  /**
+   * The persisted session id. Already-live ids succeed without reloading.
+   * A miss, corrupt log, newer-harness log, or missing persistence backend
+   * rejects; this method never creates a fresh session.
+   */
   sessionId: string
 }
 
@@ -151,6 +165,7 @@ export interface HarnessSdkRequestMap {
   'initialize': { params: InitializeParams; result: InitializeResult }
   'session/prompt': { params: SessionPromptParams; result: SessionPromptResult }
   'session/cancel': { params: SessionCancelParams; result: Record<string, never> }
+  'session/resume': { params: SessionResumeParams; result: Record<string, never> }
   'shutdown': { params: undefined; result: Record<string, never> }
 }
 

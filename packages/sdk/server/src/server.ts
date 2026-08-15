@@ -23,6 +23,7 @@ import type {
   SessionEventNotification,
   SessionPromptParams,
   SessionPromptResult,
+  SessionResumeParams,
   SubagentFinishedNotification,
   SubagentStartedNotification,
 } from '@deepseek-ai/dsh-sdk-protocol'
@@ -193,6 +194,20 @@ export class HarnessSdkJsonRpcServer {
   }
 
   /**
+   * Rehydrate a persisted session through `ctx.agents.resume()`. An already-live
+   * id succeeds without reloading. This never creates a fresh session: a missing
+   * persistence backend, missing log, corrupt log, or log written by a newer
+   * harness rejects with that backend's message. Compression mismatches stay
+   * the persistence backend's refusal.
+   * @param params - the persisted session id.
+   * @returns empty JSON-RPC result.
+   */
+  async resume(params: SessionResumeParams): Promise<Record<string, never>> {
+    await this.getOrResumeSession(params.sessionId)
+    return {}
+  }
+
+  /**
    * Dispose server-owned agents, adapter, and subscriptions to quiescence.
    * The surrounding context remains running.
    * @returns empty JSON-RPC result.
@@ -245,6 +260,8 @@ export class HarnessSdkJsonRpcServer {
         return this.prompt(params as unknown as SessionPromptParams)
       case 'session/cancel':
         return this.cancel(params as unknown as SessionCancelParams)
+      case 'session/resume':
+        return this.resume(params as unknown as SessionResumeParams)
       case 'shutdown':
         return this.shutdown()
       default:
@@ -252,19 +269,30 @@ export class HarnessSdkJsonRpcServer {
     }
   }
 
-  private async getOrCreateSession(sessionId: string): Promise<SessionRecord> {
+  private getOrCreateSession(sessionId: string): Promise<SessionRecord> {
+    return this.beginSessionLoad(sessionId, () => this.createSession(sessionId))
+  }
+
+  private getOrResumeSession(sessionId: string): Promise<SessionRecord> {
+    return this.beginSessionLoad(sessionId, () => this.resumeSession(sessionId))
+  }
+
+  private async beginSessionLoad(
+    sessionId: string,
+    load: () => Promise<SessionRecord>,
+  ): Promise<SessionRecord> {
     if (this.shuttingDown) throw new Error('SDK server is shutting down')
     const existing = this.sessions.get(sessionId)
     if (existing) return existing
     const pending = this.sessionCreations.get(sessionId)
     if (pending) return pending
-    const creation = this.createSession(sessionId)
-    this.sessionCreations.set(sessionId, creation)
-    void creation.then(
+    const task = load()
+    this.sessionCreations.set(sessionId, task)
+    void task.then(
       () => { this.sessionCreations.delete(sessionId) },
       () => { this.sessionCreations.delete(sessionId) },
     )
-    return creation
+    return task
   }
 
   private async createSession(sessionId: string): Promise<SessionRecord> {
@@ -275,6 +303,20 @@ export class HarnessSdkJsonRpcServer {
     const handle = await this.ctx.agents.create({
       sessionId: SessionId(sessionId),
       meta: { cwd: this.cwd },
+      agentOptions: {
+        provider: this.provider,
+        model: this.model,
+        ...this.maxTokens === undefined ? {} : { maxTokens: this.maxTokens },
+      },
+    })
+    const rec: SessionRecord = { handle }
+    this.sessions.set(sessionId, rec)
+    return rec
+  }
+
+  private async resumeSession(sessionId: string): Promise<SessionRecord> {
+    const handle = await this.ctx.agents.resume({
+      resumeSessionId: SessionId(sessionId),
       agentOptions: {
         provider: this.provider,
         model: this.model,
