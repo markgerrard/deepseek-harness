@@ -56,15 +56,15 @@ type SessionLoadKind = 'create' | 'resume'
 
 /**
  * One client operation that arrived while a session load was in flight,
- * held in wire arrival order until the load settles. A cancel carries its
- * own settlement so its RPC resolves the moment its fate is decided — its
- * abort ran, or it was dropped — instead of waiting out a load graph it has
- * no stake in. The op object transfers by reference into a successor load,
- * so the settlement travels with it.
+ * held in wire arrival order until the load settles. A cancel carries the
+ * resolver of its own RPC's promise, so that RPC resolves once its fate is
+ * decided — its abort ran, or it was dropped — instead of waiting out a
+ * load graph it has no stake in. The op object transfers by reference into
+ * a successor load, so the settlement travels with it.
  */
 type QueuedSessionOp =
   | { kind: 'prompt'; message: ReturnType<typeof createUserMessage> }
-  | { kind: 'cancel'; done: Promise<void>; settle: () => void }
+  | { kind: 'cancel'; settle: () => void }
 
 interface PendingSessionLoad {
   kind: SessionLoadKind
@@ -80,9 +80,10 @@ interface PendingSessionLoad {
   queue: QueuedSessionOp[]
   /**
    * The final record after replay, adopting the successor create's outcome
-   * when a failed resume hands its queue over. Queued prompts and cancels
-   * await this; the `session/resume` RPC awaits {@link task}, because its
-   * result is this attempt's own.
+   * when a failed resume hands its queue over. Queued prompts await this;
+   * queued cancels settle their own `done` at their own fate, and the
+   * `session/resume` RPC awaits {@link task}, because its result is this
+   * attempt's own.
    */
   outcome: Promise<SessionRecord>
 }
@@ -258,10 +259,11 @@ export class HarnessSdkJsonRpcServer {
     const pending = this.sessionCreations.get(params.sessionId)
     if (pending !== undefined) {
       const { promise, resolve } = Promise.withResolvers<void>()
-      pending.queue.push({ kind: 'cancel', done: promise, settle: resolve })
-      // Resolves once this cancel's own fate is settled — never on the failed
-      // resume's rejection, which would acknowledge before a transferred
-      // abort ran, and never against a successor this cancel was dropped from.
+      pending.queue.push({ kind: 'cancel', settle: resolve })
+      // Resolves once this cancel's own fate is settled — never merely
+      // because the resume rejected, which would acknowledge before a
+      // transferred abort ran, and never against a successor this cancel
+      // was dropped from.
       return promise.then(() => ({}))
     }
     const rec = this.sessions.get(params.sessionId)
