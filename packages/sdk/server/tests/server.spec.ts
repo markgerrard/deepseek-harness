@@ -1409,37 +1409,53 @@ describe('HarnessSdkJsonRpcServer', () => {
   it('coalesces concurrent session creation and retries a failed creation', async () => {
     let resolveShared: ((handle: AgentHandle) => void) | undefined
     const sharedCreation = new Promise<AgentHandle>((resolve) => { resolveShared = resolve })
-    const sharedHandle = { agent: {} as Agent, dispose: vi.fn(() => Promise.resolve()) }
-    const retryHandle = { agent: {} as Agent, dispose: vi.fn(() => Promise.resolve()) }
+    const sharedFollowup = vi.fn<Agent['followup']>()
+    const sharedAgent = ({
+      id: SessionId('shared'),
+      followup: sharedFollowup,
+    } satisfies Pick<Agent, 'id' | 'followup'>) as unknown as Agent
+    const retryAgent = ({
+      id: SessionId('retry'),
+      followup: vi.fn<Agent['followup']>(),
+    } satisfies Pick<Agent, 'id' | 'followup'>) as unknown as Agent
+    const sharedHandle = { agent: sharedAgent, dispose: vi.fn(() => Promise.resolve()) }
+    const retryHandle = { agent: retryAgent, dispose: vi.fn(() => Promise.resolve()) }
     const create = vi.fn<(options: unknown) => Promise<AgentHandle>>()
       .mockReturnValueOnce(sharedCreation)
       .mockRejectedValueOnce(new Error('creation failed'))
       .mockResolvedValueOnce(retryHandle)
     const ctx = {
       on: vi.fn(() => () => undefined),
-      agents: { create, get: () => undefined },
+      agents: {
+        create,
+        get: (id: SessionId) => String(id) === 'shared' ? sharedAgent
+          : String(id) === 'retry' ? retryAgent : undefined,
+      },
       get: () => undefined,
     } as unknown as Context
-    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport()) as unknown as {
-      getOrCreateSession(sessionId: string): Promise<{ handle: AgentHandle }>
-      shutdown(): Promise<Record<string, never>>
-    }
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+    const prompt = (sessionId: string) => server.handleRequest('session/prompt', {
+      sessionId,
+      contentBlocks: [{ type: 'text', text: 'go' }],
+    })
 
-    const first = server.getOrCreateSession('shared')
-    const second = server.getOrCreateSession('shared')
+    const first = prompt('shared')
+    const second = prompt('shared')
     expect(create).toHaveBeenCalledTimes(1)
     resolveShared?.(sharedHandle)
-    const [firstRecord, secondRecord] = await Promise.all([first, second])
-    expect(firstRecord).toBe(secondRecord)
+    await Promise.all([first, second])
+    expect(sharedFollowup).toHaveBeenCalledTimes(2)
 
-    await expect(server.getOrCreateSession('retry')).rejects.toThrow('creation failed')
-    await expect(server.getOrCreateSession('retry')).resolves.toMatchObject({ handle: retryHandle })
+    await expect(prompt('retry')).rejects.toThrow('creation failed')
+    await expect(prompt('retry')).resolves.toMatchObject({ messageId: expect.any(String) as unknown })
     expect(create).toHaveBeenCalledTimes(3)
 
     await server.shutdown()
     expect(sharedHandle.dispose).toHaveBeenCalledOnce()
     expect(retryHandle.dispose).toHaveBeenCalledOnce()
-    await expect(server.getOrCreateSession('after-shutdown')).rejects.toThrow('SDK server is shutting down')
+    await expect(prompt('after-shutdown')).rejects.toThrow('SDK server is shutting down')
+    await expect(server.handleRequest('session/resume', { sessionId: 'after-shutdown' }))
+      .rejects.toThrow('SDK server is shutting down')
   })
 
   it('shutdown waits out an in-flight session load', async () => {
@@ -1583,6 +1599,186 @@ describe('HarnessSdkJsonRpcServer', () => {
     await expect(prompted).resolves.toMatchObject({ messageId: expect.any(String) as unknown })
     expect(create).not.toHaveBeenCalled()
     expect(followup).toHaveBeenCalledOnce()
+    await server.shutdown()
+  })
+
+  it('does not start a successor create when a resume fails during shutdown', async () => {
+    let rejectResume: ((error: Error) => void) | undefined
+    const resumeGate = new Promise<AgentHandle>((_, reject) => { rejectResume = reject })
+    const create = vi.fn()
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: { create, resume: vi.fn(() => resumeGate), get: () => undefined },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    const resumed = server.handleRequest('session/resume', { sessionId: 's14' })
+    const prompted = server.handleRequest('session/prompt', {
+      sessionId: 's14',
+      contentBlocks: [{ type: 'text', text: 'go' }],
+    })
+    const down = server.shutdown()
+    rejectResume?.(new Error('no persisted log'))
+
+    await expect(resumed).rejects.toThrow('no persisted log')
+    await expect(prompted).rejects.toThrow('no persisted log')
+    await expect(down).resolves.toEqual({})
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('rejects queued prompts when the loaded agent is already outside the registry', async () => {
+    let resolveCreate: ((handle: AgentHandle) => void) | undefined
+    const createGate = new Promise<AgentHandle>((resolve) => { resolveCreate = resolve })
+    const followup = vi.fn<Agent['followup']>()
+    const agent = ({
+      id: SessionId('s13'),
+      followup,
+    } satisfies Pick<Agent, 'id' | 'followup'>) as unknown as Agent
+    const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      // The registry never exposes the created agent, modelling a reload that
+      // detaches it between creation and settlement.
+      agents: { create: vi.fn(() => createGate), get: () => undefined },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    const prompted = server.handleRequest('session/prompt', {
+      sessionId: 's13',
+      contentBlocks: [{ type: 'text', text: 'go' }],
+    })
+    resolveCreate?.(handle)
+
+    await expect(prompted).rejects.toThrow('session agent was disposed outside the server: s13')
+    expect(followup).not.toHaveBeenCalled()
+    await server.shutdown()
+  })
+
+  it('drops a cancel that covered no prompt with the load it raced', async () => {
+    let rejectResume: ((error: Error) => void) | undefined
+    const resumeGate = new Promise<AgentHandle>((_, reject) => { rejectResume = reject })
+    const followup = vi.fn<Agent['followup']>()
+    const cancel = vi.fn<Agent['cancel']>()
+    const agent = ({
+      id: SessionId('s10'),
+      followup,
+      cancel,
+    } satisfies Pick<Agent, 'id' | 'followup' | 'cancel'>) as unknown as Agent
+    const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: {
+        create: vi.fn(async () => handle),
+        resume: vi.fn(() => resumeGate),
+        get: (id: SessionId) => String(id) === 's10' ? agent : undefined,
+      },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    const resumed = server.handleRequest('session/resume', { sessionId: 's10' })
+    const cancelled = server.handleRequest('session/cancel', { sessionId: 's10' })
+    const after = server.handleRequest('session/prompt', {
+      sessionId: 's10',
+      contentBlocks: [{ type: 'text', text: 'after' }],
+    })
+    rejectResume?.(new Error('no persisted log'))
+
+    await expect(resumed).rejects.toThrow('no persisted log')
+    await expect(cancelled).resolves.toEqual({})
+    await expect(after).resolves.toMatchObject({ messageId: expect.any(String) as unknown })
+    expect(followup).toHaveBeenCalledOnce()
+    expect(cancel).not.toHaveBeenCalled()
+    await server.shutdown()
+  })
+
+  it('keeps wire order across a failed resume when a later prompt joins the successor', async () => {
+    let rejectResume: ((error: Error) => void) | undefined
+    const resumeGate = new Promise<AgentHandle>((_, reject) => { rejectResume = reject })
+    let resolveCreate: ((handle: AgentHandle) => void) | undefined
+    const createGate = new Promise<AgentHandle>((resolve) => { resolveCreate = resolve })
+    const delivered: string[] = []
+    const followup = vi.fn<Agent['followup']>((message) => {
+      const block = message.content[0]
+      delivered.push(block?.type === 'text' ? block.text : '?')
+    })
+    const cancel = vi.fn<Agent['cancel']>(() => { delivered.push('cancel') })
+    const agent = ({
+      id: SessionId('s11'),
+      followup,
+      cancel,
+    } satisfies Pick<Agent, 'id' | 'followup' | 'cancel'>) as unknown as Agent
+    const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: {
+        create: vi.fn(() => createGate),
+        resume: vi.fn(() => resumeGate),
+        get: (id: SessionId) => String(id) === 's11' ? agent : undefined,
+      },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    const resumed = server.handleRequest('session/resume', { sessionId: 's11' })
+    const before = server.handleRequest('session/prompt', {
+      sessionId: 's11',
+      contentBlocks: [{ type: 'text', text: 'before' }],
+    })
+    const cancelled = server.handleRequest('session/cancel', { sessionId: 's11' })
+    rejectResume?.(new Error('no persisted log'))
+    // The client reads the resume error, then prompts again while the
+    // successor create is still in flight.
+    await expect(resumed).rejects.toThrow('no persisted log')
+    const after = server.handleRequest('session/prompt', {
+      sessionId: 's11',
+      contentBlocks: [{ type: 'text', text: 'after' }],
+    })
+    resolveCreate?.(handle)
+
+    await expect(cancelled).resolves.toEqual({})
+    await expect(before).resolves.toMatchObject({ messageId: expect.any(String) as unknown })
+    await expect(after).resolves.toMatchObject({ messageId: expect.any(String) as unknown })
+    expect(cancel).toHaveBeenCalledExactlyOnceWith({ kind: 'user' })
+    expect(delivered).toEqual(['before', 'cancel', 'after'])
+    await server.shutdown()
+  })
+
+  it('replays interleaved prompts and cancels on one load in wire order', async () => {
+    let resolveCreate: ((handle: AgentHandle) => void) | undefined
+    const createGate = new Promise<AgentHandle>((resolve) => { resolveCreate = resolve })
+    const order: string[] = []
+    const followup = vi.fn<Agent['followup']>(() => { order.push('followup') })
+    const cancel = vi.fn<Agent['cancel']>(() => { order.push('cancel') })
+    const agent = ({
+      id: SessionId('s12'),
+      followup,
+      cancel,
+    } satisfies Pick<Agent, 'id' | 'followup' | 'cancel'>) as unknown as Agent
+    const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: {
+        create: vi.fn(() => createGate),
+        get: (id: SessionId) => String(id) === 's12' ? agent : undefined,
+      },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    const settled = [
+      server.handleRequest('session/prompt', { sessionId: 's12', contentBlocks: [{ type: 'text', text: 'p1' }] }),
+      server.handleRequest('session/cancel', { sessionId: 's12' }),
+      server.handleRequest('session/prompt', { sessionId: 's12', contentBlocks: [{ type: 'text', text: 'p2' }] }),
+      server.handleRequest('session/cancel', { sessionId: 's12' }),
+      server.handleRequest('session/prompt', { sessionId: 's12', contentBlocks: [{ type: 'text', text: 'p3' }] }),
+    ]
+    resolveCreate?.(handle)
+    await Promise.all(settled)
+
+    expect(order).toEqual(['followup', 'cancel', 'followup', 'cancel', 'followup'])
     await server.shutdown()
   })
 
@@ -1891,21 +2087,24 @@ describe('HarnessSdkJsonRpcServer', () => {
   })
 
   it('resolves a relative cwd before creating the session', async () => {
+    const agent = ({
+      id: SessionId('relative'),
+      followup: vi.fn<Agent['followup']>(),
+    } satisfies Pick<Agent, 'id' | 'followup'>) as unknown as Agent
     const create = vi.fn<(options: unknown) => Promise<AgentHandle>>()
-      .mockResolvedValue({ agent: {} as Agent, dispose: () => Promise.resolve() })
+      .mockResolvedValue({ agent, dispose: () => Promise.resolve() })
     const ctx = {
       on: vi.fn(() => () => undefined),
-      agents: { create, get: () => undefined },
+      agents: { create, get: (id: SessionId) => String(id) === 'relative' ? agent : undefined },
       get: () => ({ listProviders: () => [{ id: 'mock', name: 'Mock' }] }),
     } as unknown as Context
-    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport()) as unknown as {
-      initialize(params: { cwd: string; provider: string; model: string; maxTokens?: number }): Promise<unknown>
-      getOrCreateSession(sessionId: string): Promise<unknown>
-      shutdown(): Promise<Record<string, never>>
-    }
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
 
     await server.initialize({ cwd: '.', provider: 'mock', model: 'model', maxTokens: 123 })
-    await server.getOrCreateSession('relative')
+    await server.handleRequest('session/prompt', {
+      sessionId: 'relative',
+      contentBlocks: [{ type: 'text', text: 'go' }],
+    })
 
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
       meta: { cwd: process.cwd() },

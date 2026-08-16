@@ -50,49 +50,37 @@ function clientAdvertisesApprovals(value: unknown): boolean {
 
 interface SessionRecord {
   handle: AgentHandle
-  /**
-   * A cancel that arrived while the load producing this record was in flight
-   * and that nothing has applied yet. Applying it before the prompts that
-   * cancel covers enqueue would leave their queued messages running, because
-   * `agent.cancel` does not arm later work.
-   */
-  pendingCancel: boolean
-  /**
-   * How many of the `session/prompt` calls covered by {@link pendingCancel}
-   * have not finished their enqueue attempt. A prompt that throws instead of
-   * enqueueing still retires its obligation, so this counts attempts rather
-   * than queued messages. The cancel is applied when this reaches zero, which
-   * is after every message the client sent before it is queued and before any
-   * message the client sent after it.
-   */
-  waitingPrompts: number
 }
 
 type SessionLoadKind = 'create' | 'resume'
 
-/** A cancel handed from a failed load to the lazy create that continues it. */
-interface InheritedCancel {
-  /** How many waiting prompts that cancel covers, as counted on the failed load. */
-  cancelWaiters: number
-}
+/**
+ * One client operation that arrived while a session load was in flight,
+ * held in wire arrival order until the load settles.
+ */
+type QueuedSessionOp =
+  | { kind: 'prompt'; message: ReturnType<typeof createUserMessage> }
+  | { kind: 'cancel' }
 
 interface PendingSessionLoad {
   kind: SessionLoadKind
+  /** Settlement of this load attempt alone. */
   task: Promise<SessionRecord>
-  /** A `session/cancel` arrived while this load was in flight. */
-  cancelled: boolean
   /**
-   * How many `session/prompt` calls are waiting on this load and will enqueue
-   * once it settles.
+   * Prompts and cancels that arrived while this load was in flight, in wire
+   * arrival order. Each RPC handler appends synchronously, so the queue's
+   * order is the client's order by construction; the load's own settlement
+   * continuation replays it against the live agent in one pass, so no later
+   * continuation can reorder delivery.
    */
-  promptWaiters: number
+  queue: QueuedSessionOp[]
   /**
-   * {@link promptWaiters} as it stood when the cancel arrived, which is the
-   * set of prompts that cancel covers. A prompt that joins afterwards was sent
-   * after the cancel, so the abort must land before that prompt enqueues and
-   * must not carry to it.
+   * The final record after replay, adopting the successor create's outcome
+   * when a failed resume hands its queue over. Prompts await this; the
+   * `session/resume` RPC awaits {@link task}, because its result is this
+   * attempt's own.
    */
-  cancelWaiters: number
+  outcome: Promise<SessionRecord>
 }
 
 /** Recover the delegating parent from the service-owned scoped carrier. */
@@ -219,62 +207,58 @@ export class HarnessSdkJsonRpcServer {
    * @returns the durable message identity.
    */
   async prompt(params: SessionPromptParams): Promise<SessionPromptResult> {
-    // A session that is already live owes this prompt no load, so this prompt is
-    // not one of the waiters a racing cancel has to wait out.
-    const joinsLoad = !this.sessions.has(params.sessionId)
-    const rec = await this.getOrCreateSession(params.sessionId)
-    try {
-      // An agent-loop-only reload disposes the loop's agents while this record
-      // survives; a retained agent accepts followup() silently, so validate the
-      // record against the live registry before delivery (as the ACP bridge does).
-      if (this.ctx.agents.get(rec.handle.agent.id) !== rec.handle.agent) {
-        throw new Error(`session agent was disposed outside the server: ${params.sessionId}`)
-      }
+    if (this.shuttingDown) throw new Error('SDK server is shutting down')
+    // A pending load owns delivery order for its session, so the pending map
+    // is consulted before the record map: a record published mid-load must not
+    // let this prompt bypass operations already queued ahead of it.
+    const rec = this.sessions.get(params.sessionId)
+    if (rec === undefined || this.sessionCreations.has(params.sessionId)) {
+      const pending = this.sessionCreations.get(params.sessionId)
+        ?? this.beginSessionLoad(params.sessionId, 'create', () => this.createSession(params.sessionId))
       const message = createUserMessage({ content: params.contentBlocks, source: { kind: 'user' } })
-      rec.handle.agent.followup(message)
+      pending.queue.push({ kind: 'prompt', message })
+      await pending.outcome
       return { messageId: message.id }
-    } finally {
-      if (joinsLoad) this.releasePromptWaiter(rec)
     }
+    // An agent-loop-only reload disposes the loop's agents while this record
+    // survives; a retained agent accepts followup() silently, so validate the
+    // record against the live registry before delivery (as the ACP bridge does).
+    if (this.ctx.agents.get(rec.handle.agent.id) !== rec.handle.agent) {
+      throw new Error(`session agent was disposed outside the server: ${params.sessionId}`)
+    }
+    const message = createUserMessage({ content: params.contentBlocks, source: { kind: 'user' } })
+    rec.handle.agent.followup(message)
+    return { messageId: message.id }
   }
 
   /**
    * Abort the addressed session's in-flight turn and queued inbox work.
    * Unknown session ids are a no-op so a late cancel after teardown cannot
-   * fail the client. An in-flight lazy create or resume is not unknown:
-   * cancel waits for that load out. What it aborts then depends on the
-   * outcome: a load with no prompt waiting when this arrives is aborted by
-   * this method at settlement; a load with waiting prompts is aborted once
-   * the last of those present here has finished its enqueue attempt, because
-   * `agent.cancel` does not arm later work; a load that fails hands the cancel
-   * to the lazy create a waiting prompt starts, and aborts nothing at all when
-   * no prompt continues it. A prompt that joins the load after this call was
-   * sent after the cancel and is left to run. There is no pending
+   * fail the client. An in-flight lazy create or resume is not unknown: the
+   * cancel joins that load's operation queue in wire order and is replayed at
+   * settlement, so it aborts exactly the prompts queued ahead of it and never
+   * one queued after it — `agent.cancel` does not arm later work, and the
+   * replay places it. A cancel with no prompt ahead of it in the queue of a
+   * load that fails aborts nothing at all. There is no pending
    * `session/prompt` RPC to settle: that method already returned its enqueue
    * receipt.
    * @param params - the session to cancel.
    * @returns empty JSON-RPC result.
    */
   cancel(params: SessionCancelParams): Promise<Record<string, never>> {
+    const pending = this.sessionCreations.get(params.sessionId)
+    if (pending !== undefined) {
+      pending.queue.push({ kind: 'cancel' })
+      // Resolve at this load's settlement, after its replay ran the abort —
+      // or dropped it, when the load failed.
+      return pending.task.then(() => ({}), () => ({}))
+    }
     const rec = this.sessions.get(params.sessionId)
     if (rec !== undefined) {
       rec.handle.agent.cancel({ kind: 'user' })
       return Promise.resolve({})
     }
-    const pending = this.sessionCreations.get(params.sessionId)
-    if (pending === undefined) return Promise.resolve({})
-    pending.cancelled = true
-    pending.cancelWaiters = pending.promptWaiters
-    return pending.task.then(
-      (loaded) => {
-        if (pending.cancelWaiters === 0) this.applyPendingCancel(loaded)
-        return {}
-      },
-      // A failed load hands the cancel to whatever continues the operation:
-      // the lazy create a waiting prompt starts inherits it, and a load that
-      // nothing continues drops it with its record.
-      () => ({}),
-    )
+    return Promise.resolve({})
   }
 
   /**
@@ -290,7 +274,18 @@ export class HarnessSdkJsonRpcServer {
    * @returns empty JSON-RPC result.
    */
   async resume(params: SessionResumeParams): Promise<Record<string, never>> {
-    await this.getOrResumeSession(params.sessionId)
+    if (this.shuttingDown) throw new Error('SDK server is shutting down')
+    const pending = this.sessionCreations.get(params.sessionId)
+    if (pending !== undefined) {
+      // A resume must not inherit an in-flight create: that would report
+      // rehydration of a fresh session. Joining an in-flight resume shares
+      // this attempt's own result, not a successor's.
+      if (pending.kind === 'create') throw new Error(`session ${params.sessionId} is already being created`)
+      await pending.task
+      return {}
+    }
+    if (this.sessions.has(params.sessionId)) return {}
+    await this.beginSessionLoad(params.sessionId, 'resume', () => this.resumeSession(params.sessionId)).task
     return {}
   }
 
@@ -356,89 +351,64 @@ export class HarnessSdkJsonRpcServer {
     }
   }
 
-  /** Apply a load's cancel at most once, and only once every prompt it covers has settled. */
-  private applyPendingCancel(rec: SessionRecord): void {
-    if (!rec.pendingCancel || rec.waitingPrompts > 0) return
-    rec.pendingCancel = false
-    rec.handle.agent.cancel({ kind: 'user' })
+  /** Deliver a settled load's queued operations to its live agent in wire order. */
+  private replayQueue(sessionId: string, rec: SessionRecord, queue: QueuedSessionOp[]): void {
+    if (queue.length === 0) return
+    // An agent-loop-only reload disposes the loop's agents while this record
+    // survives; a retained agent accepts followup() silently, so validate the
+    // record against the live registry before delivery. One check covers the
+    // whole replay: it runs in one continuation, and the registry cannot
+    // change between its statements.
+    if (this.ctx.agents.get(rec.handle.agent.id) !== rec.handle.agent) {
+      throw new Error(`session agent was disposed outside the server: ${sessionId}`)
+    }
+    for (const op of queue) {
+      if (op.kind === 'cancel') rec.handle.agent.cancel({ kind: 'user' })
+      else rec.handle.agent.followup(op.message)
+    }
   }
 
   /**
-   * Retire one waiting prompt's enqueue attempt and settle the cancel it owed.
-   * A prompt that joined the load after the cancel, or one that waited on a
-   * load nothing cancelled, has no obligation to retire and leaves the count
-   * at zero.
+   * Start one session load and take ownership of its operation queue. The
+   * settlement continuation registered here is the first reaction on the
+   * load, so it replays the queue before any joiner's continuation runs —
+   * delivery order cannot depend on how deep a joiner's promise chain is.
+   * A failed resume whose queue still holds a prompt continues into a lazy
+   * create and hands the queue over; cancels at the front of that queue have
+   * nothing ahead of them to sweep and die with the failed load.
    */
-  private releasePromptWaiter(rec: SessionRecord): void {
-    if (rec.waitingPrompts > 0) rec.waitingPrompts -= 1
-    this.applyPendingCancel(rec)
-  }
-
-  private getOrCreateSession(sessionId: string): Promise<SessionRecord> {
-    return this.beginSessionLoad(sessionId, 'create', () => this.createSession(sessionId))
-  }
-
-  private getOrResumeSession(sessionId: string): Promise<SessionRecord> {
-    return this.beginSessionLoad(sessionId, 'resume', () => this.resumeSession(sessionId))
-  }
-
-  /**
-   * Dedup same-kind loads for one id. A prompt may wait out a resume
-   * (inherit success, or lazily create after failure). A resume must not
-   * inherit an in-flight create: that would report rehydration of a fresh
-   * session.
-   */
-  private async beginSessionLoad(
+  private beginSessionLoad(
     sessionId: string,
     kind: SessionLoadKind,
     load: () => Promise<SessionRecord>,
-    inherited?: InheritedCancel,
-  ): Promise<SessionRecord> {
-    if (this.shuttingDown) throw new Error('SDK server is shutting down')
-    const existing = this.sessions.get(sessionId)
-    if (existing) return existing
-    const pending = this.sessionCreations.get(sessionId)
-    if (pending) {
-      // An inherited intent is not carried onto a load that is already under
-      // way: the only continuation that inherits one builds the successor
-      // itself, and every sibling continuing the same failed load reads the
-      // same intent in the same microtask drain, so this entry already holds it.
-      if (pending.kind === kind) {
-        if (kind === 'create') pending.promptWaiters += 1
-        return pending.task
-      }
-      if (kind === 'create') {
-        pending.promptWaiters += 1
-        return pending.task.then(
-          rec => rec,
-          () => this.beginSessionLoad(
-            sessionId,
-            kind,
-            load,
-            pending.cancelled ? { cancelWaiters: pending.cancelWaiters } : undefined,
-          ),
-        )
-      }
-      throw new Error(`session ${sessionId} is already being created`)
-    }
+  ): PendingSessionLoad {
+    const queue: QueuedSessionOp[] = []
     const task = load()
-    const entry: PendingSessionLoad = {
-      kind,
-      task,
-      cancelled: inherited !== undefined,
-      promptWaiters: kind === 'create' ? 1 : 0,
-      cancelWaiters: inherited?.cancelWaiters ?? 0,
-    }
-    this.sessionCreations.set(sessionId, entry)
-    void task.then(
+    const outcome = task.then(
       (rec) => {
         this.sessionCreations.delete(sessionId)
-        rec.waitingPrompts = entry.cancelWaiters
-        rec.pendingCancel = entry.cancelled
+        this.replayQueue(sessionId, rec, queue)
+        return rec
       },
-      () => { this.sessionCreations.delete(sessionId) },
+      (error: unknown) => {
+        this.sessionCreations.delete(sessionId)
+        if (kind === 'resume' && !this.shuttingDown) {
+          while (queue[0]?.kind === 'cancel') queue.shift()
+          if (queue.length > 0) {
+            const successor = this.beginSessionLoad(sessionId, 'create', () => this.createSession(sessionId))
+            successor.queue.push(...queue)
+            return successor.outcome
+          }
+        }
+        throw error
+      },
     )
-    return task
+    // A failed load whose queue held no prompt rejects this outcome with no
+    // awaiter; mark it handled without affecting real awaiters.
+    void outcome.then(undefined, () => undefined)
+    const entry: PendingSessionLoad = { kind, task, queue, outcome }
+    this.sessionCreations.set(sessionId, entry)
+    return entry
   }
 
   private async createSession(sessionId: string): Promise<SessionRecord> {
@@ -455,7 +425,7 @@ export class HarnessSdkJsonRpcServer {
         ...this.maxTokens === undefined ? {} : { maxTokens: this.maxTokens },
       },
     })
-    const rec: SessionRecord = { handle, pendingCancel: false, waitingPrompts: 0 }
+    const rec: SessionRecord = { handle }
     this.sessions.set(sessionId, rec)
     return rec
   }
@@ -469,7 +439,7 @@ export class HarnessSdkJsonRpcServer {
         ...this.maxTokens === undefined ? {} : { maxTokens: this.maxTokens },
       },
     })
-    const rec: SessionRecord = { handle, pendingCancel: false, waitingPrompts: 0 }
+    const rec: SessionRecord = { handle }
     this.sessions.set(sessionId, rec)
     return rec
   }

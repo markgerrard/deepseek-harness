@@ -10,7 +10,7 @@ The SDK JSON-RPC transport had no way to abort a live turn. A client that needed
 
 ## Decision
 
-`session/cancel` is a client→server request whose params are `{ sessionId }`. The server looks the id up in its own session map. A hit calls `agent.cancel({ kind: 'user' })`, which aborts the in-flight turn and clears queued inbox work, then returns `{}`. An in-flight lazy create or resume is not a miss: cancel waits for that load, then aborts the resulting agent. A cancel that arrives before the first `followup` is remembered and applied after enqueue, because `agent.cancel` does not arm later work. A true miss — no live record and no in-flight load — returns `{}` without creating a session.
+`session/cancel` is a client→server request whose params are `{ sessionId }`. The server looks the id up in its own session map. A hit calls `agent.cancel({ kind: 'user' })`, which aborts the in-flight turn and clears queued inbox work, then returns `{}`. An in-flight lazy create or resume is not a miss: the cancel joins that load's wire-ordered operation queue and is replayed at settlement between the messages it followed and the messages that followed it, because `agent.cancel` does not arm later work ([queue mechanism](../bug-fix/2026-08-16-sdk-cancel-load-settlement.md)). A true miss — no live record and no in-flight load — returns `{}` without creating a session.
 
 `session/prompt` already returned its enqueue receipt, so there is no pending prompt RPC to settle. Cancel does not wait for idle and does not dispose the agent.
 
