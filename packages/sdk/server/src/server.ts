@@ -52,21 +52,29 @@ interface SessionRecord {
   handle: AgentHandle
   /**
    * A cancel that arrived while the load producing this record was in flight
-   * and that nothing has applied yet. Applying it before the prompts waiting
-   * on that load enqueue would leave their queued messages running, because
+   * and that nothing has applied yet. Applying it before the prompts that
+   * cancel covers enqueue would leave their queued messages running, because
    * `agent.cancel` does not arm later work.
    */
   pendingCancel: boolean
   /**
-   * How many `session/prompt` calls waited on the load that produced this
-   * record and have not enqueued yet. A pending cancel is applied when this
-   * reaches zero, so every message the client sent before the cancel is
-   * queued by the time the abort lands.
+   * How many of the `session/prompt` calls covered by {@link pendingCancel}
+   * have not finished their enqueue attempt. A prompt that throws instead of
+   * enqueueing still retires its obligation, so this counts attempts rather
+   * than queued messages. The cancel is applied when this reaches zero, which
+   * is after every message the client sent before it is queued and before any
+   * message the client sent after it.
    */
   waitingPrompts: number
 }
 
 type SessionLoadKind = 'create' | 'resume'
+
+/** A cancel handed from a failed load to the lazy create that continues it. */
+interface InheritedCancel {
+  /** How many waiting prompts that cancel covers, as counted on the failed load. */
+  cancelWaiters: number
+}
 
 interface PendingSessionLoad {
   kind: SessionLoadKind
@@ -75,11 +83,16 @@ interface PendingSessionLoad {
   cancelled: boolean
   /**
    * How many `session/prompt` calls are waiting on this load and will enqueue
-   * once it settles. A cancel then belongs to the last of those prompts rather
-   * than to the load: it must land after every one of them has enqueued. A
-   * load with no waiting prompt carries the cancel to completion itself.
+   * once it settles.
    */
   promptWaiters: number
+  /**
+   * {@link promptWaiters} as it stood when the cancel arrived, which is the
+   * set of prompts that cancel covers. A prompt that joins afterwards was sent
+   * after the cancel, so the abort must land before that prompt enqueues and
+   * must not carry to it.
+   */
+  cancelWaiters: number
 }
 
 /** Recover the delegating parent from the service-owned scoped carrier. */
@@ -230,13 +243,15 @@ export class HarnessSdkJsonRpcServer {
    * Unknown session ids are a no-op so a late cancel after teardown cannot
    * fail the client. An in-flight lazy create or resume is not unknown:
    * cancel waits for that load out. What it aborts then depends on the
-   * outcome: a load with no waiting prompt is aborted by this method at
-   * settlement; a load with waiting prompts is aborted by the last of them
-   * once every one has enqueued, because `agent.cancel` does not arm later
-   * work; a load that fails hands the cancel to the lazy create a waiting
-   * prompt starts, and aborts nothing at all when no prompt continues it.
-   * There is no pending `session/prompt` RPC to settle: that method already
-   * returned its enqueue receipt.
+   * outcome: a load with no prompt waiting when this arrives is aborted by
+   * this method at settlement; a load with waiting prompts is aborted once
+   * the last of those present here has finished its enqueue attempt, because
+   * `agent.cancel` does not arm later work; a load that fails hands the cancel
+   * to the lazy create a waiting prompt starts, and aborts nothing at all when
+   * no prompt continues it. A prompt that joins the load after this call was
+   * sent after the cancel and is left to run. There is no pending
+   * `session/prompt` RPC to settle: that method already returned its enqueue
+   * receipt.
    * @param params - the session to cancel.
    * @returns empty JSON-RPC result.
    */
@@ -249,9 +264,10 @@ export class HarnessSdkJsonRpcServer {
     const pending = this.sessionCreations.get(params.sessionId)
     if (pending === undefined) return Promise.resolve({})
     pending.cancelled = true
+    pending.cancelWaiters = pending.promptWaiters
     return pending.task.then(
       (loaded) => {
-        if (pending.promptWaiters === 0) this.applyPendingCancel(loaded)
+        if (pending.cancelWaiters === 0) this.applyPendingCancel(loaded)
         return {}
       },
       // A failed load hands the cancel to whatever continues the operation:
@@ -340,7 +356,7 @@ export class HarnessSdkJsonRpcServer {
     }
   }
 
-  /** Apply a load's cancel exactly once, and only once nothing is left to enqueue. */
+  /** Apply a load's cancel at most once, and only once every prompt it covers has settled. */
   private applyPendingCancel(rec: SessionRecord): void {
     if (!rec.pendingCancel || rec.waitingPrompts > 0) return
     rec.pendingCancel = false
@@ -348,12 +364,13 @@ export class HarnessSdkJsonRpcServer {
   }
 
   /**
-   * Retire one waiting prompt's enqueue obligation and settle the cancel it
-   * owed. Only a prompt that waited on the load carrying this record calls
-   * this, so the count cannot underflow.
+   * Retire one waiting prompt's enqueue attempt and settle the cancel it owed.
+   * A prompt that joined the load after the cancel, or one that waited on a
+   * load nothing cancelled, has no obligation to retire and leaves the count
+   * at zero.
    */
   private releasePromptWaiter(rec: SessionRecord): void {
-    rec.waitingPrompts -= 1
+    if (rec.waitingPrompts > 0) rec.waitingPrompts -= 1
     this.applyPendingCancel(rec)
   }
 
@@ -375,17 +392,17 @@ export class HarnessSdkJsonRpcServer {
     sessionId: string,
     kind: SessionLoadKind,
     load: () => Promise<SessionRecord>,
-    inheritedCancel = false,
+    inherited?: InheritedCancel,
   ): Promise<SessionRecord> {
     if (this.shuttingDown) throw new Error('SDK server is shutting down')
     const existing = this.sessions.get(sessionId)
     if (existing) return existing
     const pending = this.sessionCreations.get(sessionId)
     if (pending) {
-      // A joiner that inherits a cancel from a load it continued carries that
-      // intent onto the load it joins, so no continuation of one cancelled
-      // operation can drop it.
-      if (inheritedCancel) pending.cancelled = true
+      // An inherited intent is not carried onto a load that is already under
+      // way: the only continuation that inherits one builds the successor
+      // itself, and every sibling continuing the same failed load reads the
+      // same intent in the same microtask drain, so this entry already holds it.
       if (pending.kind === kind) {
         if (kind === 'create') pending.promptWaiters += 1
         return pending.task
@@ -394,7 +411,12 @@ export class HarnessSdkJsonRpcServer {
         pending.promptWaiters += 1
         return pending.task.then(
           rec => rec,
-          () => this.beginSessionLoad(sessionId, kind, load, pending.cancelled),
+          () => this.beginSessionLoad(
+            sessionId,
+            kind,
+            load,
+            pending.cancelled ? { cancelWaiters: pending.cancelWaiters } : undefined,
+          ),
         )
       }
       throw new Error(`session ${sessionId} is already being created`)
@@ -403,15 +425,16 @@ export class HarnessSdkJsonRpcServer {
     const entry: PendingSessionLoad = {
       kind,
       task,
-      cancelled: inheritedCancel,
+      cancelled: inherited !== undefined,
       promptWaiters: kind === 'create' ? 1 : 0,
+      cancelWaiters: inherited?.cancelWaiters ?? 0,
     }
     this.sessionCreations.set(sessionId, entry)
     void task.then(
       (rec) => {
         this.sessionCreations.delete(sessionId)
-        rec.waitingPrompts = entry.promptWaiters
-        if (entry.cancelled) rec.pendingCancel = true
+        rec.waitingPrompts = entry.cancelWaiters
+        rec.pendingCancel = entry.cancelled
       },
       () => { this.sessionCreations.delete(sessionId) },
     )

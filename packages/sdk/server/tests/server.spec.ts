@@ -1586,6 +1586,99 @@ describe('HarnessSdkJsonRpcServer', () => {
     await server.shutdown()
   })
 
+  it('leaves a prompt that arrives after the cancel out of that cancel', async () => {
+    let resolveCreate: ((handle: AgentHandle) => void) | undefined
+    const createGate = new Promise<AgentHandle>((resolve) => { resolveCreate = resolve })
+    const followup = vi.fn<Agent['followup']>()
+    const cancel = vi.fn<Agent['cancel']>()
+    const agent = ({
+      id: SessionId('s8'),
+      followup,
+      cancel,
+    } satisfies Pick<Agent, 'id' | 'followup' | 'cancel'>) as unknown as Agent
+    const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: {
+        create: vi.fn(() => createGate),
+        get: (id: SessionId) => String(id) === 's8' ? agent : undefined,
+      },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    const before = server.handleRequest('session/prompt', {
+      sessionId: 's8',
+      contentBlocks: [{ type: 'text', text: 'before' }],
+    })
+    const cancelled = server.handleRequest('session/cancel', { sessionId: 's8' })
+    const after = server.handleRequest('session/prompt', {
+      sessionId: 's8',
+      contentBlocks: [{ type: 'text', text: 'after' }],
+    })
+    resolveCreate?.(handle)
+
+    await expect(cancelled).resolves.toEqual({})
+    await expect(before).resolves.toMatchObject({ messageId: expect.any(String) as unknown })
+    await expect(after).resolves.toMatchObject({ messageId: expect.any(String) as unknown })
+    expect(followup).toHaveBeenCalledTimes(2)
+    expect(cancel).toHaveBeenCalledExactlyOnceWith({ kind: 'user' })
+    expect(cancel.mock.invocationCallOrder[0]!)
+      .toBeGreaterThan(followup.mock.invocationCallOrder[0]!)
+    expect(cancel.mock.invocationCallOrder[0]!)
+      .toBeLessThan(followup.mock.invocationCallOrder[1]!)
+    await server.shutdown()
+  })
+
+  it('leaves a prompt that arrives after the cancel out of an inherited lazy create', async () => {
+    let rejectResume: ((error: Error) => void) | undefined
+    const resumeGate = new Promise<AgentHandle>((_, reject) => { rejectResume = reject })
+    const followup = vi.fn<Agent['followup']>()
+    const cancel = vi.fn<Agent['cancel']>()
+    const agent = ({
+      id: SessionId('s9'),
+      followup,
+      cancel,
+    } satisfies Pick<Agent, 'id' | 'followup' | 'cancel'>) as unknown as Agent
+    const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+    const create = vi.fn(async () => handle)
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: {
+        create,
+        resume: vi.fn(() => resumeGate),
+        get: (id: SessionId) => String(id) === 's9' ? agent : undefined,
+      },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    const resumed = server.handleRequest('session/resume', { sessionId: 's9' })
+    const before = server.handleRequest('session/prompt', {
+      sessionId: 's9',
+      contentBlocks: [{ type: 'text', text: 'before' }],
+    })
+    const cancelled = server.handleRequest('session/cancel', { sessionId: 's9' })
+    const after = server.handleRequest('session/prompt', {
+      sessionId: 's9',
+      contentBlocks: [{ type: 'text', text: 'after' }],
+    })
+    rejectResume?.(new Error('no persisted log'))
+
+    await expect(resumed).rejects.toThrow('no persisted log')
+    await expect(cancelled).resolves.toEqual({})
+    await expect(before).resolves.toMatchObject({ messageId: expect.any(String) as unknown })
+    await expect(after).resolves.toMatchObject({ messageId: expect.any(String) as unknown })
+    expect(create).toHaveBeenCalledOnce()
+    expect(followup).toHaveBeenCalledTimes(2)
+    expect(cancel).toHaveBeenCalledExactlyOnceWith({ kind: 'user' })
+    expect(cancel.mock.invocationCallOrder[0]!)
+      .toBeGreaterThan(followup.mock.invocationCallOrder[0]!)
+    expect(cancel.mock.invocationCallOrder[0]!)
+      .toBeLessThan(followup.mock.invocationCallOrder[1]!)
+    await server.shutdown()
+  })
+
   it('cancels only after every prompt that joined one in-flight create has enqueued', async () => {
     let resolveCreate: ((handle: AgentHandle) => void) | undefined
     const createGate = new Promise<AgentHandle>((resolve) => { resolveCreate = resolve })

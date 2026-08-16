@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-16-sdk-cancel-load-settlement.md
-2026-08-16-sdk-cancel-load-settlement.md: 0ddbde7d678f007fbbf7239e6e49832d1024953d
-2026-08-16-sdk-cancel-load-settlement.zh.md: dfc6641325becd8197264ebcd35962756a3403ac
+2026-08-16-sdk-cancel-load-settlement.md: 08955f3377daad0fce1a98d7fc9a5bc8afdd2ded
+2026-08-16-sdk-cancel-load-settlement.zh.md: 429cc6c6979612a000aeb94fbad292934fa37378
