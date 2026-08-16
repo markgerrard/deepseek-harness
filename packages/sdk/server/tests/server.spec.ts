@@ -1586,6 +1586,94 @@ describe('HarnessSdkJsonRpcServer', () => {
     await server.shutdown()
   })
 
+  it('cancels only after every prompt that joined one in-flight create has enqueued', async () => {
+    let resolveCreate: ((handle: AgentHandle) => void) | undefined
+    const createGate = new Promise<AgentHandle>((resolve) => { resolveCreate = resolve })
+    const followup = vi.fn<Agent['followup']>()
+    const cancel = vi.fn<Agent['cancel']>()
+    const agent = ({
+      id: SessionId('s6'),
+      followup,
+      cancel,
+    } satisfies Pick<Agent, 'id' | 'followup' | 'cancel'>) as unknown as Agent
+    const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+    const create = vi.fn(() => createGate)
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: { create, get: (id: SessionId) => String(id) === 's6' ? agent : undefined },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    const first = server.handleRequest('session/prompt', {
+      sessionId: 's6',
+      contentBlocks: [{ type: 'text', text: 'one' }],
+    })
+    const second = server.handleRequest('session/prompt', {
+      sessionId: 's6',
+      contentBlocks: [{ type: 'text', text: 'two' }],
+    })
+    const cancelled = server.handleRequest('session/cancel', { sessionId: 's6' })
+    resolveCreate?.(handle)
+
+    await expect(cancelled).resolves.toEqual({})
+    await expect(first).resolves.toMatchObject({ messageId: expect.any(String) as unknown })
+    await expect(second).resolves.toMatchObject({ messageId: expect.any(String) as unknown })
+    expect(create).toHaveBeenCalledOnce()
+    expect(followup).toHaveBeenCalledTimes(2)
+    expect(cancel).toHaveBeenCalledExactlyOnceWith({ kind: 'user' })
+    expect(cancel.mock.invocationCallOrder[0]!)
+      .toBeGreaterThan(followup.mock.invocationCallOrder[1]!)
+    await server.shutdown()
+  })
+
+  it('cancels only after every prompt that joined a failing resume has enqueued', async () => {
+    let rejectResume: ((error: Error) => void) | undefined
+    const resumeGate = new Promise<AgentHandle>((_, reject) => { rejectResume = reject })
+    const followup = vi.fn<Agent['followup']>()
+    const cancel = vi.fn<Agent['cancel']>()
+    const agent = ({
+      id: SessionId('s7'),
+      followup,
+      cancel,
+    } satisfies Pick<Agent, 'id' | 'followup' | 'cancel'>) as unknown as Agent
+    const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+    const create = vi.fn(async () => handle)
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: {
+        create,
+        resume: vi.fn(() => resumeGate),
+        get: (id: SessionId) => String(id) === 's7' ? agent : undefined,
+      },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    const resumed = server.handleRequest('session/resume', { sessionId: 's7' })
+    const first = server.handleRequest('session/prompt', {
+      sessionId: 's7',
+      contentBlocks: [{ type: 'text', text: 'one' }],
+    })
+    const second = server.handleRequest('session/prompt', {
+      sessionId: 's7',
+      contentBlocks: [{ type: 'text', text: 'two' }],
+    })
+    const cancelled = server.handleRequest('session/cancel', { sessionId: 's7' })
+    rejectResume?.(new Error('no persisted log'))
+
+    await expect(resumed).rejects.toThrow('no persisted log')
+    await expect(cancelled).resolves.toEqual({})
+    await expect(first).resolves.toMatchObject({ messageId: expect.any(String) as unknown })
+    await expect(second).resolves.toMatchObject({ messageId: expect.any(String) as unknown })
+    expect(create).toHaveBeenCalledOnce()
+    expect(followup).toHaveBeenCalledTimes(2)
+    expect(cancel).toHaveBeenCalledExactlyOnceWith({ kind: 'user' })
+    expect(cancel.mock.invocationCallOrder[0]!)
+      .toBeGreaterThan(followup.mock.invocationCallOrder[1]!)
+    await server.shutdown()
+  })
+
   it('lets a second resume join the in-flight resume for the same id', async () => {
     let resolveResume: ((handle: AgentHandle) => void) | undefined
     const resumeGate = new Promise<AgentHandle>((resolve) => { resolveResume = resolve })

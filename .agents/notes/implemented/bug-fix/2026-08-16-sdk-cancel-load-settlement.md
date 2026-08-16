@@ -16,15 +16,19 @@ The fulfilled branch also aborted the agent while a waiting prompt still had to 
 
 ## Decision
 
-The cancel intent is a field on the load it races, not session-keyed state beside it: `PendingSessionLoad` carries `cancelled` and `promptWaiting`, and a `SessionRecord` carries `pendingCancel` from the moment its load settles.
+The cancel intent is a field on the load it races, not session-keyed state beside it: `PendingSessionLoad` carries `cancelled` and `promptWaiters`, and a `SessionRecord` carries `pendingCancel` and `waitingPrompts` from the moment its load settles.
 
-A load that settles successfully hands its cancel to the record. Whichever party completes the operation applies it exactly once: a waiting `session/prompt` after it enqueues, because `agent.cancel` does not arm later work, and otherwise the `session/cancel` call itself.
+A load that settles successfully hands its cancel to the record. The party that completes the operation applies it, at most once: the last waiting `session/prompt` once every waiter has enqueued, because `agent.cancel` does not arm later work and a waiter that enqueues after the abort would run; a load with no waiting prompt is completed by the `session/cancel` call itself. Waiters are counted rather than flagged — one boolean cannot say whether a second prompt joined the same load and still owes an enqueue.
 
-A load that fails hands its cancel to whatever continues the operation. The lazy create a waiting prompt starts inherits it through `beginSessionLoad`'s `inheritedCancel` argument; a failed load that nothing continues drops the intent with the record that was never built, so an independent later retry is unaffected.
+A load that fails hands its cancel to whatever continues the operation. The lazy create a waiting prompt starts inherits it through `beginSessionLoad`'s `inheritedCancel` argument, and a joiner carries an inherited intent onto the load it joins, so no continuation of one cancelled operation can drop it. A failed load that nothing continues drops the intent with the record that was never built, so an independent later retry is unaffected — and nothing is aborted at all, which is the third outcome the READMEs state.
 
 ## Alternatives considered
 
 **Keep the set and stop deleting on load failure.** Rejected: the delete exists so a failed load does not poison a later independent retry. Without generation scoping, keeping the marker trades a dropped cancel for a stolen one.
+
+**Keep a boolean for the waiting prompt instead of a count.** Rejected: with two prompts joined to one load, the first to enqueue consumes the only apply and the second enqueues after the abort, so a message the client sent before the cancel runs. That is the reported defect's own shape, one waiter along.
+
+**Guard the window between record publication and the waiting prompt's enqueue.** `createSession` publishes into `sessions` before its load settles, so `session/cancel` could in principle take the live-session path and abort before that prompt enqueues. Rejected as unreachable: every hop from publication to `followup` is a microtask, and a cancel delivered as a macrotask, as any transport delivers a frame, lands after it. A guard here would be a permanent fixture for an edge case no caller can produce.
 
 **Split the set into `resume:` and `create:` keys.** Rejected: `session/cancel` locates an in-flight load by bare session id, so a split key cannot be read at the point that needs it.
 
@@ -32,10 +36,10 @@ A load that fails hands its cancel to whatever continues the operation. The lazy
 
 ## Consequences
 
-**Bought**: one settlement point owns the cancel of one load. A cancel racing any load outcome resolves to exactly one `agent.cancel`, or to none when the operation it raced never completed.
+**Bought**: one settlement point owns the cancel of one load. A cancel racing any load outcome resolves to at most one `agent.cancel`, placed after every prompt that waited on that load has enqueued, or to none when the operation it raced never completed.
 
-**Paid**: `beginSessionLoad` takes an inheritance argument, so the cancel intent of a failed resume is visible in the successor's construction rather than in a shared map.
+**Paid**: `beginSessionLoad` takes an inheritance argument, so the cancel intent of a failed resume is visible in the successor's construction rather than in a shared map. `session/prompt` reads whether its session was already live before awaiting, because only a prompt that waited on a load owes that load an enqueue.
 
 ## Testing
 
-Keyless unit: `cancels the lazy create a prompt starts after the resume it was waiting on fails` fails without the inheritance argument. `does not carry a cancel of a resumed session into the next prompt` fails when a settled load leaves its intent behind. `cancels a session whose lazy creation is still in flight` now pins a single `agent.cancel`. `does not keep a pending cancel after lazy creation fails` keeps a later independent prompt uncancelled.
+Keyless unit: `cancels the lazy create a prompt starts after the resume it was waiting on fails` fails without the inheritance argument. `does not carry a cancel of a resumed session into the next prompt` fails when a settled load leaves its intent behind. `cancels only after every prompt that joined one in-flight create has enqueued` and `cancels only after every prompt that joined a failing resume has enqueued` fail when waiters are a boolean rather than a count. `cancels a session whose lazy creation is still in flight` pins a single `agent.cancel`. `does not keep a pending cancel after lazy creation fails` keeps a later independent prompt uncancelled.
