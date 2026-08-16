@@ -12,7 +12,7 @@ SDK JSON-RPC 传输没有中止仍在进行的轮次的方法。需要停下手�
 
 `session/cancel` 是一条 client→server 请求，参数为 `{ sessionId }`。服务器在自己的会话表中查找该 id。命中则调用 `agent.cancel({ kind: 'user' })`——这会中止正在进行的轮次并清空排队的 inbox 工作——然后返回 `{}`。进行中的惰性创建或恢复不是未命中：取消会加入该加载的线上有序操作队列，在结算时被重放到它所跟随的消息与跟随它的消息之间，因为 `agent.cancel` 不会预先武装后续工作（[队列机制](../bug-fix/2026-08-16-sdk-cancel-load-settlement.md)）。真正的未命中——既没有仍存活记录，也没有进行中的加载——返回 `{}`，且不创建会话。
 
-`session/prompt` 已经返回了入队回执，因此没有待结算的提示词 RPC。取消不等待 idle，也不会 dispose（资源释放）该 agent。
+存活会话上的 `session/prompt` 已经返回了入队回执；排在进行中加载之后的 prompt 与取消自身的 RPC 一样，随加载一同结算。取消不等待 idle，也不会 dispose（资源释放）该 agent。
 
 `HarnessClient.cancel` 与 Python 客户端的 `session_cancel` 发送此方法。
 

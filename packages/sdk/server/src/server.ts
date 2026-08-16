@@ -76,9 +76,9 @@ interface PendingSessionLoad {
   queue: QueuedSessionOp[]
   /**
    * The final record after replay, adopting the successor create's outcome
-   * when a failed resume hands its queue over. Prompts await this; the
-   * `session/resume` RPC awaits {@link task}, because its result is this
-   * attempt's own.
+   * when a failed resume hands its queue over. Queued prompts and cancels
+   * await this; the `session/resume` RPC awaits {@link task}, because its
+   * result is this attempt's own.
    */
   outcome: Promise<SessionRecord>
 }
@@ -234,14 +234,17 @@ export class HarnessSdkJsonRpcServer {
   /**
    * Abort the addressed session's in-flight turn and queued inbox work.
    * Unknown session ids are a no-op so a late cancel after teardown cannot
-   * fail the client. An in-flight lazy create or resume is not unknown: the
-   * cancel joins that load's operation queue in wire order and is replayed at
-   * settlement, so it aborts exactly the prompts queued ahead of it and never
-   * one queued after it — `agent.cancel` does not arm later work, and the
-   * replay places it. A cancel with no prompt ahead of it in the queue of a
-   * load that fails aborts nothing at all. There is no pending
-   * `session/prompt` RPC to settle: that method already returned its enqueue
-   * receipt.
+   * fail the client — for the same reason this method has no shutdown guard:
+   * a cancel racing teardown still joins an outstanding queue, while prompts
+   * and resumes reject once shutdown begins. An in-flight lazy create or
+   * resume is not unknown: the cancel joins that load's operation queue in
+   * wire order and is replayed at settlement, so it aborts exactly the
+   * prompts queued ahead of it and never one queued after it —
+   * `agent.cancel` does not arm later work, and the replay places it. The
+   * RPC resolves `{}` once the cancel's fate is settled: its abort ran, a
+   * dead load or a failed replay dropped it, or the successor create that
+   * inherited it finished its own replay. It resolves `{}` in every one of
+   * those outcomes, including the ones that abort nothing.
    * @param params - the session to cancel.
    * @returns empty JSON-RPC result.
    */
@@ -249,9 +252,12 @@ export class HarnessSdkJsonRpcServer {
     const pending = this.sessionCreations.get(params.sessionId)
     if (pending !== undefined) {
       pending.queue.push({ kind: 'cancel' })
-      // Resolve at this load's settlement, after its replay ran the abort —
-      // or dropped it, when the load failed.
-      return pending.task.then(() => ({}), () => ({}))
+      // Resolve once this cancel's fate is settled: after a replay ran the
+      // abort, after a dead load or a failed replay dropped it, or — when a
+      // failed resume hands the queue to a successor create — after that
+      // successor's own replay. `outcome` follows the handoff; `task` would
+      // acknowledge on the failed resume while the abort had not yet run.
+      return pending.outcome.then(() => ({}), () => ({}))
     }
     const rec = this.sessions.get(params.sessionId)
     if (rec !== undefined) {
@@ -351,7 +357,13 @@ export class HarnessSdkJsonRpcServer {
     }
   }
 
-  /** Deliver a settled load's queued operations to its live agent in wire order. */
+  /**
+   * Deliver a settled load's queued operations to its live agent in wire
+   * order. Delivery is assumed non-throwing: `followup` and `cancel` are
+   * inbox operations, and their synchronous event listeners must not throw.
+   * A listener that does throw abandons the rest of the queue and rejects
+   * every queued prompt, including ones already delivered.
+   */
   private replayQueue(sessionId: string, rec: SessionRecord, queue: QueuedSessionOp[]): void {
     if (queue.length === 0) return
     // An agent-loop-only reload disposes the loop's agents while this record
