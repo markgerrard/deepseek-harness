@@ -369,10 +369,11 @@ describe('HarnessSdkJsonRpcServer', () => {
       cancel,
     } satisfies Pick<Agent, 'id' | 'followup' | 'cancel'>) as unknown as Agent
     const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+    const create = vi.fn(() => createGate)
     const ctx = {
       on: vi.fn(() => () => undefined),
       agents: {
-        create: vi.fn(() => createGate),
+        create,
         get: (id: SessionId) => String(id) === 's1' ? agent : undefined,
       },
       get: () => undefined,
@@ -383,15 +384,15 @@ describe('HarnessSdkJsonRpcServer', () => {
       sessionId: 's1',
       contentBlocks: [{ type: 'text', text: 'go' }],
     })
-    expect(ctx.agents.create).toHaveBeenCalledOnce()
+    expect(create).toHaveBeenCalledOnce()
 
     const cancelled = server.handleRequest('session/cancel', { sessionId: 's1' })
     resolveCreate?.(handle)
 
     await expect(cancelled).resolves.toEqual({})
-    await expect(prompt).resolves.toMatchObject({ messageId: expect.any(String) })
+    await expect(prompt).resolves.toMatchObject({ messageId: expect.any(String) as unknown })
     expect(followup).toHaveBeenCalledOnce()
-    expect(cancel).toHaveBeenCalledWith({ kind: 'user' })
+    expect(cancel).toHaveBeenCalledExactlyOnceWith({ kind: 'user' })
     expect(cancel.mock.invocationCallOrder.at(-1))
       .toBeGreaterThan(followup.mock.invocationCallOrder[0]!)
 
@@ -434,7 +435,7 @@ describe('HarnessSdkJsonRpcServer', () => {
     await expect(server.handleRequest('session/prompt', {
       sessionId: 's1',
       contentBlocks: [{ type: 'text', text: 'retry' }],
-    })).resolves.toMatchObject({ messageId: expect.any(String) })
+    })).resolves.toMatchObject({ messageId: expect.any(String) as unknown })
     expect(followup).toHaveBeenCalledOnce()
     expect(cancel).not.toHaveBeenCalled()
 
@@ -1504,7 +1505,7 @@ describe('HarnessSdkJsonRpcServer', () => {
     resolveCreate?.(handle)
 
     await expect(resumed).rejects.toThrow(/already being created/)
-    await expect(prompted).resolves.toMatchObject({ messageId: expect.any(String) })
+    await expect(prompted).resolves.toMatchObject({ messageId: expect.any(String) as unknown })
     expect(resume).not.toHaveBeenCalled()
     expect(followup).toHaveBeenCalledOnce()
     await server.shutdown()
@@ -1541,7 +1542,7 @@ describe('HarnessSdkJsonRpcServer', () => {
     rejectResume?.(new Error('no persisted log'))
 
     await expect(resumed).rejects.toThrow('no persisted log')
-    await expect(prompted).resolves.toMatchObject({ messageId: expect.any(String) })
+    await expect(prompted).resolves.toMatchObject({ messageId: expect.any(String) as unknown })
     expect(create).toHaveBeenCalledOnce()
     expect(followup).toHaveBeenCalledOnce()
     await server.shutdown()
@@ -1579,9 +1580,132 @@ describe('HarnessSdkJsonRpcServer', () => {
     resolveResume?.(handle)
 
     await expect(resumed).resolves.toEqual({})
-    await expect(prompted).resolves.toMatchObject({ messageId: expect.any(String) })
+    await expect(prompted).resolves.toMatchObject({ messageId: expect.any(String) as unknown })
     expect(create).not.toHaveBeenCalled()
     expect(followup).toHaveBeenCalledOnce()
+    await server.shutdown()
+  })
+
+  it('lets a second resume join the in-flight resume for the same id', async () => {
+    let resolveResume: ((handle: AgentHandle) => void) | undefined
+    const resumeGate = new Promise<AgentHandle>((resolve) => { resolveResume = resolve })
+    const agent = ({ id: SessionId('s5') } satisfies Pick<Agent, 'id'>) as unknown as Agent
+    const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+    const resume = vi.fn(() => resumeGate)
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: { create: vi.fn(), resume, get: () => undefined },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    const first = server.handleRequest('session/resume', { sessionId: 's5' })
+    const second = server.handleRequest('session/resume', { sessionId: 's5' })
+    resolveResume?.(handle)
+
+    await expect(first).resolves.toEqual({})
+    await expect(second).resolves.toEqual({})
+    expect(resume).toHaveBeenCalledOnce()
+    await server.shutdown()
+  })
+
+  it('passes the configured maxTokens to a resumed agent', async () => {
+    const agent = ({ id: SessionId('main') } satisfies Pick<Agent, 'id'>) as unknown as Agent
+    const resume = vi.fn(async () => ({ agent, dispose: () => Promise.resolve() }))
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: { create: vi.fn(), resume, get: () => undefined },
+      get: () => ({ listProviders: () => [{ id: 'mock', name: 'Mock' }] }),
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    await server.initialize({ cwd: '/tmp', provider: 'mock', model: 'model', maxTokens: 321 })
+    await server.handleRequest('session/resume', { sessionId: 'main' })
+
+    expect(resume).toHaveBeenCalledWith(expect.objectContaining({
+      agentOptions: { provider: 'mock', model: 'model', maxTokens: 321 },
+    }))
+    await server.shutdown()
+  })
+
+  it('cancels the lazy create a prompt starts after the resume it was waiting on fails', async () => {
+    let rejectResume: ((error: Error) => void) | undefined
+    const resumeGate = new Promise<AgentHandle>((_, reject) => { rejectResume = reject })
+    const followup = vi.fn<Agent['followup']>()
+    const cancel = vi.fn<Agent['cancel']>()
+    const agent = ({
+      id: SessionId('s3'),
+      followup,
+      cancel,
+    } satisfies Pick<Agent, 'id' | 'followup' | 'cancel'>) as unknown as Agent
+    const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+    const create = vi.fn(async () => handle)
+    const resume = vi.fn(() => resumeGate)
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: {
+        create,
+        resume,
+        get: (id: SessionId) => String(id) === 's3' ? agent : undefined,
+      },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    const resumed = server.handleRequest('session/resume', { sessionId: 's3' })
+    const prompted = server.handleRequest('session/prompt', {
+      sessionId: 's3',
+      contentBlocks: [{ type: 'text', text: 'go' }],
+    })
+    const cancelled = server.handleRequest('session/cancel', { sessionId: 's3' })
+    rejectResume?.(new Error('no persisted log'))
+
+    await expect(resumed).rejects.toThrow('no persisted log')
+    await expect(cancelled).resolves.toEqual({})
+    await expect(prompted).resolves.toMatchObject({ messageId: expect.any(String) as unknown })
+    expect(create).toHaveBeenCalledOnce()
+    expect(followup).toHaveBeenCalledOnce()
+    expect(cancel).toHaveBeenCalledOnce()
+    await server.shutdown()
+  })
+
+  it('does not carry a cancel of a resumed session into the next prompt', async () => {
+    let resolveResume: ((handle: AgentHandle) => void) | undefined
+    const resumeGate = new Promise<AgentHandle>((resolve) => { resolveResume = resolve })
+    const followup = vi.fn<Agent['followup']>()
+    const cancel = vi.fn<Agent['cancel']>()
+    const agent = ({
+      id: SessionId('s4'),
+      followup,
+      cancel,
+    } satisfies Pick<Agent, 'id' | 'followup' | 'cancel'>) as unknown as Agent
+    const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+    const resume = vi.fn(() => resumeGate)
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: {
+        create: vi.fn(async () => { throw new Error('the resumed session must be reused') }),
+        resume,
+        get: (id: SessionId) => String(id) === 's4' ? agent : undefined,
+      },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    const resumed = server.handleRequest('session/resume', { sessionId: 's4' })
+    const cancelled = server.handleRequest('session/cancel', { sessionId: 's4' })
+    resolveResume?.(handle)
+    await expect(resumed).resolves.toEqual({})
+    await expect(cancelled).resolves.toEqual({})
+    expect(cancel).toHaveBeenCalledOnce()
+
+    await expect(server.handleRequest('session/prompt', {
+      sessionId: 's4',
+      contentBlocks: [{ type: 'text', text: 'go' }],
+    })).resolves.toMatchObject({ messageId: expect.any(String) as unknown })
+
+    expect(followup).toHaveBeenCalledOnce()
+    expect(cancel).toHaveBeenCalledOnce()
     await server.shutdown()
   })
 
