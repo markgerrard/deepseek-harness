@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from deepseek_harness import DeepSeekHarness, HarnessClient, HarnessConfig, Notification, SdkProtocolError
+from deepseek_harness import DeepSeekHarness, HarnessClient, HarnessConfig, IncomingRequest, Notification, SdkProtocolError
 
 
 def test_high_level_sdk_runs_turn_and_collects_final_response(tmp_path: Path) -> None:
@@ -485,6 +485,158 @@ for line in sys.stdin:
     assert notification.payload["sessionId"] == "main"
 
 
+def test_client_cancels_an_addressed_session(tmp_path: Path) -> None:
+    script = tmp_path / "fake_cancel.py"
+    cancel_dump = tmp_path / "cancel.json"
+    script.write_text(
+        """
+import json
+import os
+import sys
+
+for line in sys.stdin:
+    msg = json.loads(line)
+    method = msg.get("method")
+    if method == "initialize":
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"serverInfo": {"name": "fake-dsh"}}}), flush=True)
+    elif method == "session/cancel":
+        json.dump(msg.get("params"), open(os.environ["CANCEL_DUMP"], "w"))
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {}}), flush=True)
+    elif method == "shutdown":
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {}}), flush=True)
+        break
+""".strip()
+    )
+
+    with HarnessClient(
+        HarnessConfig(
+            launch_args_override=(sys.executable, str(script)),
+            env={"CANCEL_DUMP": str(cancel_dump)},
+        )
+    ) as client:
+        client.initialize(provider="deepseek-official", cwd="/workspace", model="dsagent")
+        client.session_cancel("main")
+    assert json.loads(cancel_dump.read_text()) == {"sessionId": "main"}
+
+
+def test_client_resumes_an_addressed_session(tmp_path: Path) -> None:
+    script = tmp_path / "fake_resume.py"
+    resume_dump = tmp_path / "resume.json"
+    script.write_text(
+        """
+import json
+import os
+import sys
+
+for line in sys.stdin:
+    msg = json.loads(line)
+    method = msg.get("method")
+    if method == "initialize":
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"serverInfo": {"name": "fake-dsh"}}}), flush=True)
+    elif method == "session/resume":
+        json.dump(msg.get("params"), open(os.environ["RESUME_DUMP"], "w"))
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {}}), flush=True)
+    elif method == "shutdown":
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {}}), flush=True)
+        break
+""".strip()
+    )
+
+    with HarnessClient(
+        HarnessConfig(
+            launch_args_override=(sys.executable, str(script)),
+            env={"RESUME_DUMP": str(resume_dump)},
+        )
+    ) as client:
+        client.initialize(provider="deepseek-official", cwd="/workspace", model="dsagent")
+        client.session_resume("main")
+    assert json.loads(resume_dump.read_text()) == {"sessionId": "main"}
+
+
+def test_client_advertises_approvals_on_initialize(tmp_path: Path) -> None:
+    init_dump = tmp_path / "init.json"
+    script = tmp_path / "fake_bridge.py"
+    script.write_text(
+        """
+import json
+import os
+import sys
+
+for line in sys.stdin:
+    msg = json.loads(line)
+    method = msg.get("method")
+    if method == "initialize":
+        json.dump(msg.get("params"), open(os.environ["INIT_DUMP"], "w"))
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"serverInfo": {"name": "fake-dsh"}}}), flush=True)
+    elif method == "shutdown":
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {}}), flush=True)
+        break
+""".strip()
+    )
+
+    with HarnessClient(
+        HarnessConfig(
+            launch_args_override=(sys.executable, str(script)),
+            env={"INIT_DUMP": str(init_dump)},
+        )
+    ) as client:
+        client.initialize(
+            provider="deepseek-official",
+            cwd="/workspace",
+            model="dsagent",
+            client_capabilities={"approvals": True},
+        )
+    assert json.loads(init_dump.read_text())["clientCapabilities"] == {"approvals": True}
+
+
+def test_unhandled_permission_request_answers_method_not_found() -> None:
+    client = HarnessClient()
+    written: list[object] = []
+    client._write_message = written.append  # type: ignore[method-assign]
+    client._handle_message({
+        "jsonrpc": "2.0",
+        "id": "perm-1",
+        "method": "session/request_permission",
+        "params": {"sessionId": "main", "toolName": "bash"},
+    })
+    assert written == [{
+        "jsonrpc": "2.0",
+        "id": "perm-1",
+        "error": {"code": -32601, "message": "method not found: session/request_permission"},
+    }]
+    assert client._requests.empty()
+
+
+def test_permission_request_is_queued_when_next_request_is_waiting() -> None:
+    client = HarnessClient()
+    written: list[object] = []
+    client._write_message = written.append  # type: ignore[method-assign]
+    got: list[IncomingRequest] = []
+
+    def drain() -> None:
+        got.append(client.next_request())
+
+    thread = threading.Thread(target=drain)
+    thread.start()
+    deadline = time.monotonic() + 1
+    while client._request_waiters == 0:
+        if time.monotonic() > deadline:
+            raise AssertionError("next_request waiter did not register")
+        time.sleep(0.01)
+    client._handle_message({
+        "jsonrpc": "2.0",
+        "id": "perm-1",
+        "method": "session/request_permission",
+        "params": {"sessionId": "main", "toolName": "bash"},
+    })
+    thread.join(timeout=1)
+    assert thread.is_alive() is False
+    assert written == []
+    assert len(got) == 1
+    assert got[0].id == "perm-1"
+    assert got[0].method == "session/request_permission"
+
+
 def test_client_keeps_unmatched_notifications_available_globally_while_subscribed() -> None:
     client = HarnessClient()
     with client.subscribe_session_notifications("main"):
@@ -822,6 +974,7 @@ def test_public_signatures_omit_unsupported_wire_parameters() -> None:
     assert "system_prompt" not in DeepSeekHarnessConfig.__dataclass_fields__
     assert "max_tokens" in DeepSeekHarnessConfig.__dataclass_fields__
     assert "max_tokens" in inspect.signature(HarnessClient.initialize).parameters
+    assert "client_capabilities" in inspect.signature(HarnessClient.initialize).parameters
     assert "client_name" not in HarnessConfig.__dataclass_fields__
     assert "client_version" not in HarnessConfig.__dataclass_fields__
 

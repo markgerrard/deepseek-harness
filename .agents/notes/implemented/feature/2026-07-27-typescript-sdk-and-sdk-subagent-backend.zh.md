@@ -46,4 +46,4 @@ stdio JSON-RPC 对外服务接口（`@deepseek-ai/dsh-sdk-jsonrpc-server`，见[
 
 **收益**：SDK 运行时协议现在拥有服务器与两个客户端 SDK 共享的、编译器校验的具名类型；TypeScript 消费方获得与 Python 相同的子进程驱动能力，且带类型化错误与结构化轮次原因，包根也只暴露归调用方所有的操作；subagent seam 获得一个 harness 原生的进程外后端，其子进程是完整对等体（自有配置、持久化、工具）——正是 seam Agent Note 所设想的递归组合方式；jsonrpc 示例终于有了快照覆盖，而且走的就是 SDK 路径本身。
 
-**代价**：`sdk/` 组多了第三个包、subagent 多了第四个要保持最新的后端；SDK 后端每个子进程启动完整插件树（单次成本高于 ACP 子进程；池化与 ACP 一样留作未来工作）；协议仍无取消方法，SDK 的 `RequestTimeoutError` 与后端的 dispose 都只在本地结算、服务器侧轮次会继续运行到进程清理为止；快照 fixture 录制于 `deepseek-v4-flash`，与其他录制语料一样随模型行为漂移而重录。
+**代价**：`sdk/` 组多了第三个包、subagent 多了第四个要保持最新的后端；SDK 后端每个子进程启动完整插件树（单次成本高于 ACP 子进程；池化与 ACP 一样留作未来工作）；未被取消的超时请求仍会在服务器侧运行到进程清理为止（`session/cancel` 会中止仍存活的会话而不关闭运行时）；快照 fixture 录制于 `deepseek-v4-flash`，与其他录制语料一样随模型行为漂移而重录。
