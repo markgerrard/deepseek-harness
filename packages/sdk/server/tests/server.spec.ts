@@ -1602,6 +1602,45 @@ describe('HarnessSdkJsonRpcServer', () => {
     await server.shutdown()
   })
 
+  it('acknowledges a dropped leading cancel even when the successor never settles', async () => {
+    let rejectResume: ((error: Error) => void) | undefined
+    const resumeGate = new Promise<AgentHandle>((_, reject) => { rejectResume = reject })
+    // The successor create never settles; the dropped cancel's fate does not
+    // depend on it and its RPC must not wait for it.
+    const createGate = new Promise<AgentHandle>(() => { /* held */ })
+    const followup = vi.fn<Agent['followup']>()
+    const cancel = vi.fn<Agent['cancel']>()
+    const agent = ({
+      id: SessionId('s16'),
+      followup,
+      cancel,
+    } satisfies Pick<Agent, 'id' | 'followup' | 'cancel'>) as unknown as Agent
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: {
+        create: vi.fn(() => createGate),
+        resume: vi.fn(() => resumeGate),
+        get: (id: SessionId) => String(id) === 's16' ? agent : undefined,
+      },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    const resumed = server.handleRequest('session/resume', { sessionId: 's16' })
+    const cancelled = server.handleRequest('session/cancel', { sessionId: 's16' })
+    const later = server.handleRequest('session/prompt', {
+      sessionId: 's16',
+      contentBlocks: [{ type: 'text', text: 'later' }],
+    })
+    rejectResume?.(new Error('no persisted log'))
+
+    await expect(resumed).rejects.toThrow('no persisted log')
+    await expect(cancelled).resolves.toEqual({})
+    expect(cancel).not.toHaveBeenCalled()
+    expect(followup).not.toHaveBeenCalled()
+    void later.catch(() => undefined)
+  })
+
   it('does not acknowledge a transferred cancel before the successor runs its abort', async () => {
     let rejectResume: ((error: Error) => void) | undefined
     const resumeGate = new Promise<AgentHandle>((_, reject) => { rejectResume = reject })

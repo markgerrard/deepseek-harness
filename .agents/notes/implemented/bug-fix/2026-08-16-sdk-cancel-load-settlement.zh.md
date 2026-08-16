@@ -14,7 +14,7 @@ Status: implemented
 
 进行中的加载持有一个有序操作队列。每个 `session/prompt` 与 `session/cancel` 处理器都在自己的 RPC 回合内同步追加，因此队列的顺序在构造上就是线上顺序。加载自身的结算延续——在加载启动时注册，因而是它上面的第一个反应——将队列一次性按序重放到存活的 agent 上：prompt 用 `followup`，取消用 `agent.cancel({ kind: 'user' })`。投递发生在同一个延续中，任何加入者的链深都无法重排它，每个取消恰好落在其前后消息之间。
 
-排队 prompt 的 RPC 在重放之后以预先铸好的 `messageId` 解析，在加载失败时拒绝。`session/cancel` 在其取消的命运尘埃落定后解析 `{}`——它的中止已执行、已随死掉的加载或失败的重放被丢弃、或继承了它的后继创建已完成自己的重放——因此两种排队 RPC 都读取加载的 `outcome`（它跟随移交），而 `session/resume` 读取本次尝试自己的 `task`。记录本身不携带任何取消状态。
+排队 prompt 的 RPC 在重放之后以预先铸好的 `messageId` 解析，在加载失败时拒绝；它读取加载的 `outcome`（它跟随移交），而 `session/resume` 读取本次尝试自己的 `task`。排队的取消在操作对象上携带自己的结算，因此其 RPC 在该取消自身命运确定之时解析 `{}`——中止已在重放中执行、在把它作为打头取消丢弃的移交之时、或在死掉的加载或被拒的重放丢弃队列之时——绝不等待一个已把它丢弃的后继。操作对象按引用转移，幸存取消的结算随之进入后继。记录本身不携带任何取消状态。
 
 当 resume 失败时，队列移交给延续它的惰性创建，但去掉打头的取消：前面没有任何 prompt 的取消在后继中无物可扫——后继的全部内容都晚于它——因此随失败的加载一同消亡。失败的创建不移交任何东西；其排队的 prompt 以创建的错误拒绝。关停期间不启动后继，排队的 prompt 以 resume 的错误拒绝。
 
@@ -36,8 +36,8 @@ Status: implemented
 
 **Bought**：一个机制取代了三个相互作用的标量、它们的钳制和继承参数。线上顺序在到达时存储一次、逐字重放；下游不再有任何代码推理延续深度。多取消交错的序列被忠实重放，这是任何计数变体都做不到的。加载中的会话与已存活的会话对同一线上顺序给出相同的中止位置。
 
-**Paid**：排队 prompt 的 `followup` 在加载的结算延续中运行而非它自己的 RPC 处理器中，因此其 RPC 晚一个反应解析；注册表身份检查是每次重放一个决定——过期的记录拒绝整个队列而非逐个 prompt。重放假定投递不抛出：`followup` 与 `cancel` 是 inbox 操作，经由它们同步抛出的事件监听器会放弃队列的剩余部分并拒绝每个排队 prompt，包括已投递的——只有宿主自备的传输对端或进程内监听器能触及，随附的 stdio 传输不能。`session/resume` RPC 报告其自身尝试的结果，而排队的 prompt 与取消跟随后继，两者从同一个加载条目上读取不同的 promise；关停期间，失败 resume 上排队的 prompt 以该加载自身的错误拒绝，而非关停错误。
+**Paid**：排队 prompt 的 `followup` 在加载的结算延续中运行而非它自己的 RPC 处理器中，因此其 RPC 晚一个反应解析；注册表身份检查是每次重放一个决定——过期的记录拒绝的是每一个排队 prompt 而非逐个检查，排队的取消则无一例外地以 `{}` 结算。重放假定投递不抛出：`followup` 与 `cancel` 是 inbox 操作，经由它们同步抛出的事件监听器会放弃队列的剩余部分并拒绝每个排队 prompt，包括已投递的——只有宿主自备的传输对端或进程内监听器能触及，随附的 stdio 传输不能。`session/resume` RPC 报告其自身尝试的结果，而排队的 prompt 跟随后继，两者从同一个加载条目上读取不同的 promise；关停期间，失败 resume 上排队的 prompt 以该加载自身的错误拒绝，而非关停错误。
 
 ## Testing
 
-无密钥单测，均在 `packages/sdk/server/tests/server.spec.ts`。`replays interleaved prompts and cancels on one load in wire order` 固定队列本身。`keeps wire order across a failed resume when a later prompt joins the successor` 在任何允许延续深度重排投递的模型下失败。`drops a cancel that covered no prompt with the load it raced` 固定打头取消的丢弃。`leaves a prompt that arrives after the cancel out of that cancel` 与 `out of the successor create` 固定两条加载路径上的中止位置。`aborts only after every prompt queued ahead of the cancel on one in-flight create` 及其失败 resume 变体固定多 prompt 覆盖。`does not acknowledge a transferred cancel before the successor runs its abort` 固定取消 RPC 对 `outcome` 而非失败尝试的 `task` 结算。`does not start a successor create when a resume fails during shutdown` 固定关停收容。`rejects the whole queue on one registry check when the loaded agent is already detached` 固定单决定的重放校验、整队拒绝，以及取消 RPC 从不失败。`does not keep a pending cancel after lazy creation fails` 保持此后独立的重试不受影响。
+无密钥单测，均在 `packages/sdk/server/tests/server.spec.ts`。`replays interleaved prompts and cancels on one load in wire order` 固定队列本身。`keeps wire order across a failed resume when a later prompt joins the successor` 在任何允许延续深度重排投递的模型下失败。`drops a cancel that covered no prompt with the load it raced` 固定打头取消的丢弃。`leaves a prompt that arrives after the cancel out of that cancel` 与 `out of the successor create` 固定两条加载路径上的中止位置。`aborts only after every prompt queued ahead of the cancel on one in-flight create` 及其失败 resume 变体固定多 prompt 覆盖。`does not acknowledge a transferred cancel before the successor runs its abort` 与 `acknowledges a dropped leading cancel even when the successor never settles` 将排队取消的结算固定在它自身的命运上：绝不早于其中止执行，也绝不落在一个已把它丢弃的后继之后。`does not start a successor create when a resume fails during shutdown` 固定关停收容。`rejects the whole queue on one registry check when the loaded agent is already detached` 固定单决定的重放校验、整队拒绝，以及取消 RPC 从不失败。`does not keep a pending cancel after lazy creation fails` 保持此后独立的重试不受影响。

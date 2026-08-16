@@ -56,11 +56,15 @@ type SessionLoadKind = 'create' | 'resume'
 
 /**
  * One client operation that arrived while a session load was in flight,
- * held in wire arrival order until the load settles.
+ * held in wire arrival order until the load settles. A cancel carries its
+ * own settlement so its RPC resolves the moment its fate is decided — its
+ * abort ran, or it was dropped — instead of waiting out a load graph it has
+ * no stake in. The op object transfers by reference into a successor load,
+ * so the settlement travels with it.
  */
 type QueuedSessionOp =
   | { kind: 'prompt'; message: ReturnType<typeof createUserMessage> }
-  | { kind: 'cancel' }
+  | { kind: 'cancel'; done: Promise<void>; settle: () => void }
 
 interface PendingSessionLoad {
   kind: SessionLoadKind
@@ -240,24 +244,25 @@ export class HarnessSdkJsonRpcServer {
    * resume is not unknown: the cancel joins that load's operation queue in
    * wire order and is replayed at settlement, so it aborts exactly the
    * prompts queued ahead of it and never one queued after it —
-   * `agent.cancel` does not arm later work, and the replay places it. The
-   * RPC resolves `{}` once the cancel's fate is settled: its abort ran, a
-   * dead load or a failed replay dropped it, or the successor create that
-   * inherited it finished its own replay. It resolves `{}` in every one of
-   * those outcomes, including the ones that abort nothing.
+   * `agent.cancel` does not arm later work, and the replay places it. Each
+   * queued cancel carries its own settlement, so the RPC resolves `{}` at
+   * the moment that cancel's fate is decided and never waits on work it has
+   * no stake in: after its abort ran in a replay, at the transfer that drops
+   * it as a leading cancel, or when a dead load or a refused replay drops
+   * the queue. It resolves `{}` in every one of those outcomes, including
+   * the ones that abort nothing.
    * @param params - the session to cancel.
    * @returns empty JSON-RPC result.
    */
   cancel(params: SessionCancelParams): Promise<Record<string, never>> {
     const pending = this.sessionCreations.get(params.sessionId)
     if (pending !== undefined) {
-      pending.queue.push({ kind: 'cancel' })
-      // Resolve once this cancel's fate is settled: after a replay ran the
-      // abort, after a dead load or a failed replay dropped it, or — when a
-      // failed resume hands the queue to a successor create — after that
-      // successor's own replay. `outcome` follows the handoff; `task` would
-      // acknowledge on the failed resume while the abort had not yet run.
-      return pending.outcome.then(() => ({}), () => ({}))
+      const { promise, resolve } = Promise.withResolvers<void>()
+      pending.queue.push({ kind: 'cancel', done: promise, settle: resolve })
+      // Resolves once this cancel's own fate is settled — never on the failed
+      // resume's rejection, which would acknowledge before a transferred
+      // abort ran, and never against a successor this cancel was dropped from.
+      return promise.then(() => ({}))
     }
     const rec = this.sessions.get(params.sessionId)
     if (rec !== undefined) {
@@ -399,24 +404,38 @@ export class HarnessSdkJsonRpcServer {
     const outcome = task.then(
       (rec) => {
         this.sessionCreations.delete(sessionId)
-        this.replayQueue(sessionId, rec, queue)
+        try {
+          this.replayQueue(sessionId, rec, queue)
+        } finally {
+          // Delivered cancels ran their abort in the replay above; a replay
+          // refused by the registry check dropped the rest. Either way every
+          // queued cancel's fate is now decided.
+          for (const op of queue) if (op.kind === 'cancel') op.settle()
+        }
         return rec
       },
       (error: unknown) => {
         this.sessionCreations.delete(sessionId)
         if (kind === 'resume' && !this.shuttingDown) {
-          while (queue[0]?.kind === 'cancel') queue.shift()
+          // A leading cancel has nothing ahead of it to sweep in a successor
+          // whose contents all postdate it: dropped, and settled at the drop.
+          for (let head = queue[0]; head?.kind === 'cancel'; head = queue[0]) {
+            head.settle()
+            queue.shift()
+          }
           if (queue.length > 0) {
             const successor = this.beginSessionLoad(sessionId, 'create', () => this.createSession(sessionId))
             successor.queue.push(...queue)
             return successor.outcome
           }
         }
+        for (const op of queue) if (op.kind === 'cancel') op.settle()
         throw error
       },
     )
-    // A failed load whose queue held no prompt rejects this outcome with no
-    // awaiter; mark it handled without affecting real awaiters.
+    // Only queued prompts await this outcome — queued cancels settle their
+    // own promises — so a failed load whose queue held no prompt rejects it
+    // with no awaiter; mark it handled without affecting real awaiters.
     void outcome.then(undefined, () => undefined)
     const entry: PendingSessionLoad = { kind, task, queue, outcome }
     this.sessionCreations.set(sessionId, entry)
