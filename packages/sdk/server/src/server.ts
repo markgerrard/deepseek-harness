@@ -81,7 +81,7 @@ interface PendingSessionLoad {
   /**
    * The final record after replay, adopting the successor create's outcome
    * when a failed resume hands its queue over. Queued prompts await this;
-   * queued cancels settle their own `done` at their own fate, and the
+   * queued cancels settle their own promise at their own fate, and the
    * `session/resume` RPC awaits {@link task}, because its result is this
    * attempt's own.
    */
