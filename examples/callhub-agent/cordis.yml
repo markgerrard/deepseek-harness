@@ -37,6 +37,12 @@
     url: !!js process.env.DSH_CALLHUB_MCP_URL ?? 'http://127.0.0.1:8740/mcp'
     headers:
       Authorization: !!js process.env.DSH_CALLHUB_MCP_AUTH
+      # Signed asker identity (asker-gate v3 R7/R8): the bridge ALWAYS sets
+      # DSH_CALLHUB_ASKER_TOKEN (real token, signed sentinel, or empty);
+      # the leaf ALWAYS sends the header. Empty verifies as absence at
+      # callhub-mcp and fails closed — there is no value that skips the
+      # check. Model-invisible: env + header only, never a tool argument.
+      X-CallHub-Asker: !!js process.env.DSH_CALLHUB_ASKER_TOKEN ?? ''
     failOnStartupError: true
 
 # The JSON-RPC surface loads LAST-of-the-service-plugins deliberately: cordis

@@ -44,10 +44,12 @@ function waitForLine(
 
 /** Minimal MCP Streamable-HTTP stub: initialize / initialized / tools/list,
  * one fake callhub tool, recording every Authorization header it sees. */
-function startMcpStub(): Promise<{ port: number; authHeaders: string[]; close: () => Promise<void> }> {
+function startMcpStub(): Promise<{ port: number; authHeaders: string[]; askerHeaders: string[]; close: () => Promise<void> }> {
   const authHeaders: string[] = []
+  const askerHeaders: string[] = []
   const server = createServer((request, response) => {
     authHeaders.push(String(request.headers.authorization ?? ''))
+    askerHeaders.push(String(request.headers['x-callhub-asker'] ?? '<absent>'))
     let body = ''
     request.setEncoding('utf8')
     request.on('data', (chunk: string) => { body += chunk })
@@ -92,6 +94,7 @@ function startMcpStub(): Promise<{ port: number; authHeaders: string[]; close: (
       resolve({
         port: address.port,
         authHeaders,
+        askerHeaders,
         close: () => new Promise<void>(done => server.close(() => { done() })),
       })
     })
@@ -133,6 +136,7 @@ describe('callhub-agent keyless smoke', () => {
         DSH_SESSION_ROOT: join(root, '.sessions'),
         DSH_CALLHUB_MCP_URL: `http://127.0.0.1:${mcp.port}/mcp`,
         DSH_CALLHUB_MCP_AUTH: 'Bearer smoke-bearer-sentinel',
+        DSH_CALLHUB_ASKER_TOKEN: 'v1.none.smoke-conv.1.2.smoke-mac',
       },
       timeout: 35_000,
       killSignal: 'SIGKILL',
@@ -191,6 +195,11 @@ describe('callhub-agent keyless smoke', () => {
       // The bearer must have reached the stub from CHILD PROCESS ENV.
       expect(mcp.authHeaders.length).toBeGreaterThan(0)
       expect(mcp.authHeaders.every(header => header === 'Bearer smoke-bearer-sentinel')).toBe(true)
+
+      // The asker token must ride EVERY request as X-CallHub-Asker (asker-gate
+      // R7/R8): never absent, value straight from the child env.
+      expect(mcp.askerHeaders.length).toBeGreaterThan(0)
+      expect(mcp.askerHeaders.every(h => h === 'v1.none.smoke-conv.1.2.smoke-mac')).toBe(true)
 
       // Model-visible tool surface: EXACT allowlist equality, so any tool
       // added to this composition must be acknowledged here. No execution
