@@ -207,22 +207,33 @@ export class HarnessSdkJsonRpcServer {
   }
 
   /**
+   * Wait for the plugin tree to settle before any session load. The stdio
+   * surface attaches mid-boot, so a prompt OR a resume can arrive while the
+   * tree is still activating — e.g. an MCP client blocking its activation on
+   * the initial tool sync. A session created or rehydrated at that moment
+   * assembles an INCOMPLETE tool surface for its first model request (or
+   * fails on a persistence plugin that has not activated), silently or
+   * flakily. After boot this resolves immediately; hand-mounted contexts
+   * without a Loader take no await at all, preserving the synchronous
+   * ordering their callers rely on.
+   */
+  private settleTree(): Promise<unknown> | undefined {
+    // Returns undefined (not an async no-op) when no Loader is present:
+    // `await` on even a settled async call yields a microtask, which would
+    // break the synchronous prompt->create ordering hand-mounted callers pin.
+    const loader = this.ctx.get('loader') as { await?: () => Promise<unknown> } | undefined
+    return typeof loader?.await === 'function' ? loader.await() : undefined
+  }
+
+  /**
    * Queue one identified prompt without assigning later activity to it.
    * @param params - target session and user content.
    * @returns the durable message identity.
    */
   async prompt(params: SessionPromptParams): Promise<SessionPromptResult> {
     if (this.shuttingDown) throw new Error('SDK server is shutting down')
-    // The stdio surface attaches mid-boot, so a prompt can arrive while the
-    // plugin tree is still activating — e.g. an MCP client blocking its
-    // activation on the initial tool sync. A session created at that moment
-    // assembles an INCOMPLETE tool surface for its first model request and
-    // the turn proceeds without the missing tools, silently. Let the tree
-    // settle first; after boot this resolves immediately. Hand-mounted
-    // contexts without a Loader take no await here at all, preserving the
-    // synchronous prompt->create ordering their callers rely on.
-    const loader = this.ctx.get('loader') as { await?: () => Promise<unknown> } | undefined
-    if (typeof loader?.await === 'function') await loader.await()
+    const settled = this.settleTree()
+    if (settled !== undefined) await settled
     // A pending load owns delivery order for its session, so the pending map
     // is consulted before the record map: a record published mid-load must not
     // let this prompt bypass operations already queued ahead of it.
@@ -298,6 +309,8 @@ export class HarnessSdkJsonRpcServer {
    */
   async resume(params: SessionResumeParams): Promise<Record<string, never>> {
     if (this.shuttingDown) throw new Error('SDK server is shutting down')
+    const settled = this.settleTree()
+    if (settled !== undefined) await settled
     const pending = this.sessionCreations.get(params.sessionId)
     if (pending !== undefined) {
       // A resume must not inherit an in-flight create: that would report

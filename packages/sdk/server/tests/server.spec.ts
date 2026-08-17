@@ -480,6 +480,40 @@ describe('HarnessSdkJsonRpcServer', () => {
     await server.shutdown()
   })
 
+  it('resume waits for the plugin tree to settle before rehydrating', async () => {
+    let settleTree: (() => void) | undefined
+    const settled = new Promise<void>((resolve) => { settleTree = resolve })
+    const followup = vi.fn<Agent['followup']>()
+    const agent = ({
+      id: SessionId('main'),
+      followup,
+    } satisfies Pick<Agent, 'id' | 'followup'>) as unknown as Agent
+    const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+    const resume = vi.fn(async () => handle)
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: {
+        create: vi.fn(async () => handle),
+        resume,
+        get: (id: SessionId) => String(id) === 'main' ? agent : undefined,
+      },
+      // A Loader mid-boot: `await()` resolves only when the tree settles. A
+      // resume before that must NOT touch agents.resume — the bridge restart
+      // path is initialize -> session/resume immediately, and rehydrating on
+      // an unsettled tree yields an incomplete tool surface (r2 finding).
+      get: (name: string) => name === 'loader' ? { await: () => settled } : undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    const pending = server.handleRequest('session/resume', { sessionId: 'main' })
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(resume).not.toHaveBeenCalled()
+    settleTree!()
+    await expect(pending).resolves.toEqual({})
+    expect(resume).toHaveBeenCalledOnce()
+    await server.shutdown()
+  })
+
   it('resume of an already-live session does not reload', async () => {
     const followup = vi.fn<Agent['followup']>()
     const agent = ({
