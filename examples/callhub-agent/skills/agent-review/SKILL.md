@@ -59,25 +59,27 @@ WHERE agent_id = <id> AND date >= now() - interval '30 days'
 For agent-vs-agent comparison, run the same query with
 `WHERE agent_id IN (...) GROUP BY agent_id, agent_name`.
 
-## 4. Transcripts — read before coaching
+## 4. Transcripts — read before coaching, fetch in ONE batch
 
 ```sql
 SELECT r.call_id, r.id AS recording_id, r.duration
 FROM recordings r WHERE r.call_id IN (<recent ids>) ORDER BY r.call_id
 ```
 
-Read substantive calls first (duration over ~120s); short connects and
-voicemails rarely carry coaching signal.
+Pick the substantive recordings (duration over ~120s; short connects and
+voicemails rarely carry coaching signal), then fetch ALL of them in one
+call — never one query per recording:
 
-```sql
-SELECT chunk_index, speaker_id, chunk_text
-FROM recording_transcript_chunks
-WHERE recording_id = <rid> ORDER BY chunk_index
+```
+callhub_transcripts(recording_ids=[<rid1>, <rid2>, ...])
 ```
 
-`chunk_index` is the per-recording turn ordinal. Columns are `speaker_id`
-and `chunk_text` (not speaker/text). Speaker labels are per-call guesses —
-read individual calls; never aggregate across calls by speaker.
+Results come back grouped per recording with per-recording `truncated`
+flags, and ids absent from the replica listed in `missing`. The same
+batching rule applies to any per-call metadata: one `IN (...)` query, not a
+query per call. `chunk_index` is the per-recording turn ordinal. Speaker
+labels are per-call guesses — read individual calls; never aggregate
+across calls by speaker.
 
 ## 5. Answer format
 

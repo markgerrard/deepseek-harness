@@ -71,6 +71,10 @@ function startMcpStub(): Promise<{ port: number; authHeaders: string[]; close: (
               name: 'callhub_sql',
               description: 'stub',
               inputSchema: { type: 'object', properties: { query: { type: 'string' } } },
+            }, {
+              name: 'callhub_transcripts',
+              description: 'stub',
+              inputSchema: { type: 'object', properties: { recording_ids: { type: 'array' } } },
             }],
           })
           return
@@ -196,7 +200,11 @@ describe('callhub-agent keyless smoke', () => {
       const tools = (modelRequests[0]?.tools as { function?: { name?: string } }[]).map(
         tool => tool.function?.name ?? '',
       )
-      expect(tools.sort()).toEqual(['mcp__callhub__callhub_sql', 'skill'])
+      expect(tools.sort()).toEqual([
+        'mcp__callhub__callhub_sql',
+        'mcp__callhub__callhub_transcripts',
+        'skill',
+      ])
 
       // The skill catalog must be discovered from the leaf's customSkillDirs
       // and published to the model: a composition that boots without its
