@@ -1,5 +1,10 @@
 # CallHub manager-agent composition: interrogates the CallHub DE replica
-# through the callhub-mcp server's four tools, under a READ-ONLY sandbox.
+# through the callhub-mcp server's four tools. DELIBERATELY NO EXECUTION
+# SURFACE: no bash, no terminal, no fs tools, no sandbox to need — the model's
+# only reach is the MCP tools plus the skill catalog. A shell here, even under
+# a read-only filesystem, could read same-uid credentials (the replica
+# superuser .env, the MCP bearer in its own environment) and exfiltrate over
+# the open network — found as the P0 in panel-callhub-agent-r1.
 # stdout is reserved for JSON-RPC; do not add a console logger or terminal UI.
 #
 # The bearer travels in the CHILD PROCESS ENV, never on disk. The env names are
@@ -11,11 +16,6 @@
 # !!js, and a bare ` ? ` ternary misparses — quote the whole !!js string when a
 # ternary is needed.
 
-- id: sdk-jsonrpc-server
-  name: '@deepseek-ai/dsh-sdk-jsonrpc-server'
-  config:
-    maxTokensAsSuccess: !!js "process.env.DSH_MAX_TOKENS_AS_SUCCESS === undefined ? true : JSON.parse(process.env.DSH_MAX_TOKENS_AS_SUCCESS)"
-
 # Same adapter defaults as the production jsonrpc-agent leaf: full thinking,
 # effort selected per launch via DSH_REASONING_EFFORT (off|high|max), so the
 # bridge's effort switch works for this bot identically.
@@ -24,35 +24,6 @@
   config:
     thinking: enabled
     reasoningEffort: !!js process.env.DSH_REASONING_EFFORT || 'max'
-
-# OS-level read-only enforcement for the bash tool (proven in
-# probe-approval.cordis.yml: a write returns "Read-only file system"). The
-# str-replace editor is deliberately ABSENT — it uses the bare filesystem and
-# would bypass this sandbox.
-- id: sandbox
-  name: '@deepseek-ai/dsh-sandbox-local'
-
-- id: sandbox-policy
-  name: '@deepseek-ai/dsh-sandbox-policy'
-  config:
-    mode: read-only
-    workspaceRoot: !!js process.env.DSH_CWD ?? process.cwd()
-
-- id: subprocess
-  name: '@deepseek-ai/dsh-subprocess-local'
-
-- id: pty
-  name: '@deepseek-ai/dsh-terminal'
-
-- id: terminal-bash
-  name: '@deepseek-ai/dsh-terminal-bash'
-  config:
-    timeoutMs: 300000
-
-- id: fs-local
-  name: '@deepseek-ai/dsh-fs-local'
-  config:
-    cwd: !!js process.env.DSH_CWD ?? process.cwd()
 
 # The reason this composition exists: the four callhub_* tools. failOnStartupError
 # is TRUE — a manager agent that silently boots without its database tools would
@@ -67,6 +38,16 @@
     headers:
       Authorization: !!js process.env.DSH_CALLHUB_MCP_AUTH
     failOnStartupError: true
+
+# The JSON-RPC surface loads LAST-of-the-service-plugins deliberately: cordis
+# activates entries in order and mcp-client blocks its activation on the
+# initial tool sync, so by the time stdin is served the callhub tools are
+# already registered — closing the first-turn race found in r1 (D11/D14).
+- id: sdk-jsonrpc-server
+  name: '@deepseek-ai/dsh-sdk-jsonrpc-server'
+  config:
+    maxTokensAsSuccess: !!js "process.env.DSH_MAX_TOKENS_AS_SUCCESS === undefined ? true : JSON.parse(process.env.DSH_MAX_TOKENS_AS_SUCCESS)"
+
 
 - id: agent-spine
   name: '@deepseek-ai/dsh-agent-spine-demo'
@@ -95,16 +76,6 @@
       enabled: true
     toolBash: false
     toolJobs: false
-
-- id: persistent-bash
-  name: '@deepseek-ai/dsh-tool-bash-persistent'
-  config:
-    timeoutMs: 300000
-    description: |-
-      Run commands in a bash shell on the replica host (READ-ONLY filesystem).
-      * Use this for local file inspection only (e.g. sed -n 10,25p file).
-      * Database questions go through the callhub_* tools, never psql.
-      * Please avoid commands that may produce a very large amount of output.
 
 # Distinct session root BY CONSTRUCTION: session-persistence roots must never
 # be shared between compositions (fails loud), and the bridge exports one

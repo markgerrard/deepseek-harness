@@ -177,28 +177,26 @@ describe('callhub-agent keyless smoke', () => {
         result: { serverInfo: { name: 'deepseek-harness-sdk-runtime' } },
       })
 
-      // KNOWN CHARACTERISTIC, deliberately tolerated here: the MCP tool sync
-      // races the very first turn (plugin activation is not awaited by session
-      // readiness), so turn 1 may run on the pre-sync surface. Turn 2's
-      // surface is deterministic; asserting turn 1 would be flaky. Recorded in
-      // the callhub build's decisions log as a follow-up candidate.
-      await promptAndSettle(2, 'warm-up turn')
-      await promptAndSettle(3, 'inspect tools')
+      // FIRST-TURN NEGATIVE CONTROL (r1 panel, convergent P1): the leaf lists
+      // mcp-callhub BEFORE sdk-jsonrpc-server, and cordis activates entries in
+      // order with mcp-client blocking activation on its initial tool sync —
+      // so the VERY FIRST model request must already carry the callhub tool.
+      // If this ever races again, this assertion is the tripwire.
+      await promptAndSettle(2, 'inspect tools')
 
       // The bearer must have reached the stub from CHILD PROCESS ENV.
       expect(mcp.authHeaders.length).toBeGreaterThan(0)
       expect(mcp.authHeaders.every(header => header === 'Bearer smoke-bearer-sentinel')).toBe(true)
 
-      // Model-visible tool surface: bash, the skill catalog, and the
-      // namespaced MCP tool -- and NO write/edit tool (read-only analyst;
-      // the str-replace editor is deliberately absent from the leaf).
-      const tools = (modelRequests[modelRequests.length - 1]?.tools as { function?: { name?: string } }[]).map(
+      // Model-visible tool surface: EXACT allowlist equality, so any tool
+      // added to this composition must be acknowledged here. No execution
+      // surface exists (no bash/terminal/fs/editor) -- the r1 panel P0: a
+      // shell under a read-only FS can still read same-uid credentials and
+      // exfiltrate over the network.
+      const tools = (modelRequests[0]?.tools as { function?: { name?: string } }[]).map(
         tool => tool.function?.name ?? '',
       )
-      expect(tools).toContain('bash')
-      expect(tools).toContain('mcp__callhub__callhub_sql')
-      expect(tools).not.toContain('write')
-      expect(tools).not.toContain('edit')
+      expect(tools.sort()).toEqual(['mcp__callhub__callhub_sql', 'skill'])
 
       child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'shutdown' })}\n`)
       await waitForLine(lines, value => value.id === 4, () => stderr)

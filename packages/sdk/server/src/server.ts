@@ -213,6 +213,16 @@ export class HarnessSdkJsonRpcServer {
    */
   async prompt(params: SessionPromptParams): Promise<SessionPromptResult> {
     if (this.shuttingDown) throw new Error('SDK server is shutting down')
+    // The stdio surface attaches mid-boot, so a prompt can arrive while the
+    // plugin tree is still activating — e.g. an MCP client blocking its
+    // activation on the initial tool sync. A session created at that moment
+    // assembles an INCOMPLETE tool surface for its first model request and
+    // the turn proceeds without the missing tools, silently. Let the tree
+    // settle first; after boot this resolves immediately. Hand-mounted
+    // contexts without a Loader take no await here at all, preserving the
+    // synchronous prompt->create ordering their callers rely on.
+    const loader = this.ctx.get('loader') as { await?: () => Promise<unknown> } | undefined
+    if (typeof loader?.await === 'function') await loader.await()
     // A pending load owns delivery order for its session, so the pending map
     // is consulted before the record map: a record published mid-load must not
     // let this prompt bypass operations already queued ahead of it.
