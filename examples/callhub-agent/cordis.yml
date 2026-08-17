@@ -88,8 +88,14 @@
       misread without it. If you did not run a tool for a claim, say so
       explicitly.
     workspaceContext: false
+    # customSkillDirs points into the runtime tree (DSH_RUNTIME_ROOT), which
+    # confined spawns ro-bind — one shared skill catalog for every principal,
+    # readable but not writable from inside the sandbox.
     skills:
       enabled: true
+      filesystem:
+        customSkillDirs:
+          - /home/mark/deepseek-harness/examples/callhub-agent/skills
     toolBash: false
     toolJobs: false
 

@@ -198,6 +198,11 @@ describe('callhub-agent keyless smoke', () => {
       )
       expect(tools.sort()).toEqual(['mcp__callhub__callhub_sql', 'skill'])
 
+      // The skill catalog must be discovered from the leaf's customSkillDirs
+      // and published to the model: a composition that boots without its
+      // catalog silently loses the encoded review workflows.
+      expect(JSON.stringify(modelRequests[0]?.messages ?? [])).toContain('agent-review')
+
       child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'shutdown' })}\n`)
       await waitForLine(lines, value => value.id === 4, () => stderr)
       const exit = await child
