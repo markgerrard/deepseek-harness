@@ -1,0 +1,130 @@
+# CallHub manager-agent composition: interrogates the CallHub DE replica
+# through the callhub-mcp server's four tools, under a READ-ONLY sandbox.
+# stdout is reserved for JSON-RPC; do not add a console logger or terminal UI.
+#
+# The bearer travels in the CHILD PROCESS ENV, never on disk. The env names are
+# DSH_-prefixed deliberately: the staff-agent-bridge ChildEnv("dsh") allowlist
+# forwards only DSH_*/DEEPSEEK_* (+ PATH/HOME/LANG/NODE_PATH), so any other
+# prefix is silently stripped before the runtime is spawned.
+#
+# YAML landmines (hit while writing probe-mcp.cordis.yml): no backticks inside
+# !!js, and a bare ` ? ` ternary misparses — quote the whole !!js string when a
+# ternary is needed.
+
+- id: sdk-jsonrpc-server
+  name: '@deepseek-ai/dsh-sdk-jsonrpc-server'
+  config:
+    maxTokensAsSuccess: !!js "process.env.DSH_MAX_TOKENS_AS_SUCCESS === undefined ? true : JSON.parse(process.env.DSH_MAX_TOKENS_AS_SUCCESS)"
+
+# Same adapter defaults as the production jsonrpc-agent leaf: full thinking,
+# effort selected per launch via DSH_REASONING_EFFORT (off|high|max), so the
+# bridge's effort switch works for this bot identically.
+- id: llm-deepseek
+  name: '@deepseek-ai/dsh-llm-deepseek'
+  config:
+    thinking: enabled
+    reasoningEffort: !!js process.env.DSH_REASONING_EFFORT || 'max'
+
+# OS-level read-only enforcement for the bash tool (proven in
+# probe-approval.cordis.yml: a write returns "Read-only file system"). The
+# str-replace editor is deliberately ABSENT — it uses the bare filesystem and
+# would bypass this sandbox.
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
+
+- id: sandbox-policy
+  name: '@deepseek-ai/dsh-sandbox-policy'
+  config:
+    mode: read-only
+    workspaceRoot: !!js process.env.DSH_CWD ?? process.cwd()
+
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+
+- id: pty
+  name: '@deepseek-ai/dsh-terminal'
+
+- id: terminal-bash
+  name: '@deepseek-ai/dsh-terminal-bash'
+  config:
+    timeoutMs: 300000
+
+- id: fs-local
+  name: '@deepseek-ai/dsh-fs-local'
+  config:
+    cwd: !!js process.env.DSH_CWD ?? process.cwd()
+
+# The reason this composition exists: the four callhub_* tools. failOnStartupError
+# is TRUE — a manager agent that silently boots without its database tools would
+# answer from priors, which is precisely the failure mode this system exists to
+# prevent.
+- id: mcp-callhub
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: callhub
+    transport: streamable-http
+    url: !!js process.env.DSH_CALLHUB_MCP_URL ?? 'http://127.0.0.1:8740/mcp'
+    headers:
+      Authorization: !!js process.env.DSH_CALLHUB_MCP_AUTH
+    failOnStartupError: true
+
+- id: agent-spine
+  name: '@deepseek-ai/dsh-agent-spine-demo'
+  config:
+    persona: |-
+      You are the CallHub manager agent: you answer questions about the CallHub
+      call corpus using the callhub_* tools against a read-only replica. Three
+      rules no tool can enforce, which you must never break:
+
+      1. Every ratio states its WINDOW and DENOMINATOR. A ratio without its
+         denominator is not a fact. In this corpus any all-time ratio is a
+         statement about history — compute coverage over the same window as
+         the question before treating it as a limitation.
+      2. Speaker labels A/B/C are PER-CALL guesses, not roles — recordings are
+         mono, so separation is inferred. A is the customer in one call and
+         the rep in the next. Never aggregate across calls by them.
+      3. ABSENT IS NOT EMPTY. The replica is a subset of the source; a zero
+         count may mean "not replicated here".
+
+      Answer format: every factual claim carries the call_id, the date, and
+      the sentence that produced it, so a manager audits rather than trusts.
+      Tool results carry caveats[] — repeat any caveat that bears on your
+      answer. If you did not run a tool for a claim, say so explicitly.
+    workspaceContext: false
+    skills:
+      enabled: true
+    toolBash: false
+    toolJobs: false
+
+- id: persistent-bash
+  name: '@deepseek-ai/dsh-tool-bash-persistent'
+  config:
+    timeoutMs: 300000
+    description: |-
+      Run commands in a bash shell on the replica host (READ-ONLY filesystem).
+      * Use this for local file inspection only (e.g. sed -n 10,25p file).
+      * Database questions go through the callhub_* tools, never psql.
+      * Please avoid commands that may produce a very large amount of output.
+
+# Distinct session root BY CONSTRUCTION: session-persistence roots must never
+# be shared between compositions (fails loud), and the bridge exports one
+# DSH_SESSION_ROOT for every dsh bot, so this leaf derives its own suffix.
+- id: sessions
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: !!js (process.env.DSH_SESSION_ROOT ?? './.sessions') + '-callhub'
+    compression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"
+
+- id: session-checkpoints
+  name: '@deepseek-ai/dsh-session-checkpoint-policy'
+
+- id: token-meter
+  name: '@deepseek-ai/dsh-token-meter'
+
+- id: compaction-basic
+  name: '@deepseek-ai/dsh-compaction-basic'
+  config:
+    thresholdRatio: 0.8
+    retainRatio: 0.16
+    maxTokens: 8192
+    compactionRetries: 1
