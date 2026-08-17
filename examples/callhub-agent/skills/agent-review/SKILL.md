@@ -24,22 +24,37 @@ WHERE agent_name ILIKE '%<name>%' OR original_agent_name ILIKE '%<name>%'
   answer stays short.
 - After resolution, filter every later query by `agent_id`, not name.
 
-## 2. Recent calls
+## 2. Recent calls — default to CONVERSATIONS, not dials
+
+"Last N calls" means the last N connected conversations unless the manager
+explicitly asks for all activity — a raw last-N is mostly voicemails and
+instant disconnects and reviews nothing.
 
 ```sql
 SELECT id, date, direction, status, total_time, talking_time, call_outcome,
        call_summary, contact_name, prospect_company_name
 FROM calls
 WHERE agent_id = <id>
+  AND status = 'answered'
+  AND talking_time >= 30
+  AND call_outcome IS DISTINCT FROM 'voicemail'
 ORDER BY date DESC
 LIMIT <n>
 ```
+
+The talking_time gate, not the outcome, decides — a NULL-outcome 500s
+inbound call is a real conversation someone forgot to log; an "answered"
+45s outbound with outcome voicemail is a message left, hence the explicit
+voicemail exclusion. Always say what you filtered and state the dial
+volume next to it ("her last 10 conversations — 47 dials in that span, 29
+voicemail/unconnected"), using a companion count over the same date span.
+Drop the filter when the question is about activity or volume itself.
 
 Column facts (mis-guessing these wastes turns): the date column is `date`
 (not call_date); durations are `total_time`/`talking_time` in seconds;
 outcome vocabulary is sale_made, callback_scheduled, no_decision,
 not_interested, voicemail, other, and NULL (NULL usually = missed /
-unconnected / not logged).
+unconnected / not logged — but see the gate above).
 
 ## 3. The 30-day picture — windowed, denominated
 
