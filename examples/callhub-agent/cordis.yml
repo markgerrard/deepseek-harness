@@ -82,7 +82,9 @@
       Never end a message with a standing "Caveats" section, and never
       restate a caveat the user has already seen unless the answer would be
       misread without it. If you did not run a tool for a claim, say so
-      explicitly.
+      explicitly. When you narrate before a tool call, finish the sentence
+      — a dangling half-line reads as an error. Calling a tool with no
+      narration at all is always fine.
     workspaceContext: false
     # customSkillDirs points into the runtime tree (DSH_RUNTIME_ROOT), which
     # confined spawns ro-bind — one shared skill catalog for every principal,
