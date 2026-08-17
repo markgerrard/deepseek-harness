@@ -514,6 +514,37 @@ describe('HarnessSdkJsonRpcServer', () => {
     await server.shutdown()
   })
 
+  it('a resume parked on the loader cannot resurrect an agent after shutdown', async () => {
+    let settleTree: (() => void) | undefined
+    const settled = new Promise<void>((resolve) => { settleTree = resolve })
+    const followup = vi.fn<Agent['followup']>()
+    const agent = ({
+      id: SessionId('main'),
+      followup,
+    } satisfies Pick<Agent, 'id' | 'followup'>) as unknown as Agent
+    const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+    const resume = vi.fn(async () => handle)
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: {
+        create: vi.fn(async () => handle),
+        resume,
+        get: (id: SessionId) => String(id) === 'main' ? agent : undefined,
+      },
+      get: (name: string) => name === 'loader' ? { await: () => settled } : undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    const parked = server.handleRequest('session/resume', { sessionId: 'main' })
+    await new Promise(resolve => setTimeout(resolve, 20))
+    await server.shutdown()
+    settleTree!()
+    // The parked resume must REJECT, not rehydrate: a session published after
+    // shutdown's snapshot is disposed by nobody (r3 finding).
+    await expect(parked).rejects.toThrow(/shutting down/)
+    expect(resume).not.toHaveBeenCalled()
+  })
+
   it('resume of an already-live session does not reload', async () => {
     const followup = vi.fn<Agent['followup']>()
     const agent = ({

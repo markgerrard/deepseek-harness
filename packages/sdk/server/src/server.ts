@@ -233,7 +233,14 @@ export class HarnessSdkJsonRpcServer {
   async prompt(params: SessionPromptParams): Promise<SessionPromptResult> {
     if (this.shuttingDown) throw new Error('SDK server is shutting down')
     const settled = this.settleTree()
-    if (settled !== undefined) await settled
+    if (settled !== undefined) {
+      await settled
+      // Re-check after the await: shutdown may have completed while this
+      // request was parked on the loader, and a session created or resumed
+      // now would be published AFTER shutdown's snapshot — an agent nobody
+      // disposes (r3 finding).
+      if (this.shuttingDown) throw new Error('SDK server is shutting down')
+    }
     // A pending load owns delivery order for its session, so the pending map
     // is consulted before the record map: a record published mid-load must not
     // let this prompt bypass operations already queued ahead of it.
@@ -310,7 +317,12 @@ export class HarnessSdkJsonRpcServer {
   async resume(params: SessionResumeParams): Promise<Record<string, never>> {
     if (this.shuttingDown) throw new Error('SDK server is shutting down')
     const settled = this.settleTree()
-    if (settled !== undefined) await settled
+    if (settled !== undefined) {
+      await settled
+      // Same post-park re-check as prompt(): no session load may begin after
+      // shutdown's snapshot.
+      if (this.shuttingDown) throw new Error('SDK server is shutting down')
+    }
     const pending = this.sessionCreations.get(params.sessionId)
     if (pending !== undefined) {
       // A resume must not inherit an in-flight create: that would report
