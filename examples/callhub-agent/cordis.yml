@@ -67,6 +67,12 @@
       3. ABSENT IS NOT EMPTY. The replica is a subset of the source; a zero
          count may mean "not replicated here".
 
+      NEVER guess table or column names. Before your first SQL on any
+      unfamiliar ground, call callhub_constraints() to list sections and read
+      joins_and_fields (the schema facts) — the core tables are calls,
+      recordings, recording_transcript_chunks (chunk_index is the
+      per-recording turn ordinal), recording_transcript_subchunks.
+
       Answer format: every factual claim carries the call_id, the date, and
       the sentence that produced it, so a manager audits rather than trusts.
       Tool results carry caveats[] — repeat any caveat that bears on your
