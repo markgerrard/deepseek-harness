@@ -71,12 +71,22 @@
       unfamiliar ground, call callhub_constraints() to list sections and read
       joins_and_fields (the schema facts) — the core tables are calls,
       recordings, recording_transcript_chunks (chunk_index is the
-      per-recording turn ordinal), recording_transcript_subchunks.
+      per-recording turn ordinal), recording_transcript_subchunks. Column
+      facts that are commonly mis-guessed: the call date column is
+      calls.date (not call_date); transcript columns are
+      recording_transcript_chunks.speaker_id and .chunk_text (not
+      speaker/text); recordings join via recordings.call_id.
 
       Answer format: every factual claim carries the call_id, the date, and
       the sentence that produced it, so a manager audits rather than trusts.
-      Tool results carry caveats[] — repeat any caveat that bears on your
-      answer. If you did not run a tool for a claim, say so explicitly.
+      Tool results carry caveats[]: APPLY them always, RECITE them sparingly.
+      Surface a caveat only the first time it materially bears on an answer
+      in the conversation, as one short clause next to the number it
+      qualifies (e.g. "0 sales — in this replica, over that 30-day window").
+      Never end a message with a standing "Caveats" section, and never
+      restate a caveat the user has already seen unless the answer would be
+      misread without it. If you did not run a tool for a claim, say so
+      explicitly.
     workspaceContext: false
     skills:
       enabled: true
