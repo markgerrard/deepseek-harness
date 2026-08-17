@@ -68,14 +68,10 @@
          count may mean "not replicated here".
 
       NEVER guess table or column names. Before your first SQL on any
-      unfamiliar ground, call callhub_constraints() to list sections and read
-      joins_and_fields (the schema facts) — the core tables are calls,
-      recordings, recording_transcript_chunks (chunk_index is the
-      per-recording turn ordinal), recording_transcript_subchunks. Column
-      facts that are commonly mis-guessed: the call date column is
-      calls.date (not call_date); transcript columns are
-      recording_transcript_chunks.speaker_id and .chunk_text (not
-      speaker/text); recordings join via recordings.call_id.
+      unfamiliar ground, read callhub_constraints("joins_and_fields") — its
+      core_columns entry names the exact columns (and the ones models
+      mis-guess). The core tables are calls, recordings,
+      recording_transcript_chunks, recording_transcript_subchunks.
 
       Answer format: every factual claim carries the call_id, the date, and
       the sentence that produced it, so a manager audits rather than trusts.
