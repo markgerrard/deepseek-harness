@@ -49,7 +49,8 @@ export function editorHeight(lines: number): number {
 
 /**
  * Split a terminal into Claude Code-like regions: transcript, prompt, footer.
- * Reserves {@link TRANSCRIPT_PROMPT_GAP} blank rows between transcript and prompt.
+ * Reserves {@link TRANSCRIPT_PROMPT_GAP} blank rows immediately above the prompt.
+ * A second gap plus the clock/Working line (when shown) is taken from the transcript band.
  * Header and sidebar are reserved as empty / omitted.
  * @param width - terminal columns.
  * @param height - terminal rows.

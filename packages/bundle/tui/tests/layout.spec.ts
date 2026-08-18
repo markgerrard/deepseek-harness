@@ -28,7 +28,6 @@ describe('Claude Code-like layout helpers', () => {
     expect(compact.editor.y).toBe(compact.main.y + compact.main.height + TRANSCRIPT_PROMPT_GAP)
     expect(compact.editor.y + compact.editor.height + compact.status.height).toBe(24)
     expect(full.editor.y).toBe(full.main.y + full.main.height + TRANSCRIPT_PROMPT_GAP)
-    expect(TRANSCRIPT_PROMPT_GAP).toBeGreaterThanOrEqual(1)
-    expect(TRANSCRIPT_PROMPT_GAP).toBeLessThanOrEqual(2)
+    expect(TRANSCRIPT_PROMPT_GAP).toBe(2)
   })
 })

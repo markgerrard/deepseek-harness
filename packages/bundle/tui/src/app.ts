@@ -113,7 +113,7 @@ function coloredCard(item: TranscriptItem, width: number): React.ReactElement {
   const rendered = renderCard(item, width)
   const body = React.createElement(
     Text,
-    { wrap: 'wrap', color: COLORS.fg },
+    { wrap: 'wrap', color: COLORS.fg, ...(item.kind === 'user' ? { backgroundColor: COLORS.userBar } : {}) },
     ...rendered.segments.map((segment, index) => React.createElement(
       Text,
       { key: index, color: toneColor(segment.tone) },
@@ -123,7 +123,7 @@ function coloredCard(item: TranscriptItem, width: number): React.ReactElement {
   if (item.kind === 'user') {
     return React.createElement(
       Box,
-      { key: item.id, width, backgroundColor: COLORS.userBar },
+      { key: item.id, width },
       body,
     )
   }
@@ -235,19 +235,24 @@ export function App(props: AppProps): React.ReactElement {
   const workingLine = workingMs === undefined
     ? undefined
     : formatWorkingLine(workingMs, outputTokens)
-  const mainHeight = layout.main.height - (workingLine === undefined ? 0 : 1)
 
   const items = controller.transcript()
   const showLanding = state.screen === 'landing' || (state.screen === 'chat' && items.length === 0 && !state.busy)
 
   let main: React.ReactNode
+  let trailingClock: string | undefined
   if (state.screen === 'onboarding' && state.guidance !== undefined) {
     main = React.createElement(Text, { color: COLORS.warning, wrap: 'wrap' }, renderOnboarding(mainWidth, state.guidance))
   } else if (showLanding) {
     main = landingView(mainWidth, status, home)
   } else {
     const rows = insertTurnClocks(items, state.turnClocks, state.busy)
-    const cards = rows.map((row) => {
+    const last = rows[rows.length - 1]
+    const cardRows = last?.type === 'clock' ? rows.slice(0, -1) : rows
+    if (last?.type === 'clock') {
+      trailingClock = formatDoneLine(last.clock.ms, last.clock.verb)
+    }
+    const cards = cardRows.map((row) => {
       if (row.type === 'clock') {
         return React.createElement(
           Text,
@@ -259,6 +264,10 @@ export function App(props: AppProps): React.ReactElement {
     })
     main = React.createElement(Box, { flexDirection: 'column', width: mainWidth }, ...cards)
   }
+
+  const chromeLine = workingLine ?? trailingClock
+  const chromeColor = workingLine === undefined ? COLORS.muted : COLORS.brand
+  const mainHeight = layout.main.height - (chromeLine === undefined ? 0 : 1 + TRANSCRIPT_PROMPT_GAP)
 
   let overlay: React.ReactNode = null
   if (state.overlay.kind === 'help') {
@@ -325,18 +334,25 @@ export function App(props: AppProps): React.ReactElement {
     : editorEmpty
       ? undefined
       : state.input
+  const gap = (): React.ReactElement => React.createElement(
+    Box,
+    { height: TRANSCRIPT_PROMPT_GAP, width: mainWidth, flexShrink: 0, flexDirection: 'column' },
+    ...Array.from({ length: TRANSCRIPT_PROMPT_GAP }, (_, index) => React.createElement(Text, { key: index }, ' ')),
+  )
   return React.createElement(Box, { flexDirection: 'column', width: state.width, height: state.height },
     React.createElement(Box, {
       flexDirection: 'column',
       width: mainWidth,
       height: mainHeight,
       overflow: 'hidden',
-      marginBottom: TRANSCRIPT_PROMPT_GAP,
+      flexGrow: 1,
     }, overlay === null ? main : overlay),
-    workingLine === undefined
+    chromeLine === undefined ? null : gap(),
+    chromeLine === undefined
       ? null
-      : React.createElement(Box, { height: 1, width: mainWidth, paddingX: 1 },
-        React.createElement(Text, { color: COLORS.brand, wrap: 'wrap' }, workingLine)),
+      : React.createElement(Box, { height: 1, width: mainWidth, paddingX: 1, flexShrink: 0 },
+        React.createElement(Text, { color: chromeColor, wrap: 'wrap' }, chromeLine)),
+    gap(),
     React.createElement(Box, {
       height: layout.editor.height,
       width: mainWidth,
