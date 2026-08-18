@@ -113,7 +113,7 @@ function coloredCard(item: TranscriptItem, width: number): React.ReactElement {
   const rendered = renderCard(item, width)
   const body = React.createElement(
     Text,
-    { wrap: 'wrap', color: COLORS.fg },
+    { wrap: 'wrap', color: COLORS.fg, ...(item.kind === 'user' ? { backgroundColor: COLORS.userBar } : {}) },
     ...rendered.segments.map((segment, index) => React.createElement(
       Text,
       { key: index, color: toneColor(segment.tone) },
@@ -123,7 +123,7 @@ function coloredCard(item: TranscriptItem, width: number): React.ReactElement {
   if (item.kind === 'user') {
     return React.createElement(
       Box,
-      { key: item.id, width, backgroundColor: COLORS.userBar },
+      { key: item.id, width },
       body,
     )
   }

@@ -65,14 +65,15 @@ async function mount(): Promise<{
   })
   await controller.start()
   if (created === undefined) throw new Error('factory did not create an agent')
+  const agent = created
   return {
     ctx,
     controller,
-    agent: created,
-    session: created.session,
+    agent,
+    session: agent.session,
     setStatus(status) {
-      ;(created as Agent & { status: AgentStatus }).status = status
-      agentEvents(ctx, created).emit('agent/status', { status })
+      ;(agent as Agent & { status: AgentStatus }).status = status
+      agentEvents(ctx, agent).emit('agent/status', { status })
     },
   }
 }
