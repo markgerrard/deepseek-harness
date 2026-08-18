@@ -1,0 +1,21 @@
+[
+  {
+    "kind": "throw",
+    "chunks": [
+      { "type": "block-start", "index": 0, "blockType": "text" },
+      { "type": "text-delta", "index": 0, "text": "The plan so far: first we " }
+    ],
+    "message": "SSE stream ended without [DONE]",
+    "code": "STREAM_CLOSED"
+  },
+  {
+    "kind": "chunks",
+    "chunks": [
+      { "type": "block-start", "index": 0, "blockType": "text" },
+      { "type": "text-delta", "index": 0, "text": "I don't have my previous answer — it failed mid-stream and was not retained. Tell me the goal again and I'll restate the plan from scratch." },
+      { "type": "block-end", "index": 0, "block": { "type": "text", "text": "I don't have my previous answer — it failed mid-stream and was not retained. Tell me the goal again and I'll restate the plan from scratch." } },
+      { "type": "usage", "usage": { "inputTokens": 10, "outputTokens": 30 } },
+      { "type": "finish", "reason": { "kind": "stop" } }
+    ]
+  }
+]

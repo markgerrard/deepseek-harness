@@ -58,6 +58,7 @@ const SUBAGENT_CONTINUABLE_INHERITANCE_CONFIG = fileURLToPath(
 const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
 const WEB_CONFIG = fileURLToPath(new URL('../web.cordis.yml', import.meta.url))
 const FS_SEARCH_CONFIG = fileURLToPath(new URL('./fs-search.cordis.yml', import.meta.url))
+const TURN_LOSS_CONFIG = fileURLToPath(new URL('./turn-loss.cordis.yml', import.meta.url))
 const PARTIAL_LANDLOCK_CONFIG = fileURLToPath(new URL('../partial-landlock.cordis.yml', import.meta.url))
 const PWSH_CONFIG = fileURLToPath(new URL('./pwsh.cordis.yml', import.meta.url))
 const BACKGROUND_TASK_ADMISSION_CONFIG = fileURLToPath(
@@ -340,6 +341,19 @@ const SCENARIOS: Scenario[] = [
   { name: 'fs-delete-recreate', hasModelTurn: true, recorded: true },
   { name: 'multi-turn', hasModelTurn: true, recorded: true },
   { name: 'error-finish', hasModelTurn: true, recorded: false, overridden: true },
+  // Keyless, authored (like error-finish): turn 1 streams partial text then
+  // dies with the live-observed STREAM_CLOSED shape; turn 2 must carry the
+  // turn-loss notice (injected user/message) BEFORE the user's prompt in
+  // transcript and log — the errored-turn amnesia fix's model consumer.
+  {
+    name: 'turn-loss-notice',
+    hasModelTurn: true,
+    recorded: false,
+    overridden: true,
+    pinsHeader: true,
+    headerClass: 'turn-loss',
+    configPath: TURN_LOSS_CONFIG,
+  },
   // Keyless, authored (like error-finish): a live provider cannot be coaxed
   // into a degenerate empty completion, so the fixture scripts the adapters'
   // EMPTY_RESPONSE error finish in turn 1 followed by the recovered reply

@@ -1,0 +1,35 @@
+# Keyless turn-loss composition: replayed model whose turn-1 stream dies
+# mid-flight (throw override after partial text chunks — the live-observed
+# STREAM_CLOSED shape), so turn 2 carries the turn-loss notice.
+- id: llm-replay
+  name: '@deepseek-ai/dsh-llm-replay'
+  config:
+    providers:
+      - id: deepseek-official
+        name: DeepSeek
+        models:
+          - id: deepseek-v4-pro
+
+- id: acp-agent
+  name: '@deepseek-ai/dsh-acp-demo'
+  config:
+    provider: deepseek-official
+    model: deepseek-v4-pro
+    persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
+    persistenceCompression: none
+    workspaceContext: false
+    skills:
+      enabled: false
+    toolJobs: false
+    goals: false
+    persona: You are a concise snapshot agent working in {{cwd}}.
+
+- id: turn-loss-notice
+  name: '@deepseek-ai/dsh-turn-loss-notice'
+
+# One tool so the scenario's header class has a schema to pin — the notice
+# mechanism itself needs no tools.
+- id: todo
+  name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: false

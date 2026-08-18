@@ -1,0 +1,8 @@
+{
+  "steps": [
+    { "op": "initialize" },
+    { "op": "newSession" },
+    { "op": "promptExpectError", "text": "Summarize our plan so far." },
+    { "op": "prompt", "text": "As you said before — what was the plan?" }
+  ]
+}
