@@ -1,0 +1,27 @@
+import { describe, expect, it } from 'vitest'
+import { CHROME_COMMANDS, filterPalette, isPaletteOpen, mergePalette, routeLine } from '../src/commands.ts'
+
+describe('Crush command palette', () => {
+  it('merges chrome first and skips colliding DSH names', () => {
+    const merged = mergePalette([
+      { name: 'help', description: 'ignored' },
+      { name: 'compact', description: 'Compact the session' },
+    ])
+    expect(merged[0]?.name).toBe('help')
+    expect(merged.filter(item => item.name === 'help')).toHaveLength(1)
+    expect(merged.some(item => item.id === 'dsh:compact')).toBe(true)
+  })
+
+  it('filters by slash-stripped name or description', () => {
+    expect(filterPalette(CHROME_COMMANDS, '/mod').map(item => item.name)).toEqual(['model'])
+    expect(filterPalette(CHROME_COMMANDS, 'QUIT').map(item => item.name)).toEqual(['quit'])
+  })
+
+  it('routes empty, slash, and prompt lines', () => {
+    expect(routeLine('   ')).toEqual({ kind: 'empty' })
+    expect(routeLine('/help')).toMatchObject({ kind: 'command', name: 'help' })
+    expect(routeLine('hello')).toEqual({ kind: 'prompt', text: 'hello' })
+    expect(isPaletteOpen('/he')).toBe(true)
+    expect(isPaletteOpen('/he\nlo')).toBe(false)
+  })
+})

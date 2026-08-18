@@ -28,6 +28,7 @@ describe('parseDshArgs', () => {
     expect(parse(['web'])).toEqual({ mode: 'profile', profile: 'web', patches: [], args: [] })
     expect(parse(['web', '--patch', 'web.yml']))
       .toEqual({ mode: 'profile', profile: 'web', patches: ['web.yml'], args: [] })
+    expect(parse(['tui'])).toEqual({ mode: 'profile', profile: 'tui', patches: [], args: [] })
   })
 
   it('ends the launcher flags at the first token it does not own', () => {
@@ -68,11 +69,15 @@ describe('parseDshArgs', () => {
       .toEqual({ mode: 'dump-config', profile: 'web', defaultOnly: false, patches: [] })
     expect(parse(['web', '--dump-default-config']))
       .toEqual({ mode: 'dump-config', profile: 'web', defaultOnly: true, patches: [] })
+    expect(parse(['tui', '--dump-config']))
+      .toEqual({ mode: 'dump-config', profile: 'tui', defaultOnly: false, patches: [] })
+    expect(parse(['tui', '--dump-default-config']))
+      .toEqual({ mode: 'dump-config', profile: 'tui', defaultOnly: true, patches: [] })
   })
 
   it('rejects missing profile, removed flags, and contradictory inputs', () => {
     expect(exitCode([])).toBe(1)
-    expect(exitCode(['tui'])).toBe(1) // an app argument without --profile has no app to reach
+    expect(exitCode(['unknown-app'])).toBe(1) // an app argument without a profile has no app to reach
     expect(exitCode(['--config', 'c.yml'])).toBe(1) // removed
     expect(exitCode(['-p', 'task'])).toBe(1) // removed
     expect(exitCode(['run', 'task'])).toBe(1) // app-owned task replaced the launcher subcommand

@@ -1,0 +1,65 @@
+/**
+ * Crush keybinding vocabulary for the DSH terminal UI. Bindings match
+ * Crush's shipped map (`ctrl+p` commands, `ctrl+l` models, `ctrl+s`
+ * sessions, `ctrl+g` help, `ctrl+n` new session, `esc` cancel).
+ * @module @deepseek-ai/dsh-tui/keys
+ */
+
+/** One Crush-compatible keybinding advertised in the status/help bar. */
+export interface KeyBinding {
+  /** Ink / terminal key name. */
+  readonly key: string
+  /** Alternate keys that trigger the same action. */
+  readonly aliases?: readonly string[]
+  /** Short help label shown in the status bar. */
+  readonly help: string
+  /** One-line description shown in the full help overlay. */
+  readonly description: string
+}
+
+/** Crush-compatible key map used by the TUI controller and help chrome. */
+export const KEYS = {
+  quit: { key: 'ctrl+c', help: 'ctrl+c', description: 'quit' },
+  help: { key: 'ctrl+g', help: 'ctrl+g', description: 'more' },
+  commands: { key: 'ctrl+p', help: 'ctrl+p', description: 'commands' },
+  models: { key: 'ctrl+l', aliases: ['ctrl+m'], help: 'ctrl+l', description: 'models' },
+  sessions: { key: 'ctrl+s', help: 'ctrl+s', description: 'sessions' },
+  newSession: { key: 'ctrl+n', help: 'ctrl+n', description: 'new session' },
+  send: { key: 'return', aliases: ['enter'], help: 'enter', description: 'send' },
+  newline: { key: 'ctrl+j', help: 'ctrl+j', description: 'newline' },
+  cancel: { key: 'escape', aliases: ['esc'], help: 'esc', description: 'cancel' },
+  tab: { key: 'tab', help: 'tab', description: 'change focus' },
+  expand: { key: 'space', help: 'space', description: 'expand/collapse' },
+  slash: { key: '/', help: '/', description: 'commands' },
+} as const satisfies Record<string, KeyBinding>
+
+/**
+ * Status-bar help fragments Crush shows when the editor is focused.
+ * @param compact - whether the terminal is in compact layout.
+ * @returns ordered help pairs for the status line.
+ */
+export function editorHelp(compact: boolean): readonly { key: string; label: string }[] {
+  if (compact) {
+    return [
+      { key: KEYS.commands.help, label: KEYS.commands.description },
+      { key: KEYS.help.help, label: KEYS.help.description },
+    ]
+  }
+  return [
+    { key: KEYS.commands.help, label: KEYS.commands.description },
+    { key: KEYS.models.help, label: KEYS.models.description },
+    { key: KEYS.sessions.help, label: KEYS.sessions.description },
+    { key: KEYS.help.help, label: KEYS.help.description },
+  ]
+}
+
+/**
+ * Whether `key` is one of a binding's names.
+ * @param binding - Crush keybinding.
+ * @param key - raw Ink key name.
+ * @returns true when the key triggers the binding.
+ */
+export function matches(binding: KeyBinding, key: string): boolean {
+  if (key === binding.key) return true
+  return binding.aliases?.includes(key) === true
+}
