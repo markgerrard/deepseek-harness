@@ -135,7 +135,9 @@ describe('pinTranscriptToBottom', () => {
     expect(pin.visibleHeight).toBeLessThanOrEqual(viewport)
     expect(pin.visibleHeight).toBe(viewport)
     expect(pin.skipLeadingLines).toBeGreaterThan(0)
-    const rendered = renderCard(pin.rows[0]!.type === 'item' ? pin.rows[0].item : assistant('x', ''), width)
+    const first = pin.rows[0]
+    if (first === undefined || first.type !== 'item') throw new Error('expected pinned item')
+    const rendered = renderCard(first.item, width)
     const visible = rendered.lines.slice(pin.skipLeadingLines)
     expect(visible).toHaveLength(pin.visibleHeight)
     expect(visible[visible.length - 1]).toEqual(rendered.lines[rendered.lines.length - 1])

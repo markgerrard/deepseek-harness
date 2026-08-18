@@ -170,7 +170,7 @@ describe('suggested next prompt', () => {
   })
 
   it('does not request on idle without a completed user+assistant turn', async () => {
-    const stream = vi.fn(textStream)
+    const stream = vi.fn((_options: GenerateOptions) => textStream('unused'))
     const test = await mount(stream)
     test.setStatus('idle')
     await Promise.resolve()

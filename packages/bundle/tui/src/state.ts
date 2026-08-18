@@ -7,6 +7,7 @@
 import type { ConnectProviderRow } from './connect.ts'
 import { isPaletteOpen, routeLine } from './commands.ts'
 import { matches, KEYS } from './keys.ts'
+import { applyPromptKey } from './prompt.ts'
 import { cookingVerb, type StatusNotice } from './status.ts'
 import { toggleId, type TranscriptExpansion } from './transcript.ts'
 
@@ -83,6 +84,8 @@ export interface TuiState {
   readonly overlay: Overlay
   readonly input: string
   readonly cursor: number
+  /** Last killed prompt text for readline yank (`ctrl+y`). */
+  readonly kill?: string
   readonly width: number
   readonly height: number
   readonly expansion: TranscriptExpansion
@@ -116,7 +119,7 @@ export interface TuiState {
 /** Pure UI actions. Controller-owned I/O is not represented here. */
 export type TuiAction =
   | { readonly type: 'resize'; readonly width: number; readonly height: number }
-  | { readonly type: 'set-input'; readonly input: string; readonly cursor: number }
+  | { readonly type: 'set-input'; readonly input: string; readonly cursor: number; readonly kill?: string }
   | { readonly type: 'open-overlay'; readonly overlay: Overlay }
   | { readonly type: 'close-overlay' }
   | { readonly type: 'move-overlay'; readonly delta: number }
@@ -243,7 +246,13 @@ export function reduce(state: TuiState, action: TuiAction): TuiState {
         : state.overlay.kind === 'commands'
           ? { kind: 'none' as const }
           : state.overlay
-      const next = { ...state, input, cursor: action.cursor, overlay }
+      const next = {
+        ...state,
+        input,
+        cursor: action.cursor,
+        overlay,
+        ...(action.kill === undefined ? {} : { kill: action.kill }),
+      }
       if (input === '') return next
       const { suggestion: _cleared, ...rest } = next
       return rest
@@ -397,6 +406,7 @@ export function chromeAction(state: TuiState, key: string): TuiAction | undefine
     if ((key === 'down' || key === 'j') && isListOverlay(state.overlay.kind)) {
       return { type: 'move-overlay', delta: 1 }
     }
+    if (state.overlay.kind === 'commands') return promptInputAction(state, key)
     return undefined
   }
   if (matches(KEYS.cancel, key) && state.suggestion !== undefined && state.suggestion !== '') {
@@ -414,7 +424,24 @@ export function chromeAction(state: TuiState, key: string): TuiAction | undefine
     const index = order.indexOf(state.focus)
     return { type: 'set-focus', focus: order[(index + 1) % order.length] ?? 'editor' }
   }
-  return undefined
+  return promptInputAction(state, key)
+}
+
+/**
+ * Map a readline / editor key onto `set-input` when the prompt is focused.
+ * @param state - current UI state.
+ * @param key - Ink key name.
+ * @returns a `set-input` action, or undefined when the key is not a prompt binding.
+ */
+function promptInputAction(state: TuiState, key: string): TuiAction | undefined {
+  const edit = applyPromptKey(state.input, state.cursor, key, state.kill)
+  if (edit === undefined) return undefined
+  return {
+    type: 'set-input',
+    input: edit.input,
+    cursor: edit.cursor,
+    ...(edit.kill === undefined ? {} : { kill: edit.kill }),
+  }
 }
 
 export { routeLine }

@@ -23,6 +23,7 @@ import {
 } from './chrome.ts'
 import { connectProviderById, formatModelPickerLines } from './connect.ts'
 import { layoutAreas } from './layout.ts'
+import { insertAtCursor, promptPaint } from './prompt.ts'
 import { formatDoneLine, formatStatusLine, formatWorkingLine, type StatusModel } from './status.ts'
 import { promptPlaceholder } from './suggestion.ts'
 import { COLORS, ICONS, TRANSCRIPT_PROMPT_GAP } from './theme.ts'
@@ -147,6 +148,23 @@ function coloredCard(item: TranscriptItem, width: number, skipLeadingLines = 0):
 }
 
 /**
+ * Paint the prompt buffer with the block cursor at `cursor`, not always at the end.
+ * @param input - editor contents.
+ * @param cursor - caret index.
+ * @returns a truncated Ink line.
+ */
+function promptCursorText(input: string, cursor: number): React.ReactElement {
+  const paint = promptPaint(input, cursor)
+  return React.createElement(
+    Text,
+    { wrap: 'truncate' },
+    React.createElement(Text, { color: COLORS.fg }, paint.before),
+    React.createElement(Text, { color: COLORS.fg }, paint.cursor),
+    React.createElement(Text, { color: COLORS.fg }, paint.after),
+  )
+}
+
+/**
  * Claude Code-like Ink application.
  * @param props - controller.
  * @returns the Ink element tree.
@@ -186,11 +204,13 @@ export function App(props: AppProps): React.ReactElement {
       : key.escape ? 'escape'
         : key.return ? 'return'
           : key.tab ? 'tab'
-            : key.upArrow ? 'up'
-              : key.downArrow ? 'down'
-                : key.leftArrow ? 'left'
-                  : key.rightArrow ? 'right'
-                    : input
+            : key.backspace ? 'backspace'
+              : key.delete ? 'delete'
+                : key.upArrow ? 'up'
+                  : key.downArrow ? 'down'
+                    : key.leftArrow ? 'left'
+                      : key.rightArrow ? 'right'
+                        : input
     void controller.handleKey(name).then((consumed) => {
       if (consumed) return
       if (state.overlay.kind === 'connect-key') {
@@ -206,17 +226,14 @@ export function App(props: AppProps): React.ReactElement {
         }
         return
       }
+      if (state.overlay.kind !== 'none' && state.overlay.kind !== 'commands') return
       if (key.return && !key.ctrl) {
         void controller.submit(state.input)
         return
       }
       if (key.ctrl && input === 'j') {
-        controller.dispatch({ type: 'set-input', input: `${state.input}\n`, cursor: state.input.length + 1 })
-        return
-      }
-      if (key.backspace || key.delete) {
-        const next = state.input.slice(0, Math.max(0, state.input.length - 1))
-        controller.dispatch({ type: 'set-input', input: next, cursor: next.length })
+        const edit = insertAtCursor(state.input, state.cursor, '\n')
+        controller.dispatch({ type: 'set-input', input: edit.input, cursor: edit.cursor })
         return
       }
       if (input === '?' && state.input === '' && state.overlay.kind === 'none') {
@@ -232,8 +249,8 @@ export function App(props: AppProps): React.ReactElement {
         return
       }
       if (input !== '' && !key.ctrl && !key.meta) {
-        const next = `${state.input}${input}`
-        controller.dispatch({ type: 'set-input', input: next, cursor: next.length })
+        const edit = insertAtCursor(state.input, state.cursor, input)
+        controller.dispatch({ type: 'set-input', input: edit.input, cursor: edit.cursor })
       }
     })
   })
@@ -357,11 +374,6 @@ export function App(props: AppProps): React.ReactElement {
   }
 
   const editorEmpty = state.input === '' && state.overlay.kind !== 'connect-key'
-  const promptBody = state.overlay.kind === 'connect-key'
-    ? ' '
-    : editorEmpty
-      ? undefined
-      : state.input
   const gap = (): React.ReactElement => React.createElement(
     Box,
     { height: TRANSCRIPT_PROMPT_GAP, width: mainWidth, flexShrink: 0, flexGrow: 0, flexDirection: 'column' },
@@ -392,10 +404,16 @@ export function App(props: AppProps): React.ReactElement {
       flexGrow: 0,
     },
     React.createElement(Text, { color: COLORS.brand, wrap: 'truncate' }, `${ICONS.prompt} `),
-    promptBody === undefined
-      ? React.createElement(Text, { color: COLORS.muted, wrap: 'truncate' }, promptPlaceholder(state))
-      : React.createElement(Text, { color: COLORS.fg, wrap: 'truncate' }, promptBody),
-    React.createElement(Text, { color: COLORS.fg, backgroundColor: COLORS.fg }, ' ')),
+    state.overlay.kind === 'connect-key'
+      ? React.createElement(Text, { color: COLORS.fg }, ' ')
+      : editorEmpty
+        ? React.createElement(
+          Text,
+          { wrap: 'truncate' },
+          React.createElement(Text, { color: COLORS.fg }, ICONS.cursor),
+          React.createElement(Text, { color: COLORS.muted }, promptPlaceholder(state)),
+        )
+        : promptCursorText(state.input, state.cursor)),
     React.createElement(Box, { height: 1, width: mainWidth, paddingX: 1, flexShrink: 0, flexGrow: 0 },
       React.createElement(Text, { color: COLORS.dim }, formatStatusLine(status, Math.max(1, state.width - 2), home))),
   )
