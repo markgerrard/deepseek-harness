@@ -99,3 +99,6 @@ export const EDITOR_MAX_HEIGHT = 15
 
 /** Minimum Claude Code-like prompt textarea height (border + one content row). */
 export const EDITOR_MIN_HEIGHT = 3
+
+/** Blank rows between the last transcript line and the pinned prompt. */
+export const TRANSCRIPT_PROMPT_GAP = 1

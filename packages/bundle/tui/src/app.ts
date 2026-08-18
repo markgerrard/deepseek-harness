@@ -24,7 +24,7 @@ import {
 import { connectProviderById, formatModelPickerLines } from './connect.ts'
 import { layoutAreas } from './layout.ts'
 import { formatDoneLine, formatStatusLine, formatWorkingLine, type StatusModel } from './status.ts'
-import { COLORS, ICONS } from './theme.ts'
+import { COLORS, ICONS, TRANSCRIPT_PROMPT_GAP } from './theme.ts'
 import type { TuiState } from './state.ts'
 import type { TranscriptItem } from './transcript.ts'
 
@@ -113,7 +113,7 @@ function coloredCard(item: TranscriptItem, width: number): React.ReactElement {
   const rendered = renderCard(item, width)
   const body = React.createElement(
     Text,
-    { wrap: 'wrap', color: COLORS.fg, ...(item.kind === 'user' ? { backgroundColor: COLORS.userBar } : {}) },
+    { wrap: 'wrap', color: COLORS.fg },
     ...rendered.segments.map((segment, index) => React.createElement(
       Text,
       { key: index, color: toneColor(segment.tone) },
@@ -123,7 +123,7 @@ function coloredCard(item: TranscriptItem, width: number): React.ReactElement {
   if (item.kind === 'user') {
     return React.createElement(
       Box,
-      { key: item.id, width },
+      { key: item.id, width, backgroundColor: COLORS.userBar },
       body,
     )
   }
@@ -326,8 +326,13 @@ export function App(props: AppProps): React.ReactElement {
       ? undefined
       : state.input
   return React.createElement(Box, { flexDirection: 'column', width: state.width, height: state.height },
-    React.createElement(Box, { flexDirection: 'column', width: mainWidth, height: mainHeight, overflow: 'hidden' },
-      overlay === null ? main : overlay),
+    React.createElement(Box, {
+      flexDirection: 'column',
+      width: mainWidth,
+      height: mainHeight,
+      overflow: 'hidden',
+      marginBottom: TRANSCRIPT_PROMPT_GAP,
+    }, overlay === null ? main : overlay),
     workingLine === undefined
       ? null
       : React.createElement(Box, { height: 1, width: mainWidth, paddingX: 1 },

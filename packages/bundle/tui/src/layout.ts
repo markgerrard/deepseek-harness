@@ -5,7 +5,7 @@
  * @module @deepseek-ai/dsh-tui/layout
  */
 
-import { COMPACT_HEIGHT, COMPACT_WIDTH, EDITOR_MAX_HEIGHT, EDITOR_MIN_HEIGHT } from './theme.ts'
+import { COMPACT_HEIGHT, COMPACT_WIDTH, EDITOR_MAX_HEIGHT, EDITOR_MIN_HEIGHT, TRANSCRIPT_PROMPT_GAP } from './theme.ts'
 
 /** A rectangular region in terminal cells. */
 export interface Rect {
@@ -49,6 +49,7 @@ export function editorHeight(lines: number): number {
 
 /**
  * Split a terminal into Claude Code-like regions: transcript, prompt, footer.
+ * Reserves {@link TRANSCRIPT_PROMPT_GAP} blank rows between transcript and prompt.
  * Header and sidebar are reserved as empty / omitted.
  * @param width - terminal columns.
  * @param height - terminal rows.
@@ -62,13 +63,14 @@ export function layoutAreas(width: number, height: number, inputLines: number): 
   const headerHeight = 0
   const statusHeight = 1
   const editor = editorHeight(inputLines)
-  const bodyHeight = Math.max(0, rows - headerHeight - editor - statusHeight)
+  const gap = TRANSCRIPT_PROMPT_GAP
+  const bodyHeight = Math.max(0, rows - headerHeight - editor - statusHeight - gap)
   return {
     compact,
     header: { x: 0, y: 0, width: cols, height: headerHeight },
     sidebar: undefined,
     main: { x: 0, y: headerHeight, width: cols, height: bodyHeight },
-    editor: { x: 0, y: headerHeight + bodyHeight, width: cols, height: editor },
+    editor: { x: 0, y: headerHeight + bodyHeight + gap, width: cols, height: editor },
     status: { x: 0, y: rows - statusHeight, width: cols, height: statusHeight },
   }
 }

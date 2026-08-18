@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { editorHeight, isCompact, layoutAreas } from '../src/layout.ts'
+import { TRANSCRIPT_PROMPT_GAP } from '../src/theme.ts'
 
 describe('Claude Code-like layout helpers', () => {
   it('still reports leftover compact breakpoints without using a sidebar', () => {
@@ -24,6 +25,10 @@ describe('Claude Code-like layout helpers', () => {
     expect(compact.sidebar).toBeUndefined()
     expect(compact.main.x).toBe(0)
     expect(compact.header.height).toBe(0)
+    expect(compact.editor.y).toBe(compact.main.y + compact.main.height + TRANSCRIPT_PROMPT_GAP)
     expect(compact.editor.y + compact.editor.height + compact.status.height).toBe(24)
+    expect(full.editor.y).toBe(full.main.y + full.main.height + TRANSCRIPT_PROMPT_GAP)
+    expect(TRANSCRIPT_PROMPT_GAP).toBeGreaterThanOrEqual(1)
+    expect(TRANSCRIPT_PROMPT_GAP).toBeLessThanOrEqual(2)
   })
 })
