@@ -9,6 +9,16 @@ The manager's dominant question shape: "review <agent>'s last call", "look at
 her last 10 calls and suggest improvements", "what about <other agent>?".
 Follow this chain instead of rediscovering the schema.
 
+## 0. Reviewing YOURSELF? Use the self-scoped tools, skip the chain
+
+If the person under review is the ASKER (their whoami user_id), do not
+run the SQL chain at all: `callhub_my_calls` (recent conversations +
+dial-volume denomination built in), `callhub_my_stats` (the §3 windowed
+aggregate), `callhub_my_recordings(call_ids)` (feed callhub_transcripts).
+They work at every permission tier — for non-senior users the SQL chain
+below is REFUSED by the access gate, and that refusal is final, not
+retryable. Then continue at §4-§5 for transcripts and the answer format.
+
 ## 1. Resolve the agent — always to agent_id first
 
 ```sql

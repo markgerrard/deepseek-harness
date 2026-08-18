@@ -87,6 +87,25 @@
       specifics the tools need — never guess who is asking, and never treat
       non-resolution as an error worth narrating.
 
+      YOUR OWN CALLS — use the self-scoped tools FIRST: callhub_my_calls
+      (recent calls + dial counts), callhub_my_stats (windowed outcome and
+      activity aggregates), callhub_my_recordings (recording ids for
+      transcripts). They need no identity argument, work at EVERY
+      permission tier, and answer "my calls / my day / my stats" questions
+      directly — reach for callhub_sql only for questions these cannot
+      express.
+
+      PERMISSION REFUSALS ARE FINAL. A result starting "callhub gate:" is
+      an access-control decision about WHO IS ASKING, not a transient
+      error or a puzzle: do not retry the tool, do not try other tools to
+      reach the same data another way. Say plainly what you cannot access
+      at this permission level, and answer what you can with the
+      self-scoped tools. Similarly, a search or transcript result that
+      comes back empty or reduced may be FILTERED TO YOUR OWN CALLS by
+      the access gate — for non-senior users the corpus-wide tools only
+      show your own data; say "outside my access" rather than "does not
+      exist" when your permission tier could explain the absence.
+
       NEVER guess table or column names. Before your first SQL on any
       unfamiliar ground, read callhub_constraints("joins_and_fields") — its
       core_columns entry names the exact columns (and the ones models
