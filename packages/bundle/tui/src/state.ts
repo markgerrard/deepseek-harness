@@ -109,6 +109,8 @@ export interface TuiState {
   readonly notice?: StatusNotice
   /** Filtered command-palette length used to clamp overlay selection. */
   readonly paletteLength: number
+  /** Ghost follow-up shown as the empty-editor placeholder after a completed turn. */
+  readonly suggestion?: string
 }
 
 /** Pure UI actions. Controller-owned I/O is not represented here. */
@@ -135,6 +137,7 @@ export type TuiAction =
   | { readonly type: 'set-notice'; readonly notice?: StatusNotice }
   | { readonly type: 'set-palette-length'; readonly paletteLength: number }
   | { readonly type: 'clear-input' }
+  | { readonly type: 'set-suggestion'; readonly suggestion?: string }
 
 /**
  * Initial Claude Code-like landing state.
@@ -240,7 +243,10 @@ export function reduce(state: TuiState, action: TuiAction): TuiState {
         : state.overlay.kind === 'commands'
           ? { kind: 'none' as const }
           : state.overlay
-      return { ...state, input, cursor: action.cursor, overlay }
+      const next = { ...state, input, cursor: action.cursor, overlay }
+      if (input === '') return next
+      const { suggestion: _cleared, ...rest } = next
+      return rest
     }
     case 'open-overlay':
       return { ...state, overlay: action.overlay }
@@ -313,7 +319,7 @@ export function reduce(state: TuiState, action: TuiAction): TuiState {
       const at = action.at ?? Date.now()
       if (action.busy) {
         if (state.busy) return state
-        const { lastTurnMs: _cleared, ...rest } = state
+        const { lastTurnMs: _cleared, suggestion: _suggestion, ...rest } = state
         return {
           ...rest,
           busy: true,
@@ -354,8 +360,17 @@ export function reduce(state: TuiState, action: TuiAction): TuiState {
     }
     case 'set-palette-length':
       return { ...state, paletteLength: action.paletteLength }
-    case 'clear-input':
-      return { ...state, input: '', cursor: 0, overlay: state.overlay.kind === 'commands' ? { kind: 'none' } : state.overlay }
+    case 'clear-input': {
+      const { suggestion: _cleared, ...rest } = state
+      return { ...rest, input: '', cursor: 0, overlay: state.overlay.kind === 'commands' ? { kind: 'none' } : state.overlay }
+    }
+    case 'set-suggestion': {
+      if (action.suggestion === undefined || action.suggestion === '') {
+        const { suggestion: _cleared, ...rest } = state
+        return rest
+      }
+      return { ...state, suggestion: action.suggestion }
+    }
     default: {
       const _exhaustive: never = action
       return _exhaustive
@@ -384,11 +399,17 @@ export function chromeAction(state: TuiState, key: string): TuiAction | undefine
     }
     return undefined
   }
+  if (matches(KEYS.cancel, key) && state.suggestion !== undefined && state.suggestion !== '') {
+    return { type: 'set-suggestion' }
+  }
   if (matches(KEYS.help, key)) return { type: 'open-overlay', overlay: { kind: 'help' } }
   if (matches(KEYS.commands, key)) return { type: 'open-overlay', overlay: { kind: 'commands', query: state.input, selected: 0 } }
   if (matches(KEYS.models, key)) return { type: 'open-overlay', overlay: { kind: 'models', selected: 0 } }
   if (matches(KEYS.sessions, key)) return { type: 'open-overlay', overlay: { kind: 'sessions', selected: 0 } }
   if (matches(KEYS.tab, key)) {
+    if (state.input === '' && state.suggestion !== undefined && state.suggestion !== '') {
+      return { type: 'set-input', input: state.suggestion, cursor: state.suggestion.length }
+    }
     const order: Focus[] = ['editor', 'chat']
     const index = order.indexOf(state.focus)
     return { type: 'set-focus', focus: order[(index + 1) % order.length] ?? 'editor' }

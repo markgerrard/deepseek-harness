@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { insertTurnClocks, renderCard, renderDiff, renderTranscript, summarizeArgs, toneColor, toolMarkTone } from '../src/cards.ts'
+import { cardWrapWidth, estimateCardHeight, insertTurnClocks, pinTranscriptToBottom, renderCard, renderDiff, renderTranscript, summarizeArgs, toneColor, toolMarkTone } from '../src/cards.ts'
+import { wrapText } from '../src/status.ts'
 import { COLORS, ICONS } from '../src/theme.ts'
 
 describe('Claude Code-like cards', () => {
@@ -83,5 +84,79 @@ describe('Claude Code-like cards', () => {
     }, 40)
     expect(thinking.segments[0]?.tone).toBe('brand')
     expect(thinking.segments.some(segment => segment.tone === 'thinking')).toBe(true)
+  })
+})
+
+describe('pinTranscriptToBottom', () => {
+  const user = (id: string, text: string) => ({ kind: 'user' as const, id, seq: 1, text })
+  const assistant = (id: string, text: string) => ({
+    kind: 'assistant' as const, id, seq: 2, text, streaming: false,
+  })
+
+  it('keeps the last card and drops the first when cards are taller than the viewport', () => {
+    const rows = [
+      { type: 'item' as const, item: user('u0', 'oldest prompt') },
+      { type: 'item' as const, item: assistant('a0', 'oldest reply') },
+      { type: 'item' as const, item: user('u1', 'newest prompt') },
+      { type: 'item' as const, item: assistant('a1', 'newest reply that must stay visible') },
+    ]
+    const pin = pinTranscriptToBottom(rows, 40, 1)
+    const ids = pin.rows.map(row => row.type === 'item' ? row.item.id : row.clock.id)
+    expect(pin.taller).toBe(true)
+    expect(ids[ids.length - 1]).toBe('a1')
+    expect(ids).not.toContain('u0')
+    expect(ids).toContain('a1')
+  })
+
+  it('keeps every card when the transcript fits', () => {
+    const rows = [
+      { type: 'item' as const, item: user('u1', 'hi') },
+      { type: 'item' as const, item: assistant('a1', 'ok') },
+    ]
+    const pin = pinTranscriptToBottom(rows, 40, 20)
+    expect(pin.taller).toBe(false)
+    expect(pin.rows).toHaveLength(2)
+    expect(pin.rows[0]?.type === 'item' && pin.rows[0].item.id).toBe('u1')
+    expect(pin.rows[1]?.type === 'item' && pin.rows[1].item.id).toBe('a1')
+  })
+
+  it('pin-slices a card taller than the viewport so painted height fits and only the top is clipped', () => {
+    const long = 'word '.repeat(80).trim()
+    const rows = [
+      { type: 'item' as const, item: user('u0', 'old') },
+      { type: 'item' as const, item: assistant('a1', long) },
+    ]
+    const width = 20
+    const viewport = 3
+    const pin = pinTranscriptToBottom(rows, width, viewport)
+    const ids = pin.rows.map(row => row.type === 'item' ? row.item.id : row.clock.id)
+    expect(pin.taller).toBe(true)
+    expect(ids).toEqual(['a1'])
+    expect(pin.visibleHeight).toBeLessThanOrEqual(viewport)
+    expect(pin.visibleHeight).toBe(viewport)
+    expect(pin.skipLeadingLines).toBeGreaterThan(0)
+    const rendered = renderCard(pin.rows[0]!.type === 'item' ? pin.rows[0].item : assistant('x', ''), width)
+    const visible = rendered.lines.slice(pin.skipLeadingLines)
+    expect(visible).toHaveLength(pin.visibleHeight)
+    expect(visible[visible.length - 1]).toEqual(rendered.lines[rendered.lines.length - 1])
+    expect(visible[0]).not.toEqual(rendered.lines[0])
+  })
+})
+
+describe('pre-wrap width matches estimateCardHeight', () => {
+  it('wraps a known string to N lines at width W and estimateCardHeight equals N', () => {
+    const width = cardWrapWidth(10)
+    const body = 'x'.repeat(30)
+    const item = { kind: 'assistant' as const, id: 'a', seq: 1, text: body, streaming: false }
+    const wrapped = wrapText(`${ICONS.assistant} ${body}`, width)
+    const n = wrapped.split('\n').length
+    expect(n).toBe(4)
+    expect(estimateCardHeight(item, width)).toBe(n)
+    const rendered = renderCard(item, width)
+    expect(rendered.lines).toHaveLength(n)
+    for (const line of rendered.lines) {
+      const cells = line.segments.map(segment => segment.text).join('').length
+      expect(cells).toBeLessThanOrEqual(width)
+    }
   })
 })

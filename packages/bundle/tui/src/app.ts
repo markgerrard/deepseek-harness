@@ -7,7 +7,7 @@
 import React, { useEffect, useState } from 'react'
 import { Box, Text, useInput, useStdout } from 'ink'
 import type { TuiController } from './controller.ts'
-import { insertTurnClocks, renderCard, toneColor } from './cards.ts'
+import { cardWrapWidth, insertTurnClocks, pinTranscriptToBottom, renderCard, toneColor } from './cards.ts'
 import {
   connectProviderLines,
   helpLines,
@@ -24,6 +24,7 @@ import {
 import { connectProviderById, formatModelPickerLines } from './connect.ts'
 import { layoutAreas } from './layout.ts'
 import { formatDoneLine, formatStatusLine, formatWorkingLine, type StatusModel } from './status.ts'
+import { promptPlaceholder } from './suggestion.ts'
 import { COLORS, ICONS, TRANSCRIPT_PROMPT_GAP } from './theme.ts'
 import type { TuiState } from './state.ts'
 import type { TranscriptItem } from './transcript.ts'
@@ -106,28 +107,43 @@ function landingView(width: number, status: StatusModel, home: string | undefine
 /**
  * Render one transcript card with per-fragment Ink colors.
  * @param item - projected row.
- * @param width - card columns.
+ * @param width - card Box columns (same value as wrapText).
+ * @param skipLeadingLines - top-clipped pre-wrapped rows from pin-to-bottom.
  * @returns a colored card.
  */
-function coloredCard(item: TranscriptItem, width: number): React.ReactElement {
-  const rendered = renderCard(item, width)
-  const body = React.createElement(
-    Text,
-    { wrap: 'wrap', color: COLORS.fg, ...(item.kind === 'user' ? { backgroundColor: COLORS.userBar } : {}) },
-    ...rendered.segments.map((segment, index) => React.createElement(
+function coloredCard(item: TranscriptItem, width: number, skipLeadingLines = 0): React.ReactElement {
+  const wrapWidth = cardWrapWidth(width)
+  const rendered = renderCard(item, wrapWidth)
+  const lines = rendered.lines.slice(Math.max(0, skipLeadingLines))
+  const rows = lines.map((line, index) => React.createElement(
+    Box,
+    { key: index, width: wrapWidth, height: 1, flexShrink: 0, flexGrow: 0 },
+    React.createElement(
       Text,
-      { key: index, color: toneColor(segment.tone) },
-      segment.text,
-    )),
+      {
+        wrap: 'truncate',
+        color: COLORS.fg,
+        ...(item.kind === 'user' ? { backgroundColor: COLORS.userBar } : {}),
+      },
+      ...line.segments.map((segment, segIndex) => React.createElement(
+        Text,
+        { key: segIndex, color: toneColor(segment.tone) },
+        segment.text,
+      )),
+    ),
+  ))
+  return React.createElement(
+    Box,
+    {
+      key: item.id,
+      width: wrapWidth,
+      height: lines.length,
+      flexShrink: 0,
+      flexGrow: 0,
+      flexDirection: 'column',
+    },
+    ...rows,
   )
-  if (item.kind === 'user') {
-    return React.createElement(
-      Box,
-      { key: item.id, width },
-      body,
-    )
-  }
-  return React.createElement(Box, { key: item.id, width }, body)
 }
 
 /**
@@ -241,6 +257,7 @@ export function App(props: AppProps): React.ReactElement {
 
   let main: React.ReactNode
   let trailingClock: string | undefined
+  let transcriptTaller = false
   if (state.screen === 'onboarding' && state.guidance !== undefined) {
     main = React.createElement(Text, { color: COLORS.warning, wrap: 'wrap' }, renderOnboarding(mainWidth, state.guidance))
   } else if (showLanding) {
@@ -252,17 +269,28 @@ export function App(props: AppProps): React.ReactElement {
     if (last?.type === 'clock') {
       trailingClock = formatDoneLine(last.clock.ms, last.clock.verb)
     }
-    const cards = cardRows.map((row) => {
+    const chromeLinePreview = workingLine ?? trailingClock
+    const transcriptHeight = layout.main.height - (chromeLinePreview === undefined ? 0 : 1 + TRANSCRIPT_PROMPT_GAP)
+    const paintWidth = cardWrapWidth(mainWidth)
+    const pin = pinTranscriptToBottom(cardRows, paintWidth, transcriptHeight)
+    transcriptTaller = pin.taller
+    const cards = pin.rows.map((row, index) => {
+      const skip = index === 0 ? pin.skipLeadingLines : 0
       if (row.type === 'clock') {
         return React.createElement(
-          Text,
-          { key: row.clock.id, color: COLORS.muted, wrap: 'wrap' },
-          formatDoneLine(row.clock.ms, row.clock.verb),
+          Box,
+          { key: row.clock.id, height: 1, width: paintWidth, flexShrink: 0, flexGrow: 0 },
+          React.createElement(Text, { color: COLORS.muted, wrap: 'truncate' }, formatDoneLine(row.clock.ms, row.clock.verb)),
         )
       }
-      return coloredCard(row.item, mainWidth)
+      return coloredCard(row.item, paintWidth, skip)
     })
-    main = React.createElement(Box, { flexDirection: 'column', width: mainWidth }, ...cards)
+    main = React.createElement(Box, {
+      flexDirection: 'column',
+      width: paintWidth,
+      flexGrow: 0,
+      flexShrink: 0,
+    }, ...cards)
   }
 
   const chromeLine = workingLine ?? trailingClock
@@ -336,7 +364,7 @@ export function App(props: AppProps): React.ReactElement {
       : state.input
   const gap = (): React.ReactElement => React.createElement(
     Box,
-    { height: TRANSCRIPT_PROMPT_GAP, width: mainWidth, flexShrink: 0, flexDirection: 'column' },
+    { height: TRANSCRIPT_PROMPT_GAP, width: mainWidth, flexShrink: 0, flexGrow: 0, flexDirection: 'column' },
     ...Array.from({ length: TRANSCRIPT_PROMPT_GAP }, (_, index) => React.createElement(Text, { key: index }, ' ')),
   )
   return React.createElement(Box, { flexDirection: 'column', width: state.width, height: state.height },
@@ -344,14 +372,15 @@ export function App(props: AppProps): React.ReactElement {
       flexDirection: 'column',
       width: mainWidth,
       height: mainHeight,
-      overflow: 'hidden',
-      flexGrow: 1,
+      flexGrow: 0,
+      flexShrink: 0,
+      justifyContent: overlay === null && transcriptTaller ? 'flex-end' : 'flex-start',
     }, overlay === null ? main : overlay),
     chromeLine === undefined ? null : gap(),
     chromeLine === undefined
       ? null
-      : React.createElement(Box, { height: 1, width: mainWidth, paddingX: 1, flexShrink: 0 },
-        React.createElement(Text, { color: chromeColor, wrap: 'wrap' }, chromeLine)),
+      : React.createElement(Box, { height: 1, width: mainWidth, paddingX: 1, flexShrink: 0, flexGrow: 0 },
+        React.createElement(Text, { color: chromeColor, wrap: 'truncate' }, chromeLine)),
     gap(),
     React.createElement(Box, {
       height: layout.editor.height,
@@ -359,13 +388,15 @@ export function App(props: AppProps): React.ReactElement {
       borderStyle: 'round',
       borderColor: COLORS.dim,
       paddingX: 1,
+      flexShrink: 0,
+      flexGrow: 0,
     },
-    React.createElement(Text, { color: COLORS.brand }, `${ICONS.prompt} `),
+    React.createElement(Text, { color: COLORS.brand, wrap: 'truncate' }, `${ICONS.prompt} `),
     promptBody === undefined
-      ? React.createElement(Text, { color: COLORS.muted, wrap: 'wrap' }, 'Ask DSH…')
-      : React.createElement(Text, { color: COLORS.fg, wrap: 'wrap' }, promptBody),
+      ? React.createElement(Text, { color: COLORS.muted, wrap: 'truncate' }, promptPlaceholder(state))
+      : React.createElement(Text, { color: COLORS.fg, wrap: 'truncate' }, promptBody),
     React.createElement(Text, { color: COLORS.fg, backgroundColor: COLORS.fg }, ' ')),
-    React.createElement(Box, { height: 1, width: mainWidth, paddingX: 1 },
+    React.createElement(Box, { height: 1, width: mainWidth, paddingX: 1, flexShrink: 0, flexGrow: 0 },
       React.createElement(Text, { color: COLORS.dim }, formatStatusLine(status, Math.max(1, state.width - 2), home))),
   )
 }

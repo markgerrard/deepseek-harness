@@ -14,7 +14,7 @@ import type { Agent, AgentHandle, ModelSelectionRef } from '@deepseek-ai/dsh-age
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type { CommandDescriptor } from '@deepseek-ai/dsh-commands'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, type GenerateOptions } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
@@ -44,7 +44,42 @@ import {
   type TuiAction,
   type TuiState,
 } from './state.ts'
+import {
+  capSuggestion,
+  conversationSnippet,
+  fallbackSuggestion,
+  readSuggestionText,
+  shouldApplySuggestion,
+  suggestionGenerateOptions,
+  SUGGESTION_TIMEOUT_MS,
+} from './suggestion.ts'
 import { foldRequestModel, foldSessionTitle, projectTranscript, type TranscriptItem } from './transcript.ts'
+
+/**
+ * Reject when `signal` is (or becomes) aborted so a hung `llm.stream` cannot
+ * stall {@link TuiController.consumeSuggestion}.
+ */
+function whenAborted(signal: AbortSignal): Promise<never> {
+  return new Promise((_, reject) => {
+    const fail = (): void => {
+      reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+    }
+    if (signal.aborted) {
+      fail()
+      return
+    }
+    signal.addEventListener('abort', fail, { once: true })
+  })
+}
+
+/** Last assistant card id in a projected transcript, if any. */
+function lastAssistantId(items: readonly TranscriptItem[]): string | undefined {
+  let id: string | undefined
+  for (const item of items) {
+    if (item.kind === 'assistant') id = item.id
+  }
+  return id
+}
 
 /** Listener notified after every state change. */
 export type StateListener = (state: TuiState) => void
@@ -69,6 +104,10 @@ export class TuiController {
   private approvalWaiter: ((outcome: ApprovalOutcome) => void) | undefined
   private questionWaiter: ((answer: AskUserQuestionAnswer) => void) | undefined
   private pendingQuestionIds: string[] = []
+  private suggestionEpoch = 0
+  private suggestionAbort: AbortController | undefined
+  /** Last assistant card we already showed a ghost for; submit/type must not replay it. */
+  private suggestedAssistantId: string | undefined
 
   /**
    * @param ctx - settled plugin context carrying core DSH services.
@@ -138,6 +177,7 @@ export class TuiController {
    * @param action - UI action.
    */
   dispatch(action: TuiAction): void {
+    if (this.invalidatesSuggestion(action)) this.cancelSuggestionRequest()
     this.state = reduce(this.state, action)
     const paletteLength = this.palette().length
     if (this.state.paletteLength !== paletteLength) {
@@ -171,6 +211,8 @@ export class TuiController {
    * Create a fresh persisted Agent.
    */
   async create(): Promise<void> {
+    this.suggestedAssistantId = undefined
+    this.dispatch({ type: 'set-suggestion' })
     await this.disposeHandle()
     const selection = this.currentSelection()
     this.selection = { current: selection, assembled: undefined }
@@ -190,6 +232,8 @@ export class TuiController {
    * @param id - stored session id.
    */
   async resume(id: string): Promise<void> {
+    this.suggestedAssistantId = undefined
+    this.dispatch({ type: 'set-suggestion' })
     await this.disposeHandle()
     const selection = this.currentSelection()
     this.selection = { current: selection, assembled: undefined }
@@ -437,12 +481,18 @@ export class TuiController {
       // assistant text). Busy follows agent/status, not the last log row.
       this.dispatch({ type: 'set-busy', busy: agent.status === 'running' })
       this.refreshTokens()
+      // Idle can land before the last assistant is projected. Retry once the
+      // transcript has a user+assistant pair and no request is in flight.
+      if (agent.status !== 'running') this.maybeRequestSuggestion()
       void event
     }) as unknown as () => void
     const offStatus = this.ctx.on('agent/status', ({ agent: next, status }) => {
       if (next.id !== agent.id) return
       this.dispatch({ type: 'set-busy', busy: status === 'running' })
-      if (status !== 'running') this.refreshTokens()
+      if (status !== 'running') {
+        this.refreshTokens()
+        this.maybeRequestSuggestion()
+      }
     }) as unknown as () => void
     this.eventDisposer = () => {
       offSession()
@@ -452,6 +502,8 @@ export class TuiController {
   }
 
   private async disposeHandle(): Promise<void> {
+    this.suggestedAssistantId = undefined
+    this.cancelSuggestionRequest()
     this.eventDisposer?.()
     this.eventDisposer = undefined
     const existing = this.handle
@@ -676,5 +728,134 @@ export class TuiController {
         })
       },
     })
+  }
+
+  /**
+   * Whether `action` should cancel an in-flight follow-up suggestion.
+   * @param action - the UI action about to be reduced.
+   * @returns true when typing, submit/clear, a new turn, or an explicit dismiss.
+   */
+  private invalidatesSuggestion(action: TuiAction): boolean {
+    switch (action.type) {
+      case 'set-input':
+        return action.input !== ''
+      case 'clear-input':
+        return true
+      case 'set-busy':
+        return action.busy
+      case 'set-suggestion':
+        return action.suggestion === undefined || action.suggestion === ''
+      default:
+        return false
+    }
+  }
+
+  /** Abort any in-flight suggestion request and bump the epoch so late results are ignored. */
+  private cancelSuggestionRequest(): void {
+    this.suggestionEpoch += 1
+    this.suggestionAbort?.abort()
+    this.suggestionAbort = undefined
+  }
+
+  /**
+   * Copy the live session log so a suggestion request sees the latest cards.
+   * `agent/status` idle can fire before `session/event` updates `this.events`.
+   */
+  private syncTranscriptEvents(): void {
+    const agent = this.agent()
+    if (agent !== undefined) this.events = [...agent.session.events]
+  }
+
+  /**
+   * Start a follow-up suggestion when idle, the editor is empty, and nothing
+   * is already in flight. Used from both `agent/status` idle and later
+   * `session/event` (retry when the first idle saw an empty snippet).
+   */
+  private maybeRequestSuggestion(): void {
+    if (this.state.busy) return
+    if (this.state.input !== '') return
+    if (this.state.suggestion !== undefined && this.state.suggestion !== '') return
+    if (this.suggestionAbort !== undefined) return
+    this.requestSuggestion()
+  }
+
+  /**
+   * Show a last-assistant fallback immediately, then fire one detached
+   * follow-up completion that may upgrade the ghost. Empty transcripts keep
+   * `Ask DSH…`. A missing, empty, hung, or failing LLM leaves the fallback.
+   */
+  private requestSuggestion(): void {
+    this.cancelSuggestionRequest()
+    const epoch = this.suggestionEpoch
+    this.syncTranscriptEvents()
+    const items = this.transcript()
+    const assistantId = lastAssistantId(items)
+    // Submit/type/escape clear the ghost; do not replay the same completed turn.
+    if (assistantId !== undefined && assistantId === this.suggestedAssistantId) return
+    this.applyFallbackSuggestion(epoch, items)
+    if (assistantId !== undefined) this.suggestedAssistantId = assistantId
+    const snippet = conversationSnippet(items)
+    if (snippet === '') return
+    const abort = new AbortController()
+    this.suggestionAbort = abort
+    const options = suggestionGenerateOptions(
+      { provider: this.state.provider, model: this.state.model },
+      snippet,
+      abort.signal,
+    )
+    void this.consumeSuggestion(options, epoch, items, abort)
+  }
+
+  /**
+   * Read a detached stream and upgrade the ghost when the request is still current.
+   * Empty or junk text keeps the fallback already shown. The stream is aborted
+   * after {@link SUGGESTION_TIMEOUT_MS} so a hang cannot block forever.
+   * @param options - `ctx.llm.stream` generate options.
+   * @param epoch - epoch captured when the request started.
+   * @param items - transcript snapshot used for a local fallback.
+   * @param abort - controller for this request; cleared when it settles.
+   */
+  private async consumeSuggestion(
+    options: GenerateOptions,
+    epoch: number,
+    items: TranscriptItem[],
+    abort: AbortController,
+  ): Promise<void> {
+    const timer = setTimeout(() => abort.abort(), SUGGESTION_TIMEOUT_MS)
+    try {
+      const llm = this.ctx.get('llm')
+      if (llm === undefined) {
+        this.applyFallbackSuggestion(epoch, items)
+        return
+      }
+      const text = await Promise.race([
+        readSuggestionText(llm.stream(options)),
+        whenAborted(abort.signal),
+      ])
+      const suggestion = capSuggestion(text)
+      if (suggestion === undefined) {
+        this.applyFallbackSuggestion(epoch, items)
+        return
+      }
+      if (!shouldApplySuggestion(this.state, epoch, this.suggestionEpoch)) return
+      this.dispatch({ type: 'set-suggestion', suggestion })
+    } catch {
+      this.applyFallbackSuggestion(epoch, items)
+    } finally {
+      clearTimeout(timer)
+      if (this.suggestionAbort === abort) this.suggestionAbort = undefined
+    }
+  }
+
+  /**
+   * Commit a last-assistant phrase when a detached LLM call cannot run.
+   * @param epoch - epoch captured when the request started.
+   * @param items - transcript snapshot.
+   */
+  private applyFallbackSuggestion(epoch: number, items: readonly TranscriptItem[]): void {
+    if (!shouldApplySuggestion(this.state, epoch, this.suggestionEpoch)) return
+    const suggestion = fallbackSuggestion(items)
+    if (suggestion === undefined) return
+    this.dispatch({ type: 'set-suggestion', suggestion })
   }
 }

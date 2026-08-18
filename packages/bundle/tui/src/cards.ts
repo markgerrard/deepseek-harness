@@ -28,12 +28,128 @@ export interface CardSegment {
   readonly tone: CardTone
 }
 
+/** One pre-wrapped visual row of a transcript card. */
+export interface CardLine {
+  readonly segments: readonly CardSegment[]
+}
+
 /** One rendered transcript block ready for Ink. */
 export interface RenderedCard {
   readonly id: string
   readonly kind: TranscriptItem['kind']
   readonly text: string
   readonly segments: readonly CardSegment[]
+  /** Visual rows after {@link wrapText} at {@link cardWrapWidth}. */
+  readonly lines: readonly CardLine[]
+}
+
+/**
+ * Width used for both `wrapText` and the card Box. Transcript cards have no
+ * `paddingX`, so this is the transcript band width (`layout.main.width`).
+ * @param bandWidth - transcript band columns.
+ * @returns at least one column.
+ */
+export function cardWrapWidth(bandWidth: number): number {
+  return Math.max(1, bandWidth)
+}
+
+/**
+ * Split already-wrapped source into visual rows. An empty string is one blank row.
+ * @param text - output of {@link wrapText}.
+ * @returns one string per painted row.
+ */
+export function visualLines(text: string): string[] {
+  if (text === '') return ['']
+  return text.split('\n')
+}
+
+/**
+ * Color the prefix on the first visual row only.
+ * @param line - one wrap row.
+ * @param prefix - mark plus trailing space (`● `, `› `).
+ * @param prefixTone - mark color.
+ * @param bodyTone - remainder color.
+ * @returns one or two segments.
+ */
+function splitPrefixLine(
+  line: string,
+  prefix: string,
+  prefixTone: CardTone,
+  bodyTone: CardTone,
+): CardSegment[] {
+  const painted = line === '' ? ' ' : line
+  if (prefix !== '' && painted.startsWith(prefix)) {
+    const rest = painted.slice(prefix.length)
+    if (rest === '') return [{ text: prefix, tone: prefixTone }]
+    return [{ text: prefix, tone: prefixTone }, { text: rest, tone: bodyTone }]
+  }
+  return [{ text: painted, tone: bodyTone }]
+}
+
+/**
+ * Pre-wrap `prefix + body` at `width` and color the prefix on line 0.
+ * @param prefix - leading mark.
+ * @param prefixTone - mark color.
+ * @param body - remaining text (may contain newlines).
+ * @param bodyTone - body color.
+ * @param width - {@link cardWrapWidth}.
+ * @returns visual rows.
+ */
+function prefixedLines(
+  prefix: string,
+  prefixTone: CardTone,
+  body: string,
+  bodyTone: CardTone,
+  width: number,
+): CardLine[] {
+  return visualLines(wrapText(`${prefix}${body}`, width)).map(line => ({
+    segments: splitPrefixLine(line, prefix, prefixTone, bodyTone),
+  }))
+}
+
+/**
+ * Pre-wrap a body with a single tone.
+ * @param text - source text.
+ * @param tone - fragment color.
+ * @param width - {@link cardWrapWidth}.
+ * @returns visual rows.
+ */
+function bodyLines(text: string, tone: CardTone, width: number): CardLine[] {
+  return visualLines(wrapText(text, width)).map(line => ({
+    segments: [{ text: line === '' ? ' ' : line, tone }],
+  }))
+}
+
+/**
+ * Join pre-wrapped rows into the string/segment form older callers expect.
+ * @param id - card id.
+ * @param kind - transcript kind.
+ * @param lines - visual rows.
+ * @returns a rendered card.
+ */
+function cardFromLines(id: string, kind: TranscriptItem['kind'], lines: readonly CardLine[]): RenderedCard {
+  const segments: CardSegment[] = []
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]
+    if (line === undefined) continue
+    if (index === 0) {
+      segments.push(...line.segments)
+      continue
+    }
+    const [first, ...rest] = line.segments
+    if (first === undefined) {
+      segments.push({ text: '\n', tone: 'fg' })
+      continue
+    }
+    segments.push({ text: `\n${first.text}`, tone: first.tone }, ...rest)
+  }
+  return {
+    id,
+    kind,
+    text: lines.map(line => line.segments.map(segment => segment.text).join('')).join('\n'),
+    segments,
+    lines,
+  }
 }
 
 /**
@@ -188,39 +304,33 @@ export function renderDiff(meta: unknown, width: number): string | undefined {
 
 /**
  * Render one Claude Code-like transcript item.
+ * Every visual row is pre-wrapped at {@link cardWrapWidth}; Ink must not wrap again.
  * @param item - projected transcript row.
- * @param width - chat columns.
+ * @param width - card Box columns (same value passed to the Ink Box).
  * @returns a titled card or bubble.
  */
-function card(id: string, kind: TranscriptItem['kind'], segments: readonly CardSegment[]): RenderedCard {
-  return { id, kind, text: segments.map(segment => segment.text).join(''), segments }
-}
-
 export function renderCard(item: TranscriptItem, width: number): RenderedCard {
-  const inner = Math.max(8, width)
+  const wrapWidth = cardWrapWidth(width)
   switch (item.kind) {
     case 'user':
-      return card(item.id, item.kind, [
-        { text: `${ICONS.user} `, tone: 'user' },
-        { text: wrapText(item.text, Math.max(1, inner - 2)), tone: 'fg' },
-      ])
+      return cardFromLines(
+        item.id,
+        item.kind,
+        prefixedLines(`${ICONS.user} `, 'user', item.text, 'fg', wrapWidth),
+      )
     case 'assistant': {
-      const body = wrapText(item.text, Math.max(1, inner - 2))
-      const segments: CardSegment[] = [
-        { text: `${ICONS.assistant} `, tone: 'assistant' },
-        { text: body, tone: 'assistant' },
-      ]
-      if (item.streaming) segments.push({ text: ` ${ICONS.spinner}`, tone: 'brand' })
-      return card(item.id, item.kind, segments)
+      const suffix = item.streaming ? ` ${ICONS.spinner}` : ''
+      return cardFromLines(
+        item.id,
+        item.kind,
+        prefixedLines(`${ICONS.assistant} `, 'assistant', `${item.text}${suffix}`, 'assistant', wrapWidth),
+      )
     }
     case 'reasoning': {
       const label = item.expanded ? 'thinking' : 'thinking (space to expand)'
-      const segments: CardSegment[] = [
-        { text: `${ICONS.spinner} `, tone: 'brand' },
-        { text: wrapText(label, Math.max(1, inner - 2)), tone: 'thinking' },
-      ]
-      if (item.expanded) segments.push({ text: `\n${wrapText(item.text, inner)}`, tone: 'thinking' })
-      return card(item.id, item.kind, segments)
+      const lines = prefixedLines(`${ICONS.spinner} `, 'brand', label, 'thinking', wrapWidth)
+      if (item.expanded) lines.push(...bodyLines(item.text, 'thinking', wrapWidth))
+      return cardFromLines(item.id, item.kind, lines)
     }
     case 'tool': {
       const mark = item.status === 'success' ? ICONS.toolSuccess
@@ -228,25 +338,23 @@ export function renderCard(item: TranscriptItem, width: number): RenderedCard {
           : item.status === 'awaiting' ? ICONS.selector
             : ICONS.toolPending
       const title = formatToolTitle(item.name)
-      const summary = summarizeArgs(item.args, Math.max(8, inner - title.length - 4))
-      const segments: CardSegment[] = [
-        { text: `${mark} `, tone: toolMarkTone(item.status) },
-        { text: title, tone: 'tool' },
-      ]
-      if (summary !== '') segments.push({ text: `\n  ${summary}`, tone: 'muted' })
+      const lines = prefixedLines(`${mark} `, toolMarkTone(item.status), title, 'tool', wrapWidth)
+      const summary = summarizeArgs(item.args, Math.max(8, wrapWidth - title.length - 4))
+      if (summary !== '') lines.push(...prefixedLines('  ', 'muted', summary, 'muted', wrapWidth))
       if (item.expanded) {
-        const diff = renderDiff(item.meta, inner)
+        const diff = renderDiff(item.meta, wrapWidth)
         const result = item.result ?? ''
         const extra = [diff, result].filter((part): part is string => part !== undefined && part !== '')
-        if (extra.length > 0) segments.push({ text: `\n${extra.join('\n')}`, tone: 'muted' })
+        if (extra.length > 0) lines.push(...bodyLines(extra.join('\n'), 'muted', wrapWidth))
       }
-      return card(item.id, item.kind, segments)
+      return cardFromLines(item.id, item.kind, lines)
     }
     case 'command':
-      return card(item.id, item.kind, [
-        { text: `${ICONS.check} `, tone: 'success' },
-        { text: wrapText(item.text, Math.max(1, inner - 2)), tone: 'fg' },
-      ])
+      return cardFromLines(
+        item.id,
+        item.kind,
+        prefixedLines(`${ICONS.check} `, 'success', item.text, 'fg', wrapWidth),
+      )
     default: {
       const _exhaustive: never = item
       return _exhaustive
@@ -263,4 +371,93 @@ export function renderCard(item: TranscriptItem, width: number): RenderedCard {
 export function renderTranscript(items: readonly TranscriptItem[], width: number): string {
   if (items.length === 0) return ''
   return items.map(item => renderCard(item, width).text).join('\n\n')
+}
+
+/**
+ * Wrapped line count for one transcript card at `width`.
+ * @param item - projected transcript row.
+ * @param width - card columns.
+ * @returns at least one row.
+ */
+export function estimateCardHeight(item: TranscriptItem, width: number): number {
+  return Math.max(1, renderCard(item, width).lines.length)
+}
+
+/**
+ * Wrapped line count for one interleaved transcript row.
+ * Clock lines are a single row; cards use {@link estimateCardHeight}.
+ * @param row - item or clock.
+ * @param width - card columns.
+ * @returns at least one row.
+ */
+export function estimateTranscriptRowHeight(row: TranscriptRow, width: number): number {
+  if (row.type === 'clock') return 1
+  return estimateCardHeight(row.item, width)
+}
+
+/** Newest-pinned slice of a transcript that may be taller than the viewport. */
+export interface PinnedTranscript {
+  /** Rows that fit, from the bottom when {@link PinnedTranscript.taller}. */
+  readonly rows: readonly TranscriptRow[]
+  /** True when the full list is taller than the viewport. */
+  readonly taller: boolean
+  /** Sum of estimated row heights before pinning. */
+  readonly contentHeight: number
+  /** Pre-wrapped lines dropped from the top of the first returned row. */
+  readonly skipLeadingLines: number
+  /** Painted rows after top-clip. Always <= the viewport when the viewport is > 0. */
+  readonly visibleHeight: number
+}
+
+/**
+ * Keep the newest transcript rows that fit in `viewportHeight`.
+ * Heights are the pre-wrapped line counts from {@link estimateCardHeight}.
+ * Content shorter than the band is left intact. Content taller drops earlier
+ * rows; a row that only partially fits keeps its last lines (clips the top).
+ * A single card taller than the viewport is kept and top-clipped so the
+ * painted height is <= the viewport. Never splits a visual line.
+ * @param rows - interleaved cards and clocks (trailing clock already peeled).
+ * @param width - card Box columns (same value as wrap / paint).
+ * @param viewportHeight - transcript band rows.
+ * @returns the visible slice and whether the full list overflowed.
+ */
+export function pinTranscriptToBottom(
+  rows: readonly TranscriptRow[],
+  width: number,
+  viewportHeight: number,
+): PinnedTranscript {
+  const wrapWidth = cardWrapWidth(width)
+  const heights = rows.map(row => estimateTranscriptRowHeight(row, wrapWidth))
+  const contentHeight = heights.reduce((sum, height) => sum + height, 0)
+  const limit = Math.max(0, viewportHeight)
+  const taller = contentHeight > limit
+  if (rows.length === 0) {
+    return { rows, taller: false, contentHeight: 0, skipLeadingLines: 0, visibleHeight: 0 }
+  }
+  if (limit <= 0) {
+    return { rows: [], taller, contentHeight, skipLeadingLines: 0, visibleHeight: 0 }
+  }
+  if (!taller) {
+    return { rows, taller: false, contentHeight, skipLeadingLines: 0, visibleHeight: contentHeight }
+  }
+  let used = 0
+  let start = rows.length
+  let skipLeadingLines = 0
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const height = heights[index] ?? 1
+    if (used + height <= limit) {
+      used += height
+      start = index
+      skipLeadingLines = 0
+      continue
+    }
+    const remaining = limit - used
+    if (remaining > 0) {
+      skipLeadingLines = height - remaining
+      used += remaining
+      start = index
+    }
+    break
+  }
+  return { rows: rows.slice(start), taller: true, contentHeight, skipLeadingLines, visibleHeight: used }
 }

@@ -98,3 +98,39 @@ describe('Claude Code-like UI reducer', () => {
     expect(idle.turnTokenBase).toBeUndefined()
   })
 })
+
+describe('suggested next prompt', () => {
+  it('lets Tab accept a ghost when the editor is empty', () => {
+    const suggested = reduce(initialState(seed), { type: 'set-suggestion', suggestion: 'Add unit tests next' })
+    expect(suggested.suggestion).toBe('Add unit tests next')
+    expect(chromeAction(suggested, 'tab')).toEqual({
+      type: 'set-input', input: 'Add unit tests next', cursor: 'Add unit tests next'.length,
+    })
+    const accepted = reduce(suggested, { type: 'set-input', input: 'Add unit tests next', cursor: 20 })
+    expect(accepted.input).toBe('Add unit tests next')
+    expect(accepted.suggestion).toBeUndefined()
+  })
+
+  it('does not insert the ghost when the user types', () => {
+    const suggested = reduce(initialState(seed), { type: 'set-suggestion', suggestion: 'Add unit tests next' })
+    const typed = reduce(suggested, { type: 'set-input', input: 'h', cursor: 1 })
+    expect(typed.input).toBe('h')
+    expect(typed.suggestion).toBeUndefined()
+  })
+
+  it('keeps existing Tab focus behavior when the editor is not empty', () => {
+    const typed = reduce(initialState(seed), { type: 'set-input', input: 'hello', cursor: 5 })
+    const withGhost = reduce(typed, { type: 'set-suggestion', suggestion: 'Add unit tests next' })
+    expect(chromeAction(withGhost, 'tab')).toEqual({ type: 'set-focus', focus: 'chat' })
+  })
+
+  it('clears the ghost on submit, clear, escape, and a new turn', () => {
+    const suggested = reduce(initialState(seed), { type: 'set-suggestion', suggestion: 'Add unit tests next' })
+    expect(reduce(suggested, { type: 'clear-input' }).suggestion).toBeUndefined()
+    expect(chromeAction(suggested, 'escape')).toEqual({ type: 'set-suggestion' })
+    expect(reduce(suggested, { type: 'set-suggestion' }).suggestion).toBeUndefined()
+    const busy = reduce(suggested, { type: 'set-busy', busy: true, at: 1 })
+    expect(busy.suggestion).toBeUndefined()
+    expect(busy.busy).toBe(true)
+  })
+})
