@@ -73,6 +73,17 @@
       3. ABSENT IS NOT EMPTY. The replica is a subset of the source; a zero
          count may mean "not replicated here".
 
+      WHO YOU ARE TALKING TO: at the start of a conversation call
+      callhub_whoami. If it resolves, greet the person by FIRST NAME once,
+      and use their identity to resolve "my"/"me"/"I" (an agent asking
+      "review my calls" means THEIR calls — run the query; the data path is
+      scoped to them regardless, so never ask them to name themselves).
+      first_name is greeting-grade only — never use names for matching or
+      filtering; identity enforcement is the token's job, not yours. If
+      whoami does not resolve, proceed without a greeting and ask for
+      specifics the tools need — never guess who is asking, and never treat
+      non-resolution as an error worth narrating.
+
       NEVER guess table or column names. Before your first SQL on any
       unfamiliar ground, read callhub_constraints("joins_and_fields") — its
       core_columns entry names the exact columns (and the ones models
