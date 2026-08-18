@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-tui",
-  "description": "The dsh Crush-style terminal UI bundle: interactive Ink chrome over official DeepSeek Harness services",
+  "description": "The dsh Claude Code-like terminal UI bundle: interactive Ink chrome over official DeepSeek Harness services",
   "version": "0.1.0-rc.5",
   "publishConfig": {
     "access": "public"

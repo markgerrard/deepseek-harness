@@ -24,8 +24,8 @@ Add an in-box bundle `@deepseek-ai/dsh-tui` that follows the headless/web-app pa
 
 **Bought**: `dsh tui` (and the tui profile) auto-initializes and launches an interactive Crush-style surface over the same services as web and headless.
 
-**Paid**: Crush extras (attachments, bang-mode shell, MCP/LSP panels, glamour markdown, credential entry) stay deferred. The TUI is a presentation layer and fails closed on missing `ctx.appExit`.
+**Paid**: Crush extras (attachments, bang-mode shell, MCP/LSP panels, glamour markdown) stay deferred. Credential entry is `/connect` over `ctx.credentials`; first ctrl+c opens the quit dialog. The TUI is a presentation layer and fails closed on missing `ctx.appExit`.
 
 ## Testing
 
-Unit tests cover layout, status, commands, state, chrome, cards, and transcript projection. Loader composition covers the startup provider. The runner test substitutes the Ink renderer and drives a scripted Agent factory.
+Unit tests cover layout, status, commands, state, chrome, cards, transcript projection, connect helpers, and quit-twice. Loader composition covers the startup provider. The runner test substitutes the Ink renderer and drives a scripted Agent factory.

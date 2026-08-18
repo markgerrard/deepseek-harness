@@ -1,4 +1,4 @@
-# The dsh-tui bundle patch: Crush-style interactive terminal UI over dsh-base.
+# The dsh-tui bundle patch: Claude Code-like interactive terminal UI over dsh-base.
 # It mounts no Host, HTTP server, Web runtime, or browser plugin. An ordinary
 # provider plugin injects cmdlineArgs, parses this app's flags and help, then
 # the runner creates or resumes an Agent through the core registry and stays
@@ -18,6 +18,48 @@
   config:
     # Keep the same temporary process-wide Code Mode opt-in as the Web surface.
     mode: !!js process.env.DSH_TOOLS_MODE
+
+# Hand-declared openai-completions gateways for /connect. Official DeepSeek
+# stays on llm-deepseek. Responses-API Go models (grok-4.5, gpt-5.6-luna)
+# and anthropic-messages Go models are not listed.
+- id: llm-pi-ai
+  config:
+    providers:
+      opencode-go:
+        displayName: OpenCode Go
+        apiKeyEnv: OPENCODE_API_KEY
+        api: openai-completions
+        baseURL: https://opencode.ai/zen/go/v1
+        models:
+          - id: glm-5.3
+          - id: glm-5.2
+          - id: glm-5.1
+          - id: kimi-k3
+          - id: kimi-k2.7-code
+          - id: kimi-k2.6
+          - id: deepseek-v4-pro
+          - id: deepseek-v4-flash
+          - id: mimo-v2.5
+          - id: mimo-v2.5-pro
+          - id: hy3
+      cline-pass:
+        displayName: Cline Pass
+        apiKeyEnv: CLINE_API_KEY
+        api: openai-completions
+        baseURL: https://api.cline.bot/api/v1
+        models:
+          - id: cline-pass/glm-5.2
+          - id: cline-pass/kimi-k3
+          - id: cline-pass/kimi-k2.7-code
+          - id: cline-pass/kimi-k2.6
+          - id: cline-pass/deepseek-v4-pro
+          - id: cline-pass/deepseek-v4-flash
+          - id: cline-pass/mimo-v2.5
+          - id: cline-pass/mimo-v2.5-pro
+          - id: cline-pass/minimax-m3
+          - id: cline-pass/qwen3.8-max
+          - id: cline-pass/qwen3.7-max
+          - id: cline-pass/qwen3.7-plus
 
 - insert:
     # Code Mode is a core execution capability, not a Web component.

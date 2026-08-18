@@ -11,7 +11,7 @@ import {
 const event = (type: string, seq: number, data: unknown): SessionEvent =>
   ({ type, seq, data } as SessionEvent)
 
-describe('Crush transcript projection', () => {
+describe('Claude Code-like transcript projection', () => {
   it('joins text blocks and folds the last title and model', () => {
     expect(textOf([{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }])).toBe('ab')
     expect(foldSessionTitle([

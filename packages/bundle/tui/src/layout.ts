@@ -1,10 +1,11 @@
 /**
- * Crush-style layout: full (header + sidebar + chat + editor + status) versus
- * compact (sidebar hidden) for modest terminals.
+ * Claude Code-like layout: single-column transcript with the prompt pinned
+ * at the bottom. Sidebar/header Crush chrome is omitted; compact breakpoints
+ * stay exported for unused-width checks.
  * @module @deepseek-ai/dsh-tui/layout
  */
 
-import { COMPACT_HEIGHT, COMPACT_WIDTH, EDITOR_MAX_HEIGHT, EDITOR_MIN_HEIGHT, SIDEBAR_WIDTH } from './theme.ts'
+import { COMPACT_HEIGHT, COMPACT_WIDTH, EDITOR_MAX_HEIGHT, EDITOR_MIN_HEIGHT } from './theme.ts'
 
 /** A rectangular region in terminal cells. */
 export interface Rect {
@@ -14,9 +15,9 @@ export interface Rect {
   readonly height: number
 }
 
-/** Crush layout regions for one terminal size. */
+/** Claude Code-like layout regions for one terminal size. */
 export interface LayoutAreas {
-  /** True when the sidebar is hidden (Crush compact mode). */
+  /** True below the leftover compact breakpoints (sidebar stays hidden either way). */
   readonly compact: boolean
   readonly header: Rect
   readonly sidebar: Rect | undefined
@@ -26,19 +27,19 @@ export interface LayoutAreas {
 }
 
 /**
- * Whether Crush would hide the session sidebar at this size.
+ * Whether the leftover compact breakpoints fire at this size.
  * @param width - terminal columns.
  * @param height - terminal rows.
- * @returns true below Crush's 120x30 breakpoints.
+ * @returns true below 120x30.
  */
 export function isCompact(width: number, height: number): boolean {
   return width < COMPACT_WIDTH || height < COMPACT_HEIGHT
 }
 
 /**
- * Clamp the Crush prompt textarea to its min/max height.
+ * Clamp the prompt textarea to its min/max height.
  * @param lines - wrapped input line count.
- * @returns editor height in rows.
+ * @returns editor height in rows (includes the round-border pair).
  */
 export function editorHeight(lines: number): number {
   if (lines < EDITOR_MIN_HEIGHT) return EDITOR_MIN_HEIGHT
@@ -47,32 +48,27 @@ export function editorHeight(lines: number): number {
 }
 
 /**
- * Split a terminal into Crush chrome regions.
+ * Split a terminal into Claude Code-like regions: transcript, prompt, footer.
+ * Header and sidebar are reserved as empty / omitted.
  * @param width - terminal columns.
  * @param height - terminal rows.
  * @param inputLines - wrapped input line count used for the editor band.
- * @returns layout rectangles; sidebar is omitted in compact mode.
+ * @returns layout rectangles; sidebar is always omitted.
  */
 export function layoutAreas(width: number, height: number, inputLines: number): LayoutAreas {
   const compact = isCompact(width, height)
   const cols = Math.max(width, 1)
   const rows = Math.max(height, 1)
-  const headerHeight = compact ? 1 : 2
+  const headerHeight = 0
   const statusHeight = 1
   const editor = editorHeight(inputLines)
-  const bodyTop = headerHeight
   const bodyHeight = Math.max(0, rows - headerHeight - editor - statusHeight)
-  const sidebarWidth = compact ? 0 : Math.min(SIDEBAR_WIDTH, Math.max(0, cols - 40))
-  const mainX = compact ? 0 : sidebarWidth
-  const mainWidth = Math.max(0, cols - mainX)
   return {
     compact,
     header: { x: 0, y: 0, width: cols, height: headerHeight },
-    sidebar: compact || sidebarWidth === 0
-      ? undefined
-      : { x: 0, y: bodyTop, width: sidebarWidth, height: bodyHeight },
-    main: { x: mainX, y: bodyTop, width: mainWidth, height: bodyHeight },
-    editor: { x: 0, y: bodyTop + bodyHeight, width: cols, height: editor },
+    sidebar: undefined,
+    main: { x: 0, y: headerHeight, width: cols, height: bodyHeight },
+    editor: { x: 0, y: headerHeight + bodyHeight, width: cols, height: editor },
     status: { x: 0, y: rows - statusHeight, width: cols, height: statusHeight },
   }
 }

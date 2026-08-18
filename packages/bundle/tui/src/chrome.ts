@@ -1,35 +1,32 @@
 /**
- * Crush chrome render helpers: diagonal header, logo, sidebar, landing,
- * onboarding, and overlay frames. Return plain strings for Ink `Text`.
+ * Claude Code-like chrome helpers: landing, onboarding, numbered dialogs,
+ * and the slash-command list. Return plain strings for Ink `Text`.
  * @module @deepseek-ai/dsh-tui/chrome
  */
 
-import { formatHelpLine, formatModelLine, prettyPath, truncate, type StatusModel } from './status.ts'
+import {
+  formatConnectProviderLine,
+  maskSecret,
+  type ConnectProviderRow,
+} from './connect.ts'
+import { formatModelLine, prettyPath, truncate, wrapText, type StatusModel } from './status.ts'
 import { ICONS, PRODUCT_MARK, PRODUCT_NAME } from './theme.ts'
 import type { SessionRow } from './state.ts'
 
 /**
- * Crush header: diagonal ╱ pattern, product mark, and occupancy.
+ * Unused header helper kept so existing imports stay valid. No diagonal
+ * ╱ wordmark — Claude Code has no product chrome at the top.
  * @param width - header columns.
  * @param status - model/cwd/token facts.
- * @param compact - whether to use the one-line compact logo.
- * @returns header lines joined by newline.
+ * @param _compact - unused compact flag.
+ * @returns a single occupancy line.
  */
-export function renderHeader(width: number, status: StatusModel, compact: boolean): string {
-  const mark = `${PRODUCT_MARK} ${PRODUCT_NAME}`
-  if (compact) {
-    const occupancy = formatModelLine(status)
-    return truncate(`${mark}  ${occupancy}`, width)
-  }
-  const diagCount = Math.max(3, width - mark.length - 2)
-  const diags = ICONS.diagonal.repeat(diagCount)
-  const top = truncate(`${mark} ${diags}`, width)
-  const bottom = truncate(formatModelLine(status), width)
-  return `${top}\n${bottom}`
+export function renderHeader(width: number, status: StatusModel, _compact: boolean): string {
+  return truncate(formatModelLine(status), width)
 }
 
 /**
- * Crush session sidebar: title, cwd, model, tokens.
+ * Unused session-sidebar helper. The Claude Code-like layout is single-column.
  * @param width - sidebar columns.
  * @param title - session title.
  * @param status - model/cwd/token facts.
@@ -46,53 +43,127 @@ export function renderSidebar(
   const heading = truncate(title ?? 'New session', inner)
   const cwd = truncate(prettyPath(status.cwd, home), inner)
   const model = truncate(formatModelLine(status), inner)
-  const rule = ICONS.section.repeat(Math.min(inner, 24))
-  return [heading, cwd, rule, model].join('\n')
+  return [heading, cwd, model].join('\n')
+}
+
+/** One splash-art line plus whether it is whale body or spray/eye accent. */
+export interface WhaleLine {
+  readonly text: string
+  readonly tone: 'body' | 'accent'
 }
 
 /**
- * Crush landing page: cwd, model, and a short prompt to start chatting.
+ * Distinctive eye glyph in the original landing whale. Tests pin this rather
+ * than the whole drawing so the composition can be tweaked.
+ */
+export const WHALE_EYE = '(O)'
+
+/**
+ * Original DeepSeek-ish whale splash for the empty landing view.
+ * Not the official DeepSeek / DSH banner — original composition.
+ */
+export const WHALE_ART: readonly WhaleLine[] = [
+  { tone: 'accent', text: "              .  '  ." },
+  { tone: 'body', text: '           __/        \__' },
+  { tone: 'body', text: '      ____/  ^    ^    \___' },
+  { tone: 'accent', text: `     /    .  ${WHALE_EYE}  .      \\` },
+  { tone: 'body', text: '    |   ~~          ~~    )' },
+  { tone: 'accent', text: '     \\    .   ~~~~    .  /' },
+  { tone: 'body', text: "      '--____________--'" },
+  { tone: 'body', text: '           \\/      \\/' },
+]
+
+/** Narrow-terminal whale when the full drawing will clip. */
+export const WHALE_ART_COMPACT: readonly WhaleLine[] = [
+  { tone: 'body', text: '   __/o\__' },
+  { tone: 'accent', text: `  /  ${WHALE_EYE}   )` },
+  { tone: 'body', text: "  '--___--'" },
+]
+
+/**
+ * Pick whale splash lines that fit `width`.
+ * @param width - landing columns.
+ * @returns original whale lines (body + accent).
+ */
+export function whaleArt(width: number): readonly WhaleLine[] {
+  return width < 32 ? WHALE_ART_COMPACT : WHALE_ART
+}
+
+/**
+ * Cwd / model / hint block under the whale.
+ * @param width - main columns.
+ * @param status - model/cwd facts.
+ * @param home - `$HOME` for path collapsing.
+ * @returns muted meta lines.
+ */
+export function renderLandingMeta(width: number, status: StatusModel, home: string | undefined): string {
+  const cwd = prettyPath(status.cwd, home)
+  return [
+    wrapText(cwd, width),
+    '',
+    wrapText(formatModelLine(status), width),
+    '',
+    wrapText('Type a message. / opens commands.', width),
+  ].join('\n')
+}
+
+/**
+ * Claude Code-like landing: original whale splash above cwd, model, and hint.
  * @param width - main columns.
  * @param status - model/cwd facts.
  * @param home - `$HOME` for path collapsing.
  * @returns landing body.
  */
 export function renderLanding(width: number, status: StatusModel, home: string | undefined): string {
-  const cwd = prettyPath(status.cwd, home)
-  return [
-    truncate(cwd, width),
-    '',
-    truncate(formatModelLine(status), width),
-    '',
-    truncate('Type a message and press enter. / opens commands.', width),
-    truncate(formatHelpLine(status.compact), width),
-  ].join('\n')
+  const art = whaleArt(width).map(line => line.text)
+  return [...art, '', renderLandingMeta(width, status, home)].join('\n')
 }
 
 /**
- * First-run guidance when credentials or a model route are missing.
+ * First-run guidance when no connectable provider has a key.
  * @param width - main columns.
  * @param guidance - controller-supplied fact (never a secret).
  * @returns onboarding body.
  */
 export function renderOnboarding(width: number, guidance: string): string {
   return [
-    truncate(`${PRODUCT_MARK} ${PRODUCT_NAME}`, width),
+    wrapText(`${PRODUCT_MARK} ${PRODUCT_NAME}`, width),
     '',
-    truncate(guidance, width),
+    wrapText(guidance, width),
     '',
-    truncate('Set DEEPSEEK_API_KEY in the environment or $DSH_HOME/.env, then restart.', width),
-    truncate('The TUI does not store credentials; it uses the harness credential seam.', width),
+    wrapText('Use /connect to paste an OpenCode Go, Cline Pass, or DeepSeek key.', width),
+    wrapText('Keys are stored through the harness credential seam, never printed.', width),
   ].join('\n')
 }
 
 /**
- * Crush overlay frame: a titled, bordered dialog body.
+ * Prefix a list row with the Claude Code-like ❯ selector.
+ * @param line - row text.
+ * @param selected - whether this row is highlighted.
+ * @returns the prefixed line.
+ */
+export function formatSelectedRow(line: string, selected: boolean): string {
+  return selected ? `${ICONS.selector} ${line}` : `  ${line}`
+}
+
+/**
+ * Numbered option row (`1. Yes`) with a ❯ on the selected index.
+ * @param index - zero-based option index.
+ * @param label - option label.
+ * @param selected - selected index.
+ * @returns one option line.
+ */
+export function formatNumberedOption(index: number, label: string, selected: number): string {
+  return formatSelectedRow(`${index + 1}. ${label}`, selected === index)
+}
+
+/**
+ * Simple Claude Code-like list (commands, models, sessions). No framed overlay.
  * @param width - available columns.
- * @param title - dialog title.
+ * @param title - optional heading (empty string skips it).
  * @param lines - body lines.
  * @param selected - highlighted row, when the body is a list.
- * @returns framed dialog text.
+ * @returns list text.
  */
 export function renderOverlay(
   width: number,
@@ -100,33 +171,141 @@ export function renderOverlay(
   lines: readonly string[],
   selected?: number,
 ): string {
-  const inner = Math.max(8, Math.min(width - 4, 72))
-  const bar = ICONS.section.repeat(inner)
-  const heading = truncate(title, inner)
+  const inner = Math.max(8, width)
   const body = lines.map((line, index) => {
-    const prefix = selected === index ? `${ICONS.radioOn} ` : '  '
-    return truncate(`${prefix}${line}`, inner)
+    if (selected === undefined) return truncate(line, inner)
+    return truncate(formatSelectedRow(line, selected === index), inner)
   })
-  return [`┌${bar}┐`, `│ ${heading.padEnd(inner - 2)} │`, `├${bar}┤`, ...body.map(line => `│ ${line.padEnd(inner - 2)} │`), `└${bar}┘`].join('\n')
+  if (title === '') return body.join('\n')
+  return [truncate(title, inner), '', ...body].join('\n')
 }
 
 /**
- * Crush help overlay body.
+ * "Do you want to proceed?" permission / choice list.
+ * @param width - available columns.
+ * @param prompt - question text.
+ * @param options - numbered labels.
+ * @param selected - highlighted option.
+ * @returns dialog text.
+ */
+export function renderChoiceDialog(
+  width: number,
+  prompt: string,
+  options: readonly string[],
+  selected: number,
+): string {
+  const inner = Math.max(8, width)
+  return [
+    truncate(prompt, inner),
+    '',
+    ...options.map((option, index) => truncate(formatNumberedOption(index, option, selected), inner)),
+  ].join('\n')
+}
+
+/**
+ * Numbered Yes/No pair. No is selected by default (`selectedNope`).
+ * @param selectedNope - whether No is the selected option.
+ * @returns two option lines.
+ */
+export function formatQuitButtons(selectedNope: boolean): string {
+  const selected = selectedNope ? 1 : 0
+  return [formatNumberedOption(0, 'Yes', selected), formatNumberedOption(1, 'No', selected)].join('\n')
+}
+
+/**
+ * Claude Code-like quit confirmation: numbered Yes/No, No selected by default.
+ * @param width - available columns.
+ * @param selectedNope - whether No is selected.
+ * @returns quit dialog text.
+ */
+export function renderQuitDialog(width: number, selectedNope: boolean): string {
+  const selected = selectedNope ? 1 : 0
+  return [
+    renderChoiceDialog(width, 'Do you want to quit?', ['Yes', 'No'], selected),
+    '',
+    'Ctrl-C twice to quit without confirmation.',
+  ].join('\n')
+}
+
+/**
+ * Permission dialog: tool facts above a numbered proceed list.
+ * @param width - available columns.
+ * @param toolName - tool being approved.
+ * @param reason - optional reason (never a secret).
+ * @param selected - 0 = Yes, 1 = No.
+ * @returns dialog text.
+ */
+export function renderApprovalDialog(
+  width: number,
+  toolName: string,
+  reason: string | undefined,
+  selected: number,
+): string {
+  const inner = Math.max(8, width)
+  const head = reason === undefined || reason === ''
+    ? truncate(toolName, inner)
+    : [truncate(toolName, inner), truncate(reason, inner)].join('\n')
+  return `${head}\n\n${renderChoiceDialog(width, 'Do you want to proceed?', ['Yes', 'No'], selected)}`
+}
+
+/**
+ * Connect API-key dialog with a masked field. The raw key never appears.
+ * @param width - available columns.
+ * @param displayName - provider label.
+ * @param value - typed key (masked in the output).
+ * @param apiKeyEnv - writable credential ref shown as the store name.
+ * @param error - optional failure text (never a secret).
+ * @returns connect-key dialog text.
+ */
+export function renderConnectKeyDialog(
+  width: number,
+  displayName: string,
+  value: string,
+  apiKeyEnv: string,
+  error?: string,
+): string {
+  const masked = value.length === 0 ? '' : maskSecret(value)
+  const field = value.length === 0 ? '> Enter your API key...' : `> ${masked}`
+  const lines = [
+    `Enter your ${displayName} Key.`,
+    '',
+    field,
+    '',
+    `Stored as ${apiKeyEnv} through the harness credential seam.`,
+  ]
+  if (error !== undefined) lines.push('', error)
+  return renderOverlay(width, 'Connect', lines)
+}
+
+/**
+ * Connect provider-picker lines.
+ * @param rows - configured/writable facts.
+ * @returns display lines.
+ */
+export function connectProviderLines(rows: readonly ConnectProviderRow[]): readonly string[] {
+  if (rows.length === 0) return ['No connectable providers.']
+  return rows.map(formatConnectProviderLine)
+}
+
+/**
+ * Help overlay body.
  * @returns help lines.
  */
 export function helpLines(): readonly string[] {
   return [
+    '?       shortcuts',
     'ctrl+p  commands',
     'ctrl+l  models',
     'ctrl+s  sessions',
     'ctrl+n  new session',
     'ctrl+g  this help',
-    'ctrl+c  quit',
+    'ctrl+c  quit (twice)',
     'enter   send',
     'ctrl+j  newline',
     'esc     cancel / close',
     'tab     change focus',
     'space   expand tool / reasoning (chat focus)',
+    '/connect  paste a provider API key',
     '/help   command list',
   ]
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { CHROME_COMMANDS, filterPalette, isPaletteOpen, mergePalette, routeLine } from '../src/commands.ts'
 
-describe('Crush command palette', () => {
+describe('Claude Code-like command palette', () => {
   it('merges chrome first and skips colliding DSH names', () => {
     const merged = mergePalette([
       { name: 'help', description: 'ignored' },

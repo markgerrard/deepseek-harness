@@ -1,5 +1,5 @@
 /**
- * Pure projection of a DSH session log into Crush-style transcript items:
+ * Pure projection of a DSH session log into Claude Code-like transcript items:
  * user bubbles, streaming assistant text, foldable reasoning, and tool cards.
  * @module @deepseek-ai/dsh-tui/transcript
  */
@@ -7,10 +7,10 @@
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 
-/** Crush-style tool-card lifecycle. */
+/** Tool-card lifecycle. */
 export type ToolCardStatus = 'running' | 'success' | 'error' | 'awaiting'
 
-/** One renderable row in the Crush chat transcript. */
+/** One renderable row in the chat transcript. */
 export type TranscriptItem =
   | {
     readonly kind: 'user'
@@ -114,7 +114,7 @@ function applyChunk(
 }
 
 /**
- * Project a DSH session log into Crush-style chat rows. Streaming chunks are
+ * Project a DSH session log into Claude Code-like chat rows. Streaming chunks are
  * folded until the matching `assistant/message` lands. Human `user/message`
  * rows keep append-origin text; plugin/tool sources are omitted.
  * @param events - session events in log order.

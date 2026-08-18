@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-dsh 的 Crush 风格终端 UI 组合包。[`cordis.patch.yml`](cordis.patch.yml) 直接叠加在 [`dsh-base`](../base/README.md) 之上：提供编码 persona 和工具模式、禁用 HMR（热模块替换）、将 Code Mode worker 作为核心执行能力挂载，并插入本包的 `tui-runner` 插件。它不挂载任何 Host、HTTP server、Web runtime 或浏览器插件。
+dsh 的 Claude Code 风格终端 UI 组合包。[`cordis.patch.yml`](cordis.patch.yml) 直接叠加在 [`dsh-base`](../base/README.md) 之上：提供编码 persona 和工具模式、禁用 HMR（热模块替换）、将 Code Mode worker 作为核心执行能力挂载，并插入本包的 `tui-runner` 插件。它不挂载任何 Host、HTTP server、Web runtime 或浏览器插件。
 
-Loader 结算后，runner 读取共享的 [`ctx.agentDefaultModel`](../../core/agent-default-model/README.md)，通过 `ctx.agents` 创建或恢复一个持久化 Agent（智能体），并挂载 Crush 风格的 Ink 界面。提示词、斜杠命令、模型切换、会话切换、审批和向用户提问都走官方 DSH 服务。
+Loader 结算后，runner 读取共享的 [`ctx.agentDefaultModel`](../../core/agent-default-model/README.md)，通过 `ctx.agents` 创建或恢复一个持久化 Agent（智能体），并挂载 Claude Code 风格的 Ink 界面。提示词、斜杠命令、`/connect` API 密钥录入、模型切换、会话切换、审批和向用户提问都走官方 DSH 服务。
 
 普通 `tui-startup` 提供方（[`src/startup.ts`](src/startup.ts)）注入 `ctx.cmdlineArgs`，解析可选的恢复会话 id、可选的开场提示词，以及本应用的帮助信息，然后提供 `tuiStartup`。
 
@@ -22,8 +22,9 @@ Loader 结算后，runner 读取共享的 [`ctx.agentDefaultModel`](../../core/a
 
 ## 已知限制与暂缓事项
 
-- Crush 文件附件、提及和图片：编辑器只接受文本。
+- 文件附件、提及和图片：编辑器只接受文本。
 - Bang 模式 shell、MCP/LSP 侧栏和 todo 胶囊不纳入本 MVP。
 - 完整 glamour Markdown、鼠标展开、复制/高亮、自定义主题尚未移植。
-- 仅提供首次引导；TUI 不会创建凭证存储。
+- `/connect` 通过 `ctx.credentials` 存储 OpenCode Go（`OPENCODE_API_KEY`）、Cline Pass（`CLINE_API_KEY`）和官方 DeepSeek 密钥。TUI 组合包为这两个 openai-completions 网关叠加 `llm-pi-ai` 路由；官方 DeepSeek 仍走 `llm-deepseek`。
+- 未列出 OpenCode Go 的 responses-API 模型（`grok-4.5`、`gpt-5.6-luna`）和 anthropic-messages 模型。
 - ctx.appExit 由启动器持有：在 dsh 启动器之外启动 tui profile 会在激活时明确报错，直到宿主提供该退出请求。

@@ -1,29 +1,30 @@
 /**
- * Crush command palette and slash-line routing over DSH `ctx.commands`.
- * Chrome commands (sessions, model, help, new, quit, interrupt) live here;
+ * Claude Code-like command palette and slash-line routing over DSH `ctx.commands`.
+ * Chrome commands (connect, sessions, model, help, new, quit, interrupt) live here;
  * registered harness commands are merged at render time.
  * @module @deepseek-ai/dsh-tui/commands
  */
 
 import { parseCommand, type CommandDescriptor } from '@deepseek-ai/dsh-commands'
 
-/** One palette row: Crush chrome or a DSH-registered command. */
+/** One palette row: TUI chrome or a DSH-registered command. */
 export interface PaletteItem {
   /** Stable id (`chrome:<name>` or `dsh:<name>`). */
   readonly id: string
   /** Slash name without the leading `/`. */
   readonly name: string
-  /** Crush-style one-line description. */
+  /** One-line description. */
   readonly description: string
-  /** Palette group, matching Crush's System / chrome split. */
+  /** Palette group: chrome commands vs registered system commands. */
   readonly group: 'chrome' | 'system'
   /** Exact line dispatched when the row is selected. */
   readonly line: string
 }
 
-/** Crush chrome commands that the TUI owns (not the agent loop). */
+/** Chrome commands that the TUI owns (not the agent loop). */
 export const CHROME_COMMANDS: readonly PaletteItem[] = [
   { id: 'chrome:help', name: 'help', description: 'Show keyboard shortcuts and commands', group: 'chrome', line: '/help' },
+  { id: 'chrome:connect', name: 'connect', description: 'Paste an OpenCode Go, Cline Pass, or DeepSeek API key', group: 'chrome', line: '/connect' },
   { id: 'chrome:model', name: 'model', description: 'Switch the conversation model', group: 'chrome', line: '/model' },
   { id: 'chrome:sessions', name: 'sessions', description: 'Resume or switch sessions', group: 'chrome', line: '/sessions' },
   { id: 'chrome:new', name: 'new', description: 'Start a new session', group: 'chrome', line: '/new' },
@@ -32,7 +33,7 @@ export const CHROME_COMMANDS: readonly PaletteItem[] = [
 ]
 
 /**
- * Merge Crush chrome commands with DSH-registered descriptors.
+ * Merge chrome commands with DSH-registered descriptors.
  * @param registered - `ctx.commands.list(agent)` descriptors.
  * @returns palette rows, chrome first, then name-sorted system commands.
  */
@@ -52,7 +53,7 @@ export function mergePalette(registered: readonly CommandDescriptor[]): PaletteI
 }
 
 /**
- * Filter palette rows by a Crush-style substring query on name or description.
+ * Filter palette rows by a substring query on name or description.
  * @param items - full palette.
  * @param query - raw filter text (leading `/` is stripped).
  * @returns matching rows in original order.
@@ -66,7 +67,7 @@ export function filterPalette(items: readonly PaletteItem[], query: string): Pal
 }
 
 /**
- * Route an editor line: empty, Crush/DSH slash command, or ordinary prompt.
+ * Route an editor line: empty, chrome/DSH slash command, or ordinary prompt.
  * @param line - exact editor contents.
  * @returns the routed action.
  */
@@ -82,7 +83,7 @@ export function routeLine(line: string):
 }
 
 /**
- * Whether the editor contents should open the Crush command palette.
+ * Whether the editor contents should open the command palette.
  * @param line - exact editor contents.
  * @returns true when the line starts with `/` and has no newline.
  */

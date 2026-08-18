@@ -31,7 +31,7 @@ function tuiCommand(): Command {
   const profileName = 'dsh -' + '-profile tui'
   return new Command()
     .name(profileName)
-    .description('Interactive Crush-style terminal UI over DeepSeek Harness.')
+    .description('Interactive Claude Code-like terminal UI over DeepSeek Harness.')
     .helpOption('-h, -' + '-help', 'show this help')
     .option(resumeFlag, 'resume a persisted session id')
     .argument('[prompt...]', 'optional opening prompt; stay in the interactive TUI after it')

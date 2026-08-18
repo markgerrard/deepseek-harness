@@ -1,5 +1,5 @@
 /**
- * @deepseek-ai/dsh-tui — Crush-style interactive terminal UI over official
+ * @deepseek-ai/dsh-tui — Claude Code-like interactive terminal UI over official
  * DeepSeek Harness services. The bundle patch rides over dsh-base; this
  * runner creates or resumes one Agent through the core registry, mounts the
  * Ink chrome, and stays interactive until the launcher exit hook fires.
@@ -64,7 +64,7 @@ function fail(io: TuiIo, error: unknown): void {
 }
 
 /**
- * Mount the Crush-style Ink surface over official DSH services.
+ * Mount the Claude Code-like Ink surface over official DSH services.
  * @param ctx - plugin context carrying Agent, default model, Session, and launcher IO.
  * @param config - validated startup config.
  * @param io - process-facing effects.
@@ -93,7 +93,7 @@ async function run(ctx: Context, config: Config, io: TuiIo): Promise<void> {
 }
 
 /**
- * Mount the Crush-style TUI runner.
+ * Mount the Claude Code-like TUI runner.
  * @param ctx - plugin context carrying core services and the launcher-provided exit request.
  * @param config - validated startup config.
  */

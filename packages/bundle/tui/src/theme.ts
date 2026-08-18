@@ -1,21 +1,26 @@
 /**
- * Crush-inspired visual language for the DSH terminal UI: icons, product
- * chrome, and compact-mode breakpoints. Colors are Ink Text color names
- * so the presentation layer can stay a thin mapping over these tokens.
+ * Claude Code-like visual language for the DSH terminal UI: icons, palette,
+ * and leftover compact-mode breakpoints (unused by the single-column layout).
  * @module @deepseek-ai/dsh-tui/theme
  */
 
-/** Crush-style icon tokens reused by header, sidebar, tool cards, and status. */
+/** Claude Code-like icon tokens reused by the prompt, tool cards, and dialogs. */
 export const ICONS = {
   check: '✓',
-  spinner: '⋯',
-  loading: '⟳',
+  spinner: '✻',
+  loading: '●',
   model: '◇',
   toolPending: '●',
   toolSuccess: '✓',
   toolError: '×',
-  radioOn: '◉',
-  radioOff: '○',
+  selector: '❯',
+  prompt: '>',
+  user: '›',
+  assistant: '●',
+  clock: '✱',
+  cursor: '█',
+  radioOn: '❯',
+  radioOff: ' ',
   borderThin: '│',
   borderThick: '▌',
   diagonal: '╱',
@@ -27,39 +32,70 @@ export const ICONS = {
   scrollbarTrack: '│',
 } as const
 
-/** Ink Text color names that approximate Crush's warm-gold / muted chrome. */
-export const COLORS = {
-  logo: 'yellow',
-  mark: 'magenta',
-  accent: 'cyan',
-  muted: 'gray',
-  user: 'cyan',
-  assistant: 'white',
-  thinking: 'gray',
-  tool: 'yellow',
-  success: 'green',
-  error: 'red',
-  warning: 'yellow',
-  dim: 'gray',
+/**
+ * Dark Claude Code-like hex palette. Ink `Text`/`Box` accept these as
+ * `color` / `borderColor`.
+ */
+export const PALETTE = {
+  /** Terracotta orange — brand, spinner, user prompt. */
+  brand: '#D97757',
+  /** Default foreground. */
+  fg: '#E8E4DC',
+  /** Dim / muted secondary text and borders. */
+  muted: '#8A8580',
+  /** Pale lavender — tool titles. */
+  tool: '#C4B5FD',
+  /** Purple — ❯ selector. */
+  selector: '#A78BFA',
+  /** Muted green — success. */
+  success: '#6B8F71',
+  /** Red — error. */
+  error: '#E85D4C',
+  /** Warm warning. */
+  warning: '#E8C547',
+  /** Extra-dim thinking text. */
+  subtle: '#6F6B63',
+  /** Full-width user-row bar. */
+  userBar: '#3A3632',
 } as const
 
-/** Product word drawn in the Crush-style header logo. */
+/** Ink color tokens mapped onto the Claude Code-like palette. */
+export const COLORS = {
+  logo: PALETTE.brand,
+  mark: PALETTE.brand,
+  accent: PALETTE.brand,
+  brand: PALETTE.brand,
+  muted: PALETTE.muted,
+  user: PALETTE.brand,
+  userBar: PALETTE.userBar,
+  assistant: PALETTE.fg,
+  thinking: PALETTE.muted,
+  tool: PALETTE.tool,
+  selector: PALETTE.selector,
+  success: PALETTE.success,
+  error: PALETTE.error,
+  warning: PALETTE.warning,
+  dim: PALETTE.muted,
+  fg: PALETTE.fg,
+} as const
+
+/** Product word kept for onboarding copy (not a Crush wordmark). */
 export const PRODUCT_NAME = 'DSH'
 
-/** Small mark drawn beside the logo, matching Crush's Charm mark treatment. */
+/** Small product mark kept for onboarding copy. */
 export const PRODUCT_MARK = 'DeepSeek™'
 
-/** Crush compact-mode width breakpoint: hide the session sidebar below this. */
+/** Unused Crush compact-mode width breakpoint; single-column layout ignores it. */
 export const COMPACT_WIDTH = 120
 
-/** Crush compact-mode height breakpoint: hide the session sidebar below this. */
+/** Unused Crush compact-mode height breakpoint; single-column layout ignores it. */
 export const COMPACT_HEIGHT = 30
 
-/** Crush sidebar content width in full layout. */
+/** Unused Crush sidebar content width; the sidebar is never shown. */
 export const SIDEBAR_WIDTH = 30
 
-/** Maximum Crush-style prompt textarea height. */
+/** Maximum Claude Code-like prompt textarea height. */
 export const EDITOR_MAX_HEIGHT = 15
 
-/** Minimum Crush-style prompt textarea height. */
+/** Minimum Claude Code-like prompt textarea height (border + one content row). */
 export const EDITOR_MIN_HEIGHT = 3

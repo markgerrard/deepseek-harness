@@ -1,11 +1,11 @@
 /**
- * Crush keybinding vocabulary for the DSH terminal UI. Bindings match
- * Crush's shipped map (`ctrl+p` commands, `ctrl+l` models, `ctrl+s`
- * sessions, `ctrl+g` help, `ctrl+n` new session, `esc` cancel).
+ * Keybinding vocabulary for the Claude Code-like DSH terminal UI
+ * (`ctrl+p` commands, `ctrl+l` models, `ctrl+s` sessions, `ctrl+g` help,
+ * `ctrl+n` new session, `esc` cancel, `?` shortcuts when the editor is empty).
  * @module @deepseek-ai/dsh-tui/keys
  */
 
-/** One Crush-compatible keybinding advertised in the status/help bar. */
+/** One keybinding advertised in the help overlay. */
 export interface KeyBinding {
   /** Ink / terminal key name. */
   readonly key: string
@@ -17,7 +17,7 @@ export interface KeyBinding {
   readonly description: string
 }
 
-/** Crush-compatible key map used by the TUI controller and help chrome. */
+/** Key map used by the TUI controller and help chrome. */
 export const KEYS = {
   quit: { key: 'ctrl+c', help: 'ctrl+c', description: 'quit' },
   help: { key: 'ctrl+g', help: 'ctrl+g', description: 'more' },
@@ -34,7 +34,7 @@ export const KEYS = {
 } as const satisfies Record<string, KeyBinding>
 
 /**
- * Status-bar help fragments Crush shows when the editor is focused.
+ * Help fragments shown in the help overlay when the editor is focused.
  * @param compact - whether the terminal is in compact layout.
  * @returns ordered help pairs for the status line.
  */
@@ -55,7 +55,7 @@ export function editorHelp(compact: boolean): readonly { key: string; label: str
 
 /**
  * Whether `key` is one of a binding's names.
- * @param binding - Crush keybinding.
+ * @param binding - keybinding.
  * @param key - raw Ink key name.
  * @returns true when the key triggers the binding.
  */

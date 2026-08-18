@@ -24,8 +24,8 @@ Status: implemented
 
 **得到的**：`dsh tui`（以及 tui profile）会自动初始化，并在与 web、headless 相同的服务之上启动交互式 Crush 风格界面。
 
-**付出的**：Crush 的附加能力（附件、bang 模式 shell、MCP/LSP 面板、glamour Markdown、凭证录入）仍暂缓。TUI 只是展示层，缺少 `ctx.appExit` 时会明确失败。
+**付出的**：Crush 的附加能力（附件、bang 模式 shell、MCP/LSP 面板、glamour Markdown）仍暂缓。凭证录入是走 ctx.credentials 的 /connect；第一次 ctrl+c 打开退出确认。TUI 只是展示层，缺少 `ctx.appExit` 时会明确失败。
 
 ## 测试
 
-单元测试覆盖 layout、status、commands、state、chrome、cards 和 transcript 投影。Loader 组合测试覆盖 startup 提供方。runner 测试替换 Ink 渲染器，并用脚本化的 Agent factory 驱动。
+单元测试覆盖 layout、status、commands、state、chrome、cards、transcript 投影、connect 辅助函数和两次 ctrl+c 退出。Loader 组合测试覆盖 startup 提供方。runner 测试替换 Ink 渲染器，并用脚本化的 Agent factory 驱动。
