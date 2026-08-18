@@ -728,6 +728,9 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: workspace:*
         version: link:../packages/core/tools
+      '@deepseek-ai/dsh-turn-loss-notice':
+        specifier: workspace:*
+        version: link:../packages/context/turn-loss-notice
       '@deepseek-ai/dsh-user-approval':
         specifier: workspace:*
         version: link:../packages/interaction/user-approval

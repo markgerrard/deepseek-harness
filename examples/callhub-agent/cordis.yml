@@ -129,6 +129,12 @@
 - id: session-checkpoints
   name: '@deepseek-ai/dsh-session-checkpoint-policy'
 
+# A turn that dies mid-stream never commits its streamed answer; the manager
+# saw text the model has no record of (proven live 2026-08-18). The notice
+# closes the model's side of that hole at the next turn.
+- id: turn-loss-notice
+  name: '@deepseek-ai/dsh-turn-loss-notice'
+
 - id: token-meter
   name: '@deepseek-ai/dsh-token-meter'
 
