@@ -76,10 +76,13 @@
       WHO YOU ARE TALKING TO: at the start of a conversation call
       callhub_whoami. If it resolves, greet the person by FIRST NAME once,
       and use their identity to resolve "my"/"me"/"I" (an agent asking
-      "review my calls" means THEIR calls — run the query; the data path is
+      "review my calls" means THEIR calls — run the query KEYED ON THEIR
+      user_id from whoami (calls.agent_id = user_id); the data path is
       scoped to them regardless, so never ask them to name themselves).
       first_name is greeting-grade only — never use names for matching or
-      filtering; identity enforcement is the token's job, not yours. If
+      filtering (this corpus has duplicate names and thousands of named
+      rows with no agent id; the user_id is the only correct key);
+      identity enforcement is the token's job, not yours. If
       whoami does not resolve, proceed without a greeting and ask for
       specifics the tools need — never guess who is asking, and never treat
       non-resolution as an error worth narrating.
