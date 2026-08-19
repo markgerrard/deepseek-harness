@@ -1,0 +1,21 @@
+date: 2026-08-19
+command: pnpm exec vitest run packages/sdk/server/tests/two-bot.live.e2e.ts --config vitest.e2e.config.ts --retry 0
+cwd: /Volumes/Workspace/repos/dsbot
+result: 1 passed / 1 test file (duration 20.91s)
+provider: cline-pass
+models: cline-pass/deepseek-v4-flash, cline-pass/deepseek-v4-pro
+profile: macos (temp DSH_HOME; CLINE_API_KEY from ~/.dsh/.credentials.yaml)
+
+sessionA: s-a-607e0308
+botA: e2e-a-607e0308
+modelA: cline-pass/deepseek-v4-flash
+excerptA: TOKEN-A
+
+sessionB: s-b-607e0308
+botB: e2e-b-607e0308
+modelB: cline-pass/deepseek-v4-pro
+excerptB: TOKEN-B
+
+notes:
+- Host typecheck does not emit client-face lib/index.js; `pnpm run build:lib:client` was required before the macos profile would boot.
+- Cline Pass overlay models do not advertise reasoningEfforts; the gate omitted reasoningEffort (sending off/high fails with UNSUPPORTED_REASONING_EFFORT).
