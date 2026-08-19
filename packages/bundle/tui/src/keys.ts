@@ -32,6 +32,7 @@ export const KEYS = {
   tab: { key: 'tab', help: 'tab', description: 'change focus' },
   expand: { key: 'space', help: 'space', description: 'expand/collapse' },
   slash: { key: '/', help: '/', description: 'commands' },
+  permission: { key: 'shift+tab', help: 'shift+tab', description: 'cycle permission mode' },
 } as const satisfies Record<string, KeyBinding>
 
 /**

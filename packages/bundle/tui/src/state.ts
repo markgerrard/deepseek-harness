@@ -165,6 +165,8 @@ export interface TuiState {
   readonly historyQuery?: string
   /** Hide session events at or below this seq from the visual transcript. */
   readonly clearedSeq?: number
+  /** Footer permission label from DSH plan mode + `/permission` presets. */
+  readonly permissionMode?: string
 }
 
 /** Pure UI actions. Controller-owned I/O is not represented here. */
@@ -203,6 +205,7 @@ export type TuiAction =
   | { readonly type: 'search-history' }
   | { readonly type: 'clear-history' }
   | { readonly type: 'clear-transcript'; readonly seq: number }
+  | { readonly type: 'set-permission-mode'; readonly permissionMode?: string }
 
 /**
  * Initial Claude Code-like landing state.
@@ -518,6 +521,13 @@ export function reduce(state: TuiState, action: TuiAction): TuiState {
         clearedSeq: action.seq,
       }
     }
+    case 'set-permission-mode': {
+      if (action.permissionMode === undefined || action.permissionMode === '') {
+        const { permissionMode: _cleared, ...rest } = state
+        return rest
+      }
+      return { ...state, permissionMode: action.permissionMode }
+    }
     default: {
       const _exhaustive: never = action
       return _exhaustive
@@ -535,6 +545,7 @@ export function reduce(state: TuiState, action: TuiAction): TuiState {
 export function chromeAction(state: TuiState, key: string): TuiAction | undefined {
   if (matches(KEYS.quit, key)) return undefined
   if (matches(KEYS.steer, key)) return undefined
+  if (matches(KEYS.permission, key)) return undefined
   if (state.overlay.kind === 'quit') return undefined
   if (state.overlay.kind !== 'none') {
     if (matches(KEYS.cancel, key)) return { type: 'close-overlay' }

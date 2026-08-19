@@ -56,6 +56,7 @@ function statusOf(state: TuiState): StatusModel {
     ...(state.usedTokens === undefined ? {} : { usedTokens: state.usedTokens }),
     ...(state.contextWindow === undefined ? {} : { contextWindow: state.contextWindow }),
     ...(state.notice === undefined ? {} : { notice: state.notice }),
+    ...(state.permissionMode === undefined ? {} : { permissionMode: state.permissionMode }),
   }
 }
 

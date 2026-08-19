@@ -24,6 +24,8 @@ export interface StatusModel {
   readonly busy: boolean
   readonly compact: boolean
   readonly notice?: StatusNotice
+  /** Claude Code-like permission label (`default` / `plan` / `accept edits`). */
+  readonly permissionMode?: string
 }
 
 /** Past-tense cooking verbs rotated onto finished-turn clocks. */
@@ -185,7 +187,8 @@ export function formatStatusLine(status: StatusModel, width: number, home?: stri
           : ICONS.spinner
     return truncate(`${mark} ${status.notice.text}`, width)
   }
-  const left = '? for shortcuts'
+  const mode = status.permissionMode
+  const left = mode === undefined || mode === '' ? '? for shortcuts' : `? for shortcuts  ${mode}`
   const right = `${formatModelLine(status)}  ${prettyPath(status.cwd, home)}`
   const pad = Math.max(1, width - left.length - right.length)
   if (left.length + 1 + right.length > width) {

@@ -59,6 +59,15 @@ import {
   suggestionGenerateOptions,
   SUGGESTION_TIMEOUT_MS,
 } from './suggestion.ts'
+import {
+  DEFAULT_PERMISSION_PRESETS,
+  displayPermissionMode,
+  foldPermissionPreset,
+  foldPlanActive,
+  nextPermissionAction,
+  type PermissionAction,
+  type PermissionFacts,
+} from './permission.ts'
 import { foldRequestModel, foldSessionTitle, projectTranscript, textOf, type TranscriptItem } from './transcript.ts'
 
 /**
@@ -304,6 +313,10 @@ export class TuiController {
         const _exhaustive: never = quit
         return _exhaustive
       }
+    }
+    if (matches(KEYS.permission, key)) {
+      await this.cyclePermission()
+      return true
     }
     if (matches(KEYS.steer, key)) {
       if (this.state.overlay.kind === 'none') await this.submitSteer(this.state.input)
@@ -577,6 +590,7 @@ export class TuiController {
       // assistant text). Busy follows agent/status, not the last log row.
       this.dispatch({ type: 'set-busy', busy: agent.status === 'running' })
       this.refreshTokens()
+      this.refreshPermission()
       // Idle can land before the last assistant is projected. Retry once the
       // transcript has a user+assistant pair and no request is in flight.
       if (agent.status !== 'running') this.maybeRequestSuggestion()
@@ -607,6 +621,7 @@ export class TuiController {
     }
     this.dispatch({ type: 'set-busy', busy: agent.status === 'running' })
     this.refreshQueued()
+    this.refreshPermission()
     void this.refreshAgents()
     const onKids = (): void => { void this.refreshAgents() }
     const listen = (name: string, fn: () => void): (() => void) =>
@@ -993,6 +1008,122 @@ export class TuiController {
     } catch {
       this.dispatch({ type: 'set-agents', agents: [] })
     }
+  }
+
+  /**
+   * Cycle plan / default / accept-edits (or the mounted DSH subset) via
+   * `ctx.planMode` + `ctx.permissionPresets`, falling back to `/plan` and
+   * `/permission`. Shift+Tab is consumed even when nothing is mounted.
+   */
+  async cyclePermission(): Promise<boolean> {
+    const facts = this.permissionFacts()
+    const next = nextPermissionAction(facts)
+    if (next === undefined) {
+      this.refreshPermission()
+      return false
+    }
+    await this.applyPermissionAction(facts, next)
+    this.refreshPermission()
+    const label = this.state.permissionMode
+    if (label !== undefined) {
+      this.dispatch({ type: 'set-notice', notice: { type: 'info', text: `permission: ${label}` } })
+    }
+    return true
+  }
+
+  /**
+   * Re-read the footer permission label from live DSH services / the session log.
+   */
+  refreshPermission(): void {
+    const facts = this.permissionFacts()
+    this.dispatch({ type: 'set-permission-mode', permissionMode: displayPermissionMode(facts) })
+  }
+
+  /**
+   * Collect plan + preset facts from mounted services, else the session log
+   * and registered `/plan` / `/permission` commands.
+   * @returns the facts {@link nextPermissionAction} cycles.
+   */
+  private permissionFacts(): PermissionFacts {
+    const agent = this.agent()
+    const events = agent?.session.events ?? this.events
+    const presets = this.permissionPresets()
+    const plan = this.planModeService()
+    const commands = this.listCommands()
+    const hasPermissionCmd = commands.some(command => command.name === 'permission')
+    const hasPlanCmd = commands.some(command => command.name === 'plan')
+    const names = presets !== undefined
+      ? [...presets.names]
+      : hasPermissionCmd ? [...DEFAULT_PERMISSION_PRESETS] : []
+    const preset = presets !== undefined && agent !== undefined
+      ? presets.current(agent.session.events)
+      : foldPermissionPreset(events)
+    const planState = plan !== undefined && agent !== undefined ? plan.get(agent) : undefined
+    const planActive = planState !== undefined
+      ? planState.active === true || planState.pending === true
+      : foldPlanActive(events)
+    return {
+      planActive,
+      hasPlan: plan !== undefined || hasPlanCmd,
+      presets: names,
+      ...(preset === undefined ? {} : { preset }),
+    }
+  }
+
+  private permissionPresets(): {
+    readonly names: readonly string[]
+    current(events: readonly { readonly type: string }[]): string
+    set(session: { append(type: string, data: unknown): void }, name: string): void
+  } | undefined {
+    return (this.ctx.get as (name: string) => {
+      readonly names: readonly string[]
+      current(events: readonly { readonly type: string }[]): string
+      set(session: { append(type: string, data: unknown): void }, name: string): void
+    } | undefined)('permissionPresets')
+  }
+
+  private planModeService(): {
+    get(agent: object): { active: boolean; pending?: boolean }
+    set(agent: object, active: boolean): string
+  } | undefined {
+    return (this.ctx.get as (name: string) => {
+      get(agent: object): { active: boolean; pending?: boolean }
+      set(agent: object, active: boolean): string
+    } | undefined)('planMode')
+  }
+
+  /**
+   * Apply one cycle step through the live services, else `ctx.commands`.
+   * @param facts - facts before the switch.
+   * @param next - target mode.
+   */
+  private async applyPermissionAction(facts: PermissionFacts, next: PermissionAction): Promise<void> {
+    const agent = this.agent()
+    if (agent === undefined) return
+    const presets = this.permissionPresets()
+    const plan = this.planModeService()
+    const commands = this.ctx.get('commands')
+    const run = async (line: string): Promise<void> => {
+      if (commands === undefined) return
+      await commands.execute(agent, line, new AbortController().signal)
+    }
+    if (next.kind === 'plan') {
+      if (plan !== undefined) {
+        plan.set(agent, next.active)
+        return
+      }
+      await run(next.active ? '/plan' : '/plan off')
+      return
+    }
+    if (facts.planActive) {
+      if (plan !== undefined) plan.set(agent, false)
+      else await run('/plan off')
+    }
+    if (presets !== undefined) {
+      presets.set(agent.session, next.name)
+      return
+    }
+    await run(`/permission ${next.name}`)
   }
 
   /**

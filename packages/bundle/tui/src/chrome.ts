@@ -302,6 +302,7 @@ export function helpLines(): readonly string[] {
     'ctrl+c  cancel / clear / quit',
     'enter   send (queues while Working)',
     'shift+t  steer this turn (next step)',
+    'shift+tab  cycle permission mode',
     'up      take back last queued / history',
     'ctrl+r  reverse search history',
     'ctrl+j  newline',

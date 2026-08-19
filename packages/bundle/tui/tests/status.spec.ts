@@ -57,6 +57,20 @@ describe('Claude Code-like status helpers', () => {
     expect(line).not.toContain('bypass')
   })
 
+  it('shows the current permission mode next to shortcuts', () => {
+    const line = formatStatusLine({
+      provider: 'p', model: 'm', cwd: '/tmp', busy: false, compact: true,
+      permissionMode: 'accept edits',
+    }, 80)
+    expect(line).toContain('? for shortcuts  accept edits')
+    expect(formatStatusLine({
+      provider: 'p', model: 'm', cwd: '/tmp', busy: false, compact: true,
+    }, 80)).toContain('? for shortcuts')
+    expect(formatStatusLine({
+      provider: 'p', model: 'm', cwd: '/tmp', busy: false, compact: true,
+    }, 80)).not.toContain('accept edits')
+  })
+
   it('formats turn durations as seconds, minutes, then hours', () => {
     expect(formatTurnDuration(0)).toBe('0s')
     expect(formatTurnDuration(999)).toBe('0s')

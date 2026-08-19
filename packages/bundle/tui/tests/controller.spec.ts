@@ -571,7 +571,7 @@ describe('TUI next-step steer', () => {
     expect(test.controller.snapshot()).not.toHaveProperty('sendMode')
 
     test.controller.dispatch({ type: 'set-input', input: 'stop rewriting', cursor: 14 })
-    expect(await test.controller.handleKey('shift+tab')).toBe(false)
+    expect(await test.controller.handleKey('shift+tab')).toBe(true)
     expect(test.controller.snapshot().input).toBe('stop rewriting')
     expect(test.controller.snapshot().steering).toEqual([])
     expect(test.controller.snapshot().queued).toEqual([])
@@ -766,6 +766,74 @@ describe('TUI bang shell and at-path', () => {
     await test.controller.submit('!pwd')
     const card = test.controller.transcript().find(item => item.kind === 'command')
     expect(card?.text).toContain('bash tool')
+    await test.ctx.fiber.dispose()
+  })
+})
+
+describe('TUI permission mode', () => {
+  it('cycles plan / default / accept edits through ctx.planMode and ctx.permissionPresets', async () => {
+    const test = await mount()
+    const setPlan = vi.fn(() => 'committed')
+    const setPreset = vi.fn()
+    let planActive = false
+    let preset = 'workspace-write'
+    test.ctx.provide('planMode', {
+      get: () => ({ active: planActive }),
+      set: (_agent: unknown, active: boolean) => {
+        planActive = active
+        return setPlan()
+      },
+    } as never)
+    test.ctx.provide('permissionPresets', {
+      names: ['workspace-write', 'danger-full-access'],
+      current: () => preset,
+      set: (_session: unknown, name: string) => {
+        preset = name
+        setPreset(name)
+      },
+    } as never)
+    test.controller.refreshPermission()
+    expect(test.controller.snapshot().permissionMode).toBe('default')
+
+    expect(await test.controller.handleKey('shift+tab')).toBe(true)
+    expect(setPreset).toHaveBeenCalledWith('danger-full-access')
+    expect(planActive).toBe(false)
+    expect(test.controller.snapshot().permissionMode).toBe('accept edits')
+
+    expect(await test.controller.handleKey('shift+tab')).toBe(true)
+    expect(setPlan).toHaveBeenCalled()
+    expect(planActive).toBe(true)
+    expect(test.controller.snapshot().permissionMode).toBe('plan')
+    expect(test.controller.snapshot().notice?.text).toContain('plan')
+
+    expect(await test.controller.handleKey('shift+tab')).toBe(true)
+    expect(planActive).toBe(false)
+    expect(setPreset).toHaveBeenCalledWith('workspace-write')
+    expect(test.controller.snapshot().permissionMode).toBe('default')
+
+    expect(test.controller.snapshot().input).toBe('')
+    await test.ctx.fiber.dispose()
+  })
+
+  it('falls back to /plan and /permission when only commands are mounted', async () => {
+    const test = await mount()
+    const execute = vi.fn(async (_agent: unknown, line: string) => ({
+      commandId: 'cmd-1',
+      result: { kind: 'success', text: line },
+    }))
+    test.ctx.provide('commands', {
+      list: () => [
+        { name: 'plan', description: 'Enter or leave plan mode' },
+        { name: 'permission', description: 'Switch the permission preset' },
+      ],
+      execute,
+      find: () => undefined,
+      register: () => () => {},
+    } as never)
+    test.controller.refreshPermission()
+    expect(test.controller.snapshot().permissionMode).toBe('default')
+    expect(await test.controller.handleKey('shift+tab')).toBe(true)
+    expect(String(execute.mock.calls[0]?.[1])).toBe('/permission danger-full-access')
     await test.ctx.fiber.dispose()
   })
 })
