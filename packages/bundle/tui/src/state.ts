@@ -8,6 +8,11 @@ import type { ConnectProviderRow } from './connect.ts'
 import { isPaletteOpen, routeLine } from './commands.ts'
 import { matches, KEYS } from './keys.ts'
 import { applyPromptKey } from './prompt.ts'
+import {
+  recallHistory,
+  reverseSearchHistory,
+  pushHistory as appendHistory,
+} from './history.ts'
 import { cookingVerb, type StatusNotice } from './status.ts'
 import { toggleId, type TranscriptExpansion } from './transcript.ts'
 
@@ -46,6 +51,7 @@ export type Overlay =
     readonly multi: boolean
     readonly chosen: readonly number[]
   }
+
 
 /** Intent produced by {@link resolveQuitKey}. */
 export type QuitIntent =
@@ -124,6 +130,14 @@ export interface TuiState {
   readonly queued: readonly QueuedPrompt[]
   /** Visible next-step inbox, sourced from `agent.inbox.nextStep`. */
   readonly steering: readonly QueuedPrompt[]
+  /** Submitted prompts from this session, oldest first. */
+  readonly history: readonly string[]
+  /** Index into `history` while Up/Down / Ctrl+R is browsing. */
+  readonly historyIndex?: number
+  /** Editor draft captured when history browse started. */
+  readonly historyDraft?: string
+  /** Ctrl+R search needle, kept while cycling matches. */
+  readonly historyQuery?: string
 }
 
 /** Pure UI actions. Controller-owned I/O is not represented here. */
@@ -152,6 +166,10 @@ export type TuiAction =
   | { readonly type: 'clear-input' }
   | { readonly type: 'set-suggestion'; readonly suggestion?: string }
   | { readonly type: 'set-queued'; readonly queued: readonly QueuedPrompt[]; readonly steering?: readonly QueuedPrompt[] }
+  | { readonly type: 'push-history'; readonly text: string }
+  | { readonly type: 'recall-history'; readonly delta: number }
+  | { readonly type: 'search-history' }
+  | { readonly type: 'clear-history' }
 
 /**
  * Initial Claude Code-like landing state.
@@ -185,6 +203,7 @@ export function initialState(seed: {
     turnClocks: [],
     queued: [],
     steering: [],
+    history: [],
     paletteLength: 0,
     ...(seed.guidance === undefined ? {} : { guidance: seed.guidance }),
   }
@@ -250,6 +269,7 @@ export function reduce(state: TuiState, action: TuiAction): TuiState {
       return { ...state, width: action.width, height: action.height }
     case 'set-input': {
       const input = action.input
+      const { historyIndex: _index, historyDraft: _draft, historyQuery: _query, ...withoutBrowse } = state
       const overlay = isPaletteOpen(input)
         ? {
           kind: 'commands' as const,
@@ -260,10 +280,11 @@ export function reduce(state: TuiState, action: TuiAction): TuiState {
           ? { kind: 'none' as const }
           : state.overlay
       const next = {
-        ...state,
+        ...withoutBrowse,
         input,
         cursor: action.cursor,
         overlay,
+        history: state.history,
         ...(action.kill === undefined ? {} : { kill: action.kill }),
       }
       if (input === '') return next
@@ -383,7 +404,7 @@ export function reduce(state: TuiState, action: TuiAction): TuiState {
     case 'set-palette-length':
       return { ...state, paletteLength: action.paletteLength }
     case 'clear-input': {
-      const { suggestion: _cleared, ...rest } = state
+      const { suggestion: _cleared, historyIndex: _i, historyDraft: _d, historyQuery: _q, ...rest } = state
       return { ...rest, input: '', cursor: 0, overlay: state.overlay.kind === 'commands' ? { kind: 'none' } : state.overlay }
     }
     case 'set-suggestion': {
@@ -395,6 +416,20 @@ export function reduce(state: TuiState, action: TuiAction): TuiState {
     }
     case 'set-queued':
       return { ...state, queued: action.queued, steering: action.steering ?? state.steering }
+    case 'push-history':
+      return { ...state, history: appendHistory(state.history, action.text) }
+    case 'recall-history': {
+      const recalled = recallHistory(state, state.input, action.delta)
+      return recalled === undefined ? state : applyRecall(state, recalled)
+    }
+    case 'search-history': {
+      const recalled = reverseSearchHistory(state, state.input)
+      return recalled === undefined ? state : applyRecall(state, recalled)
+    }
+    case 'clear-history': {
+      const { historyIndex: _i, historyDraft: _d, historyQuery: _q, ...rest } = state
+      return { ...rest, history: [] }
+    }
     default: {
       const _exhaustive: never = action
       return _exhaustive
@@ -432,6 +467,9 @@ export function chromeAction(state: TuiState, key: string): TuiAction | undefine
   if (matches(KEYS.commands, key)) return { type: 'open-overlay', overlay: { kind: 'commands', query: state.input, selected: 0 } }
   if (matches(KEYS.models, key)) return { type: 'open-overlay', overlay: { kind: 'models', selected: 0 } }
   if (matches(KEYS.sessions, key)) return { type: 'open-overlay', overlay: { kind: 'sessions', selected: 0 } }
+  if ((key === 'right' || key === 'ctrl+f') && state.input === '' && state.suggestion !== undefined && state.suggestion !== '') {
+    return { type: 'set-input', input: state.suggestion, cursor: state.suggestion.length }
+  }
   if (matches(KEYS.tab, key)) {
     if (state.input === '' && state.suggestion !== undefined && state.suggestion !== '') {
       return { type: 'set-input', input: state.suggestion, cursor: state.suggestion.length }
@@ -457,6 +495,31 @@ function promptInputAction(state: TuiState, key: string): TuiAction | undefined 
     input: edit.input,
     cursor: edit.cursor,
     ...(edit.kill === undefined ? {} : { kill: edit.kill }),
+  }
+}
+
+/**
+ * Apply a history recall onto UI state, omitting browse fields when restoring the draft.
+ * @param state - current UI state.
+ * @param recalled - recall result.
+ * @returns the next state.
+ */
+function applyRecall(state: TuiState, recalled: {
+  readonly input: string
+  readonly cursor: number
+  readonly historyIndex?: number
+  readonly historyDraft?: string
+  readonly historyQuery?: string
+}): TuiState {
+  const { historyIndex: _i, historyDraft: _d, historyQuery: _q, suggestion: _s, ...rest } = state
+  return {
+    ...rest,
+    input: recalled.input,
+    cursor: recalled.cursor,
+    overlay: state.overlay.kind === 'commands' ? { kind: 'none' } : state.overlay,
+    ...(recalled.historyIndex === undefined ? {} : { historyIndex: recalled.historyIndex }),
+    ...(recalled.historyDraft === undefined ? {} : { historyDraft: recalled.historyDraft }),
+    ...(recalled.historyQuery === undefined ? {} : { historyQuery: recalled.historyQuery }),
   }
 }
 

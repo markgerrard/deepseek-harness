@@ -80,6 +80,7 @@ describe('Claude Code-like chrome strings', () => {
     expect(helpLines().every(line => !line.includes('shift+tab'))).toBe(true)
     expect(helpLines().every(line => !line.includes('ctrl+enter'))).toBe(true)
     expect(helpLines().some(line => line.includes('take back last queued'))).toBe(true)
+    expect(helpLines().some(line => line.includes('reverse search history'))).toBe(true)
     expect(formatQueuedLine(1, 'look at tests', 40)).toBe('queued 1  look at tests')
     expect(formatQueuedLine(2, 'a very long follow-up prompt', 18)).toBe('queued 2  a very …')
     expect(formatSteerLine(1, 'stop rewriting', 40)).toBe('steer 1  stop rewriting')

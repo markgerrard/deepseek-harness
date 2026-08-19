@@ -44,6 +44,7 @@ import {
   type TuiAction,
   type TuiState,
 } from './state.ts'
+import { isOnFirstLine, isOnLastLine } from './history.ts'
 import { KEYS, matches } from './keys.ts'
 import {
   capSuggestion,
@@ -297,8 +298,23 @@ export class TuiController {
         return true
       }
     }
-    if ((key === 'up' || key === 'ctrl+up') && this.state.input === '' && this.state.overlay.kind === 'none') {
-      if (this.takeBackLastQueued()) return true
+    if ((key === 'up' || key === 'ctrl+up') && this.state.overlay.kind === 'none') {
+      if (this.state.input === '' && this.takeBackLastQueued()) return true
+      if (isOnFirstLine(this.state.input, this.state.cursor)) {
+        const before = this.state.historyIndex
+        this.dispatch({ type: 'recall-history', delta: -1 })
+        return this.state.history.length > 0 || before !== undefined
+      }
+    }
+    if ((key === 'down' || key === 'ctrl+down') && this.state.overlay.kind === 'none'
+      && this.state.historyIndex !== undefined && isOnLastLine(this.state.input, this.state.cursor)) {
+      this.dispatch({ type: 'recall-history', delta: 1 })
+      return true
+    }
+    if (key === 'ctrl+r' && this.state.overlay.kind === 'none') {
+      const before = this.state.historyIndex
+      this.dispatch({ type: 'search-history' })
+      return this.state.historyIndex !== before || this.state.history.length > 0
     }
     if ((key === 'return' || key === 'enter') && this.state.overlay.kind !== 'none') {
       await this.confirmOverlay()
@@ -317,6 +333,7 @@ export class TuiController {
    */
   async submit(line: string): Promise<void> {
     const routed = routeLine(line)
+    if (routed.kind === 'prompt') this.dispatch({ type: 'push-history', text: routed.text })
     this.dispatch({ type: 'clear-input' })
     if (routed.kind === 'empty') return
     if (routed.kind === 'command') {
@@ -340,6 +357,7 @@ export class TuiController {
    */
   async submitSteer(line: string): Promise<void> {
     const routed = routeLine(line)
+    if (routed.kind === 'prompt') this.dispatch({ type: 'push-history', text: routed.text })
     this.dispatch({ type: 'clear-input' })
     if (routed.kind === 'empty') return
     if (routed.kind === 'command') {
@@ -557,6 +575,7 @@ export class TuiController {
     this.handle = undefined
     this.events = []
     this.dispatch({ type: 'set-queued', queued: [], steering: [] })
+    this.dispatch({ type: 'clear-history' })
     if (existing === undefined) return
     existing.agent.cancel({ kind: 'user' })
     await existing.dispose()
