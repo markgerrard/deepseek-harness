@@ -28,6 +28,7 @@ import type {
   SessionPromptParams,
   SessionPromptResult,
   SessionResumeParams,
+  SessionSetModelParams,
   SubagentFinishedNotification,
   SubagentStartedNotification,
 } from '@deepseek-ai/dsh-sdk-protocol'
@@ -338,7 +339,7 @@ export class HarnessSdkJsonRpcServer {
       return {}
     }
     if (this.sessions.has(params.sessionId)) return {}
-    await this.beginSessionLoad(params.sessionId, 'resume', () => this.resumeSession(params.sessionId)).task
+    await this.beginSessionLoad(params.sessionId, 'resume', () => this.resumeSession(params.sessionId, params)).task
     return {}
   }
 
@@ -435,6 +436,8 @@ export class HarnessSdkJsonRpcServer {
         return this.cancel(params as unknown as SessionCancelParams)
       case 'session/resume':
         return this.resume(params as unknown as SessionResumeParams)
+      case 'session/setModel':
+        return this.setModel(params as unknown as SessionSetModelParams)
       case 'shutdown':
         return this.shutdown()
       default:
@@ -563,22 +566,57 @@ export class HarnessSdkJsonRpcServer {
     return rec
   }
 
-  private async resumeSession(sessionId: string): Promise<SessionRecord> {
-    const handle = await this.ctx.agents.resume({
-      resumeSessionId: SessionId(sessionId),
-      agentOptions: {
-        provider: this.provider,
-        model: this.model,
-        ...this.maxTokens === undefined ? {} : { maxTokens: this.maxTokens },
-      },
-    })
+  private setModel(params: SessionSetModelParams): Promise<Record<string, never>> {
+    const rec = this.sessions.get(params.sessionId)
+    if (rec === undefined || this.sessionCreations.has(params.sessionId)) {
+      throw new Error(`session/setModel: session ${params.sessionId} is not live`)
+    }
+    if (!this.hasAdapterFor(params.provider)) {
+      throw new Error(`no adapter registered for provider "${params.provider}"`)
+    }
+    rec.selection.current = {
+      provider: params.provider,
+      model: params.model,
+      ...params.reasoningEffort === undefined
+        ? {}
+        : { reasoningEffort: ReasoningEffortId(params.reasoningEffort) },
+    }
+    return Promise.resolve({})
+  }
+
+  private async resumeSession(sessionId: string, params?: SessionResumeParams): Promise<SessionRecord> {
+    const provider = params?.provider ?? this.provider
+    const model = params?.model ?? this.model
+    if (params?.provider !== undefined && !this.hasAdapterFor(params.provider)) {
+      throw new Error(`no adapter registered for provider "${params.provider}"`)
+    }
     const selection: ModelSelectionRef = {
       current: {
-        provider: this.provider,
-        model: this.model,
+        provider,
+        model,
+        ...params?.reasoningEffort === undefined
+          ? {}
+          : { reasoningEffort: ReasoningEffortId(params.reasoningEffort) },
       },
       assembled: undefined,
     }
+    const presets = this.ctx.get('agentPresets')
+    const handle = await this.ctx.agents.resume({
+      resumeSessionId: SessionId(sessionId),
+      agentOptions: {
+        provider,
+        model,
+        ...this.maxTokens === undefined ? {} : { maxTokens: this.maxTokens },
+      },
+      setup: async (agentCtx) => {
+        const agentPreset = agentCtx.agent?.session.header.agentPreset
+        if (agentPreset !== undefined) {
+          if (presets === undefined) throw new Error('agent-presets is not composed')
+          await presets.mount(agentCtx, agentPreset)
+        }
+        installModelSelection(agentCtx, selection)
+      },
+    })
     const rec: SessionRecord = { handle, selection }
     this.sessions.set(sessionId, rec)
     return rec

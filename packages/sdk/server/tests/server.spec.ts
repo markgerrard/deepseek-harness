@@ -468,6 +468,7 @@ describe('HarnessSdkJsonRpcServer', () => {
     expect(resume).toHaveBeenCalledExactlyOnceWith({
       resumeSessionId: SessionId('main'),
       agentOptions: { provider: 'deepseek-official', model: 'deepseek-official' },
+      setup: expect.any(Function) as unknown,
     })
     expect(create).not.toHaveBeenCalled()
 
@@ -2585,5 +2586,152 @@ describe('HarnessSdkJsonRpcServer', () => {
     settleTree!()
     await expect(parked).rejects.toThrow(/shutting down/)
     expect(create).not.toHaveBeenCalled()
+  })
+
+  it('setModel updates a live session and rejects unknown ids', async () => {
+    const liveAgents = new Map<string, Agent>()
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      get: (key: string) => key === 'llm' ? { listProviders: () => [{ id: 'mock-a' }, { id: 'mock-b' }] } : undefined,
+      agents: {
+        get: (id: SessionId) => liveAgents.get(String(id)),
+        create: vi.fn(async (options: {
+          sessionId: SessionId
+          setup?: (ctx: Context) => Promise<void>
+        }) => {
+          const agentCtx = { on: vi.fn(() => () => undefined) } as unknown as Context
+          await options.setup?.(agentCtx)
+          const agent = {
+            id: options.sessionId,
+            session: { id: options.sessionId },
+            followup: vi.fn(),
+          } as unknown as Agent
+          liveAgents.set(String(options.sessionId), agent)
+          return { agent, dispose: vi.fn(async () => undefined) }
+        }),
+      },
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+    await server.handleRequest('initialize', { cwd: '/tmp', provider: 'mock-a', model: 'default-m' })
+    await server.handleRequest('session/prompt', {
+      sessionId: 's1',
+      contentBlocks: [{ type: 'text', text: 'hi' }],
+    })
+    await expect(server.handleRequest('session/setModel', {
+      sessionId: 's1',
+      provider: 'mock-b',
+      model: 'model-b',
+      reasoningEffort: 'high',
+    })).resolves.toEqual({})
+    await expect(server.handleRequest('session/setModel', {
+      sessionId: 's1',
+      provider: 'mock-a',
+      model: 'model-a',
+    })).resolves.toEqual({})
+    await expect(server.handleRequest('session/setModel', {
+      sessionId: 'unknown-id',
+      provider: 'mock-b',
+      model: 'model-b',
+    })).rejects.toThrow('session/setModel: session unknown-id is not live')
+    await expect(server.handleRequest('session/setModel', {
+      sessionId: 's1',
+      provider: 'unregistered',
+      model: 'model-b',
+    })).rejects.toThrow('no adapter registered for provider "unregistered"')
+    await server.shutdown()
+  })
+
+  it('resume remounts header agentPreset and applies client model fields', async () => {
+    const mounts: { id: string }[] = []
+    const resumes: { provider: string | undefined; model: string | undefined }[] = []
+    const followup = vi.fn<Agent['followup']>()
+    const liveAgents = new Map<string, Agent>()
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      get: (key: string) => {
+        if (key === 'llm') return { listProviders: () => [{ id: 'mock-a' }, { id: 'mock-b' }] }
+        if (key === 'agentPresets') {
+          return {
+            mount: async (_ctx: Context, id: string) => {
+              mounts.push({ id })
+              return { id, trust: 'user', path: '/p' }
+            },
+          }
+        }
+        return undefined
+      },
+      agents: {
+        get: (id: SessionId) => liveAgents.get(String(id)),
+        resume: vi.fn(async (options: {
+          resumeSessionId: SessionId
+          agentOptions?: { provider: string; model: string }
+          setup?: (ctx: Context) => Promise<void>
+        }) => {
+          resumes.push({
+            provider: options.agentOptions?.provider,
+            model: options.agentOptions?.model,
+          })
+          const agent = {
+            id: options.resumeSessionId,
+            session: { id: options.resumeSessionId, header: { agentPreset: 'bot-a' } },
+            followup,
+          } as unknown as Agent
+          const agentCtx = { on: vi.fn(() => () => undefined), agent } as unknown as Context
+          await options.setup?.(agentCtx)
+          liveAgents.set(String(options.resumeSessionId), agent)
+          return { agent, dispose: vi.fn(async () => undefined) }
+        }),
+      },
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+    await server.handleRequest('initialize', { cwd: '/tmp', provider: 'mock-a', model: 'default-m' })
+    await expect(server.handleRequest('session/resume', {
+      sessionId: 's1',
+      provider: 'mock-b',
+      model: 'model-b',
+      reasoningEffort: 'low',
+    })).resolves.toEqual({})
+    expect(mounts.map(m => m.id)).toEqual(['bot-a'])
+    expect(resumes).toEqual([{ provider: 'mock-b', model: 'model-b' }])
+    await expect(server.handleRequest('session/prompt', {
+      sessionId: 's1',
+      contentBlocks: [{ type: 'text', text: 'prompt after resume' }],
+    })).resolves.toMatchObject({ messageId: expect.any(String) as unknown })
+    expect(followup).toHaveBeenCalledOnce()
+
+    await expect(server.handleRequest('session/resume', {
+      sessionId: 's2',
+      provider: 'unknown-p',
+      model: 'm',
+    })).rejects.toThrow('no adapter registered for provider "unknown-p"')
+
+    const ctxWithoutPresets = {
+      on: vi.fn(() => () => undefined),
+      get: (key: string) => key === 'llm' ? { listProviders: () => [{ id: 'mock-a' }] } : undefined,
+      agents: {
+        get: () => undefined,
+        resume: vi.fn(async (options: {
+          resumeSessionId: SessionId
+          setup?: (ctx: Context) => Promise<void>
+        }) => {
+          const agent = {
+            id: options.resumeSessionId,
+            session: { id: options.resumeSessionId, header: { agentPreset: 'bot-a' } },
+            followup: vi.fn(),
+          } as unknown as Agent
+          const agentCtx = { on: vi.fn(() => () => undefined), agent } as unknown as Context
+          await options.setup?.(agentCtx)
+          return { agent, dispose: vi.fn(async () => undefined) }
+        }),
+      },
+    } as unknown as Context
+    const serverWithoutPresets = new HarnessSdkJsonRpcServer(ctxWithoutPresets, new FakeTransport())
+    await serverWithoutPresets.handleRequest('initialize', { cwd: '/tmp', provider: 'mock-a', model: 'default-m' })
+    await expect(serverWithoutPresets.handleRequest('session/resume', {
+      sessionId: 's-no-presets',
+    })).rejects.toThrow('agent-presets is not composed')
+    await serverWithoutPresets.shutdown()
+
+    await server.shutdown()
   })
 })
