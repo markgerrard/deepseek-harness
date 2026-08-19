@@ -64,7 +64,8 @@ function statusOf(state: TuiState): StatusModel {
 
 /**
  * Colored overlay body: purple ❯ on the selected row, fg otherwise.
- * Every Ink Text carries an explicit color so the frame is not default-white.
+ * Rows are a Box + truncate-safe Text (same as the prompt caret). Ink drops
+ * special cells inside wrap/truncate parents, which made ❯ flicker on move.
  * @param text - overlay lines.
  * @returns a column of colored lines.
  */
@@ -76,13 +77,17 @@ function coloredLines(text: string): React.ReactElement {
     ...lines.map((line, index) => {
       if (line.startsWith(ICONS.selector)) {
         return React.createElement(
-          Text,
-          { key: index, wrap: 'wrap', color: COLORS.fg },
+          Box,
+          { key: index, flexDirection: 'row', height: 1, flexShrink: 0, flexGrow: 0 },
           React.createElement(Text, { color: COLORS.selector }, ICONS.selector),
-          React.createElement(Text, { color: COLORS.fg }, line.slice(ICONS.selector.length)),
+          React.createElement(Text, { color: COLORS.fg, wrap: 'truncate' }, line.slice(ICONS.selector.length)),
         )
       }
-      return React.createElement(Text, { key: index, color: COLORS.fg, wrap: 'wrap' }, line === '' ? ' ' : line)
+      return React.createElement(
+        Box,
+        { key: index, height: 1, flexShrink: 0, flexGrow: 0 },
+        React.createElement(Text, { color: COLORS.fg, wrap: 'truncate' }, line === '' ? ' ' : line),
+      )
     }),
   )
 }

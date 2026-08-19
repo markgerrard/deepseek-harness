@@ -32,6 +32,17 @@ describe('inkKeyName', () => {
     expect(inkKeyName('k', { ctrl: true })).toBe('ctrl+k')
   })
 
+  it('maps arrow flags before escape so CSI arrows are not cancel', () => {
+    expect(inkKeyName('', { escape: true, upArrow: true })).toBe('up')
+    expect(inkKeyName('', { escape: true, downArrow: true })).toBe('down')
+    expect(inkKeyName('', { escape: true, leftArrow: true })).toBe('left')
+    expect(inkKeyName('', { escape: true, rightArrow: true })).toBe('right')
+    expect(inkKeyName('', { escape: true, upArrow: true, shift: true })).toBe('shift+up')
+    expect(inkKeyName('', { escape: true })).toBe('escape')
+    expect(matches(KEYS.pageUp, 'up')).toBe(false)
+    expect(matches(KEYS.pageDown, 'down')).toBe(false)
+  })
+
   it('matches page aliases including shift+up / shift+down', () => {
     expect(matches(KEYS.pageUp, 'pageup')).toBe(true)
     expect(matches(KEYS.pageUp, 'shift+up')).toBe(true)

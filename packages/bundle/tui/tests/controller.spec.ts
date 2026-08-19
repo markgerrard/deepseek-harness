@@ -12,6 +12,7 @@ import { createAssistantMessage, createUserMessage, type GenerateOptions, type S
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session, UserMessage } from '@deepseek-ai/dsh-session'
 import { TuiController } from '../src/controller.ts'
+import { inkKeyName } from '../src/keys.ts'
 import { chromeAction } from '../src/state.ts'
 import { formatWorkingLine } from '../src/status.ts'
 import { SUGGESTION_TIMEOUT_MS } from '../src/suggestion.ts'
@@ -702,6 +703,30 @@ describe('TUI Ctrl+C', () => {
 })
 
 describe('TUI slash chrome commands', () => {
+  it('moves the sessions overlay by one down and does not recall history', async () => {
+    const test = await mount()
+    test.controller.dispatch({ type: 'push-history', text: 'older prompt' })
+    test.controller.dispatch({
+      type: 'set-sessions',
+      sessions: [
+        { id: 's1', title: 'One', createdAt: 2 },
+        { id: 's2', title: 'Two', createdAt: 1 },
+      ],
+    })
+    test.controller.dispatch({ type: 'open-overlay', overlay: { kind: 'sessions', selected: 0 } })
+    const name = inkKeyName('', { escape: true, downArrow: true })
+    expect(name).toBe('down')
+    expect(await test.controller.handleKey(name)).toBe(true)
+    const snap = test.controller.snapshot()
+    expect(snap.overlay).toEqual({ kind: 'sessions', selected: 1 })
+    expect(snap.input).toBe('')
+    expect(snap.historyIndex).toBeUndefined()
+    expect(await test.controller.handleKey('up')).toBe(true)
+    expect(test.controller.snapshot().overlay).toEqual({ kind: 'sessions', selected: 0 })
+    expect(test.controller.snapshot().input).toBe('')
+    await test.ctx.fiber.dispose()
+  })
+
   it('clears the visual transcript without dropping the session log', async () => {
     const test = await mount()
     completeTurn(test, 'Hello', 'Ready to work.')

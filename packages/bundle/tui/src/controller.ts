@@ -325,8 +325,8 @@ export class TuiController {
       await this.cyclePermission()
       return true
     }
-    if (matches(KEYS.pageUp, key) || matches(KEYS.pageDown, key)) {
-      if (this.state.overlay.kind === 'none') this.scrollTranscript(matches(KEYS.pageUp, key) ? -1 : 1)
+    if (this.state.overlay.kind === 'none' && (matches(KEYS.pageUp, key) || matches(KEYS.pageDown, key))) {
+      this.scrollTranscript(matches(KEYS.pageUp, key) ? -1 : 1)
       return true
     }
     if (matches(KEYS.expand, key)) {

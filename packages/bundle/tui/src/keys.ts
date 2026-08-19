@@ -93,6 +93,8 @@ export interface InkKeyFlags {
  * Map an Ink `useInput` event onto the KEYS vocabulary.
  * Shift+Tab is `key.tab && key.shift` (not bare tab). PageUp/PageDown use
  * Ink 5 `key.pageUp` / `key.pageDown`, plus shift+up/down aliases tmux will not steal.
+ * Arrow flags are resolved before `escape`: xfce4-terminal / Ink set `escape` on
+ * the CSI prefix of up/down/left/right, and treating that as cancel closed overlays.
  *
  * Ink 5 parse-keypress names `\x7f` (what xfce4-terminal sends for Backspace)
  * `delete`, and useInput then clears the input because `delete` is
@@ -111,6 +113,10 @@ export function inkKeyName(input: string, key: InkKeyFlags): string {
   if (key.pageDown === true || key.pagedown === true) return 'pagedown'
   if (key.upArrow === true && key.shift === true) return 'shift+up'
   if (key.downArrow === true && key.shift === true) return 'shift+down'
+  if (key.upArrow === true) return 'up'
+  if (key.downArrow === true) return 'down'
+  if (key.leftArrow === true) return 'left'
+  if (key.rightArrow === true) return 'right'
   if (key.ctrl === true && input !== '' && input !== undefined) return `ctrl+${input}`
   if (key.escape === true) return 'escape'
   if (key.return === true) return 'return'
@@ -119,10 +125,6 @@ export function inkKeyName(input: string, key: InkKeyFlags): string {
   if (key.backspace === true) return 'backspace'
   if (input === '\x7f' || input === '\b') return 'backspace'
   if (key.delete === true) return 'backspace'
-  if (key.upArrow === true) return 'up'
-  if (key.downArrow === true) return 'down'
-  if (key.leftArrow === true) return 'left'
-  if (key.rightArrow === true) return 'right'
   if (input === String.fromCharCode(27) + '[Z') return 'shift+tab'
   if (input === String.fromCharCode(27) + '[5~' || input === String.fromCharCode(27) + '[5;2~') return 'pageup'
   if (input === String.fromCharCode(27) + '[6~' || input === String.fromCharCode(27) + '[6;2~') return 'pagedown'
