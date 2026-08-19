@@ -9,7 +9,7 @@
 import { randomUUID } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { resolve as resolvePath, sep as pathSep } from 'node:path'
+import { isAbsolute, resolve as resolvePath, sep as pathSep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentHandle, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
@@ -1082,7 +1082,9 @@ export class TuiController {
   /**
    * `/attach <path>`: save a local raster through `ctx.attachments`, or insert
    * an `@path` mention when the file is not an image or the store is missing.
-   * @param raw - user-typed path (cwd-relative or absolute under cwd).
+   * Absolute paths that exist are allowed even outside cwd. Relative `..`
+   * that leaves cwd is still rejected.
+   * @param raw - user-typed path (cwd-relative, or an explicit absolute path).
    */
   private async attachPath(raw: string): Promise<void> {
     if (raw === '') {
@@ -1090,8 +1092,9 @@ export class TuiController {
       return
     }
     const root = resolvePath(this.state.cwd)
-    const target = resolvePath(root, raw)
-    if (target !== root && !target.startsWith(`${root}${pathSep}`)) {
+    const absolute = isAbsolute(raw)
+    const target = absolute ? resolvePath(raw) : resolvePath(root, raw)
+    if (!absolute && target !== root && !target.startsWith(`${root}${pathSep}`)) {
       this.dispatch({ type: 'set-notice', notice: { type: 'error', text: 'Path escapes the working directory.' } })
       return
     }

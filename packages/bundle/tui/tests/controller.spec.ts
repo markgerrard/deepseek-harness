@@ -2,7 +2,7 @@
 
 import { writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { Inbox, agentEvents } from '@deepseek-ai/dsh-agent'
@@ -1050,6 +1050,38 @@ describe('TUI /attach', () => {
       },
     ])
     await test.controller.submit('/attach ../tui-test.png')
+    expect(test.controller.snapshot().notice?.text).toBe('Path escapes the working directory.')
+    await test.ctx.fiber.dispose()
+  })
+
+  it('attaches an existing absolute path outside cwd and still rejects relative ..', async () => {
+    const test = await mount()
+    const tiny = Buffer.from([
+      137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82,
+      0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0, 0, 0, 144, 119, 83, 222,
+      0, 0, 0, 12, 73, 68, 65, 84, 120, 218, 99, 96, 96, 96, 0, 0,
+      0, 4, 0, 1, 200, 234, 235, 249, 0, 0, 0, 0, 73, 69, 78, 68,
+      174, 66, 96, 130,
+    ])
+    const dir = resolve(process.cwd(), '..', `dsh-tui-attach-abs-${Date.now()}`)
+    expect(dir.startsWith('/tmp/')).toBe(false)
+    await mkdir(dir, { recursive: true })
+    const file = join(dir, 'tui-test.png')
+    await writeFile(file, tiny)
+    const saveImage = vi.fn(async () => {
+      throw new Error('Unsupported or malformed image data.')
+    })
+    test.ctx.provide('attachments', { saveImage } as never)
+    await test.controller.submit(`/attach ${file}`)
+    expect(test.controller.snapshot().notice?.type).toBe('success')
+    expect(test.controller.snapshot().notice?.text).toBe('image attached  tui-test.png')
+    expect(test.controller.snapshot().attachments).toEqual([
+      {
+        name: 'tui-test.png', mediaType: 'image/png', attachmentId: 'local:tui-test.png:69',
+        bytes: 69, width: 1, height: 1,
+      },
+    ])
+    await test.controller.submit('/attach ../secret.png')
     expect(test.controller.snapshot().notice?.text).toBe('Path escapes the working directory.')
     await test.ctx.fiber.dispose()
   })
