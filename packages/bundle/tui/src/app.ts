@@ -163,7 +163,8 @@ function coloredCard(item: TranscriptItem, width: number, skipLeadingLines = 0, 
  * @returns a single colored Text cell.
  */
 function inverseCursorCell(ch: string): React.ReactElement {
-  return React.createElement(Text, { color: COLORS.bg, backgroundColor: COLORS.fg }, ch)
+  const cell = ch === '' || ch === ' ' || ch === '\n' ? '\u00a0' : ch
+  return React.createElement(Text, { inverse: true }, cell)
 }
 
 /**
@@ -175,8 +176,8 @@ function inverseCursorCell(ch: string): React.ReactElement {
 function promptCursorText(input: string, cursor: number): React.ReactElement {
   const paint = promptPaint(input, cursor)
   return React.createElement(
-    Text,
-    { wrap: 'truncate' },
+    Box,
+    { flexDirection: 'row', flexGrow: 1, flexShrink: 1 },
     React.createElement(Text, { color: COLORS.fg }, paint.before),
     inverseCursorCell(paint.cursor),
     React.createElement(Text, { color: COLORS.fg }, paint.after),
@@ -198,16 +199,12 @@ export function App(props: AppProps): React.ReactElement {
     setHardwareCursorVisible(stdout, false)
     return () => { setHardwareCursorVisible(stdout, true) }
   }, [stdout])
-  // Re-hide after each paint — Ink's cli-cursor / log-update may restore the caret.
-  useLayoutEffect(() => { setHardwareCursorVisible(stdout, false) }, [stdout, state])
   useEffect(() => {
     const width = stdout.columns ?? 80
     const height = stdout.rows ?? 24
     controller.dispatch({ type: 'resize', width, height })
-    setHardwareCursorVisible(stdout, false)
     const onResize = (): void => {
       controller.dispatch({ type: 'resize', width: stdout.columns ?? 80, height: stdout.rows ?? 24 })
-      setHardwareCursorVisible(stdout, false)
     }
     stdout.on('resize', onResize)
     return () => { stdout.off('resize', onResize) }
@@ -491,9 +488,9 @@ export function App(props: AppProps): React.ReactElement {
       ? React.createElement(Text, { color: COLORS.fg }, ' ')
       : editorEmpty
         ? React.createElement(
-          Text,
-          { wrap: 'truncate' },
-          inverseCursorCell(' '),
+          Box,
+          { flexDirection: 'row', flexGrow: 1 },
+          inverseCursorCell('\u00a0'),
           React.createElement(Text, { color: COLORS.muted }, promptPlaceholder(state)),
         )
         : promptCursorText(state.input, state.cursor)),
