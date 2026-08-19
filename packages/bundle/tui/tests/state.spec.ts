@@ -97,6 +97,16 @@ describe('Claude Code-like UI reducer', () => {
     const idle = reduce(busy, { type: 'set-busy', busy: false, at: 2000 })
     expect(idle.turnTokenBase).toBeUndefined()
   })
+
+  it('stores the visible next-turn queue', () => {
+    expect(initialState(seed).queued).toEqual([])
+    const queued = reduce(initialState(seed), {
+      type: 'set-queued',
+      queued: [{ id: 'm1', text: 'look at tests' }],
+    })
+    expect(queued.queued).toEqual([{ id: 'm1', text: 'look at tests' }])
+    expect(reduce(queued, { type: 'set-queued', queued: [] }).queued).toEqual([])
+  })
 })
 
 describe('suggested next prompt', () => {

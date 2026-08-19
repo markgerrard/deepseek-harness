@@ -36,11 +36,17 @@ async function mount(stream?: (options: GenerateOptions) => AsyncIterable<Stream
         id: session.id,
         options: options.agentOptions ?? {},
         session,
-        inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+        inbox: new Inbox(session, {
+          inserted: (message) => { agentEvents(ctx, agent).emit('agent/inbox/inserted', { message }) },
+          discarded: (message) => { agentEvents(ctx, agent).emit('agent/inbox/discarded', { message }) },
+          claimed: (message, turn) => { agentEvents(ctx, agent).emit('agent/inbox/claimed', { message, turn }) },
+        }),
         get status() { return status },
         set status(next: AgentStatus) { status = next },
         ctx: agentCtx,
-        cancel: () => {},
+        cancel: vi.fn((_cause, options?: { keepInbox?: boolean }) => {
+          if (options?.keepInbox !== true) agent.inbox.clear()
+        }),
         runMaintenance: () => Promise.reject(new Error('not used')),
         send: () => {},
         followup: (message: UserMessage) => {
@@ -366,6 +372,81 @@ describe('suggested next prompt', () => {
     }
     expect(await test.controller.handleKey('tab')).toBe(true)
     expect(test.controller.snapshot().input).toBe('Ready to work.')
+    await test.ctx.fiber.dispose()
+  })
+})
+
+describe('TUI next-turn message queue', () => {
+  it('appends a queued row and clears the editor when submit runs while busy', async () => {
+    const test = await mount()
+    test.setStatus('running')
+    test.controller.dispatch({ type: 'set-input', input: 'look at tests', cursor: 13 })
+    await test.controller.submit('look at tests')
+    const snap = test.controller.snapshot()
+    expect(snap.input).toBe('')
+    expect(snap.queued).toEqual([
+      { id: test.agent.inbox.nextTurn[0]?.id, text: 'look at tests' },
+    ])
+    expect(test.agent.inbox.nextTurn).toHaveLength(1)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('drops the queued row when the inbox claims or discards it', async () => {
+    const test = await mount()
+    test.setStatus('running')
+    await test.controller.submit('look at tests')
+    expect(test.controller.snapshot().queued).toHaveLength(1)
+
+    const claimed = test.agent.inbox.claim('next-turn', 1)
+    expect(claimed).toHaveLength(1)
+    expect(test.controller.snapshot().queued).toEqual([])
+
+    await test.controller.submit('another look')
+    expect(test.controller.snapshot().queued).toHaveLength(1)
+    const queued = test.agent.inbox.nextTurn[0]
+    expect(queued).toBeDefined()
+    expect(queued !== undefined && test.agent.inbox.remove(queued.id)).toBe(true)
+    expect(test.controller.snapshot().queued).toEqual([])
+    expect(test.agent.inbox.nextTurn).toHaveLength(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('restores the last queued text on Up when the editor is empty', async () => {
+    const test = await mount()
+    test.setStatus('running')
+    await test.controller.submit('first')
+    await test.controller.submit('look at tests')
+    expect(test.controller.snapshot().queued.map(item => item.text)).toEqual(['first', 'look at tests'])
+    expect(test.controller.snapshot().input).toBe('')
+
+    expect(await test.controller.handleKey('up')).toBe(true)
+    expect(test.controller.snapshot().input).toBe('look at tests')
+    expect(test.controller.snapshot().queued.map(item => item.text)).toEqual(['first'])
+    expect(test.agent.inbox.nextTurn).toHaveLength(1)
+    expect(test.agent.inbox.nextTurn[0] && 'content' in test.agent.inbox.nextTurn[0]).toBe(true)
+
+    expect(await test.controller.handleKey('up')).toBe(false)
+    test.controller.dispatch({ type: 'clear-input' })
+    expect(await test.controller.handleKey('up')).toBe(true)
+    expect(test.controller.snapshot().input).toBe('first')
+    expect(test.controller.snapshot().queued).toEqual([])
+    await test.ctx.fiber.dispose()
+  })
+
+  it('keeps queued follow-ups when cancel is called with keepInbox', async () => {
+    const test = await mount()
+    test.setStatus('running')
+    await test.controller.submit('look at tests')
+    expect(test.controller.snapshot().queued).toHaveLength(1)
+
+    expect(await test.controller.handleKey('escape')).toBe(true)
+    expect(test.agent.cancel).toHaveBeenCalledWith({ kind: 'user' }, { keepInbox: true })
+    expect(test.controller.snapshot().queued.map(item => item.text)).toEqual(['look at tests'])
+    expect(test.agent.inbox.nextTurn).toHaveLength(1)
+
+    test.agent.cancel({ kind: 'user' })
+    expect(test.controller.snapshot().queued).toEqual([])
+    expect(test.agent.inbox.nextTurn).toHaveLength(0)
     await test.ctx.fiber.dispose()
   })
 })

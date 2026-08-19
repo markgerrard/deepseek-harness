@@ -53,7 +53,7 @@ import {
   suggestionGenerateOptions,
   SUGGESTION_TIMEOUT_MS,
 } from './suggestion.ts'
-import { foldRequestModel, foldSessionTitle, projectTranscript, type TranscriptItem } from './transcript.ts'
+import { foldRequestModel, foldSessionTitle, projectTranscript, textOf, type TranscriptItem } from './transcript.ts'
 
 /**
  * Reject when `signal` is (or becomes) aborted so a hung `llm.stream` cannot
@@ -288,9 +288,12 @@ export class TuiController {
     }
     if (key === 'escape' || key === 'esc') {
       if (this.state.busy) {
-        this.agent()?.cancel({ kind: 'user' })
+        this.agent()?.cancel({ kind: 'user' }, { keepInbox: true })
         return true
       }
+    }
+    if (key === 'up' && this.state.input === '' && this.state.overlay.kind === 'none') {
+      if (this.takeBackLastQueued()) return true
     }
     if ((key === 'return' || key === 'enter') && this.state.overlay.kind !== 'none') {
       await this.confirmOverlay()
@@ -318,6 +321,7 @@ export class TuiController {
       content: [{ type: 'text', text: routed.text }],
       source: { kind: 'user' },
     }))
+    this.refreshQueued()
   }
 
   /**
@@ -494,11 +498,22 @@ export class TuiController {
         this.maybeRequestSuggestion()
       }
     }) as unknown as () => void
+    const onInbox = ({ agent: next }: { agent: Agent }): void => {
+      if (next.id !== agent.id) return
+      this.refreshQueued()
+    }
+    const offInserted = this.ctx.on('agent/inbox/inserted', onInbox) as unknown as () => void
+    const offClaimed = this.ctx.on('agent/inbox/claimed', onInbox) as unknown as () => void
+    const offDiscarded = this.ctx.on('agent/inbox/discarded', onInbox) as unknown as () => void
     this.eventDisposer = () => {
       offSession()
       offStatus()
+      offInserted()
+      offClaimed()
+      offDiscarded()
     }
     this.dispatch({ type: 'set-busy', busy: agent.status === 'running' })
+    this.refreshQueued()
   }
 
   private async disposeHandle(): Promise<void> {
@@ -509,6 +524,7 @@ export class TuiController {
     const existing = this.handle
     this.handle = undefined
     this.events = []
+    this.dispatch({ type: 'set-queued', queued: [] })
     if (existing === undefined) return
     existing.agent.cancel({ kind: 'user' })
     await existing.dispose()
@@ -728,6 +744,40 @@ export class TuiController {
         })
       },
     })
+  }
+
+  /**
+   * Mirror `agent.inbox.nextTurn` into visible queue chrome.
+   */
+  private refreshQueued(): void {
+    const agent = this.agent()
+    if (agent === undefined) {
+      this.dispatch({ type: 'set-queued', queued: [] })
+      return
+    }
+    this.dispatch({
+      type: 'set-queued',
+      queued: agent.inbox.nextTurn.map(message => ({
+        id: message.id,
+        text: textOf(message.content),
+      })),
+    })
+  }
+
+  /**
+   * Claude Code-like take-back: pop the last next-turn item into the editor.
+   * @returns true when a queued prompt was restored.
+   */
+  private takeBackLastQueued(): boolean {
+    const agent = this.agent()
+    if (agent === undefined) return false
+    const last = agent.inbox.nextTurn[agent.inbox.nextTurn.length - 1]
+    if (last === undefined) return false
+    const text = textOf(last.content)
+    if (!agent.inbox.remove(last.id)) return false
+    this.refreshQueued()
+    this.dispatch({ type: 'set-input', input: text, cursor: text.length })
+    return true
   }
 
   /**

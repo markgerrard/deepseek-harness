@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   formatNumberedOption,
+  formatQueuedLine,
   helpLines,
   renderApprovalDialog,
   renderConnectKeyDialog,
@@ -73,6 +74,10 @@ describe('Claude Code-like chrome strings', () => {
     expect(sessionLines([])).toEqual(['No stored sessions yet.'])
     expect(sessionLines([{ id: 's', title: 'Hello', createdAt: 1 }])).toEqual(['Hello'])
     expect(helpLines().some(line => line.includes('ctrl+p'))).toBe(true)
+    expect(helpLines().some(line => line.includes('queues while Working'))).toBe(true)
+    expect(helpLines().some(line => line.includes('take back last queued'))).toBe(true)
+    expect(formatQueuedLine(1, 'look at tests', 40)).toBe('queued 1  look at tests')
+    expect(formatQueuedLine(2, 'a very long follow-up prompt', 18)).toBe('queued 2  a very …')
     expect(formatNumberedOption(2, 'No', 2)).toContain(`${ICONS.selector} 3. No`)
   })
 

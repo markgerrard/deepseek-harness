@@ -63,6 +63,12 @@ export interface SessionRow {
   readonly createdAt: number
 }
 
+/** One next-turn follow-up waiting in `agent.inbox.nextTurn`. */
+export interface QueuedPrompt {
+  readonly id: string
+  readonly text: string
+}
+
 /** Frozen duration line left in the transcript after a turn completes. */
 export interface TurnClock {
   readonly id: string
@@ -114,6 +120,8 @@ export interface TuiState {
   readonly paletteLength: number
   /** Ghost follow-up shown as the empty-editor placeholder after a completed turn. */
   readonly suggestion?: string
+  /** Visible next-turn inbox, sourced from `agent.inbox.nextTurn`. */
+  readonly queued: readonly QueuedPrompt[]
 }
 
 /** Pure UI actions. Controller-owned I/O is not represented here. */
@@ -141,6 +149,7 @@ export type TuiAction =
   | { readonly type: 'set-palette-length'; readonly paletteLength: number }
   | { readonly type: 'clear-input' }
   | { readonly type: 'set-suggestion'; readonly suggestion?: string }
+  | { readonly type: 'set-queued'; readonly queued: readonly QueuedPrompt[] }
 
 /**
  * Initial Claude Code-like landing state.
@@ -172,6 +181,7 @@ export function initialState(seed: {
     cwd: seed.cwd,
     busy: false,
     turnClocks: [],
+    queued: [],
     paletteLength: 0,
     ...(seed.guidance === undefined ? {} : { guidance: seed.guidance }),
   }
@@ -380,6 +390,8 @@ export function reduce(state: TuiState, action: TuiAction): TuiState {
       }
       return { ...state, suggestion: action.suggestion }
     }
+    case 'set-queued':
+      return { ...state, queued: action.queued }
     default: {
       const _exhaustive: never = action
       return _exhaustive

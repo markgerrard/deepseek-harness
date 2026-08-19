@@ -10,6 +10,7 @@ import type { TuiController } from './controller.ts'
 import { cardWrapWidth, insertTurnClocks, pinTranscriptToBottom, renderCard, toneColor } from './cards.ts'
 import {
   connectProviderLines,
+  formatQueuedLine,
   helpLines,
   renderApprovalDialog,
   renderChoiceDialog,
@@ -287,7 +288,7 @@ export function App(props: AppProps): React.ReactElement {
       trailingClock = formatDoneLine(last.clock.ms, last.clock.verb)
     }
     const chromeLinePreview = workingLine ?? trailingClock
-    const transcriptHeight = layout.main.height - (chromeLinePreview === undefined ? 0 : 1 + TRANSCRIPT_PROMPT_GAP)
+    const transcriptHeight = layout.main.height - state.queued.length - (chromeLinePreview === undefined ? 0 : 1 + TRANSCRIPT_PROMPT_GAP)
     const paintWidth = cardWrapWidth(mainWidth)
     const pin = pinTranscriptToBottom(cardRows, paintWidth, transcriptHeight)
     transcriptTaller = pin.taller
@@ -312,7 +313,9 @@ export function App(props: AppProps): React.ReactElement {
 
   const chromeLine = workingLine ?? trailingClock
   const chromeColor = workingLine === undefined ? COLORS.muted : COLORS.brand
-  const mainHeight = layout.main.height - (chromeLine === undefined ? 0 : 1 + TRANSCRIPT_PROMPT_GAP)
+  const queuedWidth = Math.max(1, mainWidth - 2)
+  const queuedLines = state.queued.map((item, index) => formatQueuedLine(index + 1, item.text, queuedWidth))
+  const mainHeight = Math.max(0, layout.main.height - queuedLines.length - (chromeLine === undefined ? 0 : 1 + TRANSCRIPT_PROMPT_GAP))
 
   let overlay: React.ReactNode = null
   if (state.overlay.kind === 'help') {
@@ -388,6 +391,18 @@ export function App(props: AppProps): React.ReactElement {
       flexShrink: 0,
       justifyContent: overlay === null && transcriptTaller ? 'flex-end' : 'flex-start',
     }, overlay === null ? main : overlay),
+    ...queuedLines.map((line, index) => React.createElement(
+      Box,
+      {
+        key: state.queued[index]?.id ?? `queued-${index}`,
+        height: 1,
+        width: mainWidth,
+        paddingX: 1,
+        flexShrink: 0,
+        flexGrow: 0,
+      },
+      React.createElement(Text, { color: COLORS.muted, wrap: 'truncate' }, line),
+    )),
     chromeLine === undefined ? null : gap(),
     chromeLine === undefined
       ? null

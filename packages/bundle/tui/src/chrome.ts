@@ -300,7 +300,8 @@ export function helpLines(): readonly string[] {
     'ctrl+n  new session',
     'ctrl+g  this help',
     'ctrl+c  quit (twice)',
-    'enter   send',
+    'enter   send (queues while Working)',
+    'up      take back last queued',
     'ctrl+j  newline',
     'esc     cancel / close',
     'tab     change focus',
@@ -308,6 +309,18 @@ export function helpLines(): readonly string[] {
     '/connect  paste a provider API key',
     '/help   command list',
   ]
+}
+
+/**
+ * One muted next-turn queue row above the clock / prompt.
+ * @param index - 1-based position in `agent.inbox.nextTurn`.
+ * @param text - queued prompt text.
+ * @param width - available columns.
+ * @returns `queued 1  look at tests`, truncated to one line.
+ */
+export function formatQueuedLine(index: number, text: string, width: number): string {
+  const collapsed = text.replace(/\s+/g, ' ').trim()
+  return truncate(`queued ${index}  ${collapsed}`, width)
 }
 
 /**
