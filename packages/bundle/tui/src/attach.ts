@@ -1,7 +1,9 @@
 /**
  * Local-path image attach for the TUI. Terminals do not deliver clipboard
  * images to Ink, so `/attach <path>` reads a file and hands it to
- * `ctx.attachments.saveImage`. Non-images become an `@path` mention.
+ * `ctx.attachments.saveImage`. If the store rejects a tiny-but-valid
+ * raster, magic-byte headers still produce a chip. Non-images become
+ * an `@path` mention.
  * @module @deepseek-ai/dsh-tui/attach
  */
 
@@ -69,4 +71,83 @@ export function attachDisplayName(path: string): string {
   const parts = path.replace(/\\/g, '/').split('/')
   const last = parts[parts.length - 1]
   return last === undefined || last === '' ? 'image' : last
+}
+
+function readU32BE(data: Uint8Array, offset: number): number {
+  return ((data[offset] ?? 0) << 24 | (data[offset + 1] ?? 0) << 16
+    | (data[offset + 2] ?? 0) << 8 | (data[offset + 3] ?? 0)) >>> 0
+}
+
+function readU16LE(data: Uint8Array, offset: number): number {
+  return (data[offset] ?? 0) | ((data[offset + 1] ?? 0) << 8)
+}
+
+/**
+ * Read intrinsic width/height from a raster header. Used when
+ * `ctx.attachments.saveImage` refuses a tiny-but-valid file.
+ * @param data - file bytes.
+ * @returns dimensions, or undefined when the header is too short.
+ */
+export function probeRasterSize(data: Uint8Array): { width: number; height: number } | undefined {
+  const mediaType = detectImageMediaType(data)
+  if (mediaType === 'image/png' && data.length >= 24
+    && data[12] === 0x49 && data[13] === 0x48 && data[14] === 0x44 && data[15] === 0x52) {
+    const width = readU32BE(data, 16)
+    const height = readU32BE(data, 20)
+    if (width > 0 && height > 0) return { width, height }
+  }
+  if (mediaType === 'image/gif' && data.length >= 10) {
+    const width = readU16LE(data, 6)
+    const height = readU16LE(data, 8)
+    if (width > 0 && height > 0) return { width, height }
+  }
+  if (mediaType === 'image/jpeg') {
+    const sof = jpegSofSize(data)
+    if (sof !== undefined) return sof
+  }
+  if (mediaType === 'image/webp' && data.length >= 30) {
+    const width = readU16LE(data, 26) & 0x3fff
+    const height = readU16LE(data, 28) & 0x3fff
+    if (width > 0 && height > 0) return { width, height }
+  }
+  if (mediaType !== undefined) return { width: 1, height: 1 }
+  return undefined
+}
+
+function jpegSofSize(data: Uint8Array): { width: number; height: number } | undefined {
+  let i = 2
+  while (i + 9 < data.length) {
+    if (data[i] !== 0xff) break
+    const marker = data[i + 1] ?? 0
+    const size = ((data[i + 2] ?? 0) << 8) | (data[i + 3] ?? 0)
+    if (marker === 0xc0 || marker === 0xc1 || marker === 0xc2) {
+      const height = ((data[i + 5] ?? 0) << 8) | (data[i + 6] ?? 0)
+      const width = ((data[i + 7] ?? 0) << 8) | (data[i + 8] ?? 0)
+      if (width > 0 && height > 0) return { width, height }
+      return undefined
+    }
+    if (size < 2) break
+    i += 2 + size
+  }
+  return undefined
+}
+
+/**
+ * Build a pending chip from magic bytes when the DSH store rejects the file.
+ * @param name - display name.
+ * @param data - file bytes already verified as a raster.
+ * @returns a local pending attachment.
+ */
+export function fallbackPendingAttachment(name: string, data: Uint8Array): PendingAttachment | undefined {
+  const mediaType = detectImageMediaType(data)
+  if (mediaType === undefined) return undefined
+  const size = probeRasterSize(data) ?? { width: 1, height: 1 }
+  return {
+    name,
+    mediaType,
+    attachmentId: `local:${name}:${data.byteLength}`,
+    bytes: data.byteLength,
+    width: size.width,
+    height: size.height,
+  }
 }

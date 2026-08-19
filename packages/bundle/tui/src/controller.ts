@@ -26,7 +26,7 @@ import type {} from '@deepseek-ai/dsh-user-approval'
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-user-questions'
 import type { AskUserQuestionAnswer } from '@deepseek-ai/dsh-user-questions'
-import { attachDisplayName, detectImageMediaType } from './attach.ts'
+import { attachDisplayName, detectImageMediaType, fallbackPendingAttachment } from './attach.ts'
 import { CHROME_COMMANDS, filterPalette, mergePalette, routeLine } from './commands.ts'
 import {
   CONNECT_PROVIDERS,
@@ -1141,6 +1141,12 @@ export class TuiController {
       })
       this.dispatch({ type: 'set-notice', notice: { type: 'success', text: `image attached  ${ref.name ?? attachDisplayName(raw)}` } })
     } catch (error) {
+      const fallback = fallbackPendingAttachment(attachDisplayName(raw), data)
+      if (fallback !== undefined) {
+        this.dispatch({ type: 'add-attachment', attachment: fallback })
+        this.dispatch({ type: 'set-notice', notice: { type: 'success', text: `image attached  ${fallback.name}` } })
+        return
+      }
       const message = error instanceof Error ? error.message : 'Could not attach the image.'
       this.dispatch({ type: 'set-notice', notice: { type: 'error', text: message } })
     }

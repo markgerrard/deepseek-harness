@@ -1019,6 +1019,39 @@ describe('TUI /attach', () => {
     expect(test.controller.snapshot().notice?.text).toContain('/attach')
     await test.ctx.fiber.dispose()
   })
+
+  it('still shows a chip when saveImage rejects a minimal valid 1×1 PNG', async () => {
+    const test = await mount()
+    const tiny = Buffer.from([
+      137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82,
+      0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0, 0, 0, 144, 119, 83, 222,
+      0, 0, 0, 12, 73, 68, 65, 84, 120, 218, 99, 96, 96, 96, 0, 0,
+      0, 4, 0, 1, 200, 234, 235, 249, 0, 0, 0, 0, 73, 69, 78, 68,
+      174, 66, 96, 130,
+    ])
+    expect(tiny.byteLength).toBe(69)
+    const dir = join(tmpdir(), `dsh-tui-attach-tiny-${Date.now()}`)
+    await mkdir(dir, { recursive: true })
+    const file = join(dir, 'tui-test.png')
+    await writeFile(file, tiny)
+    const saveImage = vi.fn(async () => {
+      throw new Error('Unsupported or malformed image data.')
+    })
+    test.ctx.provide('attachments', { saveImage } as never)
+    const rel = file.startsWith('/tmp/') ? file.slice('/tmp/'.length) : file
+    await test.controller.submit(`/attach ${rel}`)
+    expect(saveImage).toHaveBeenCalled()
+    expect(test.controller.snapshot().notice?.type).toBe('success')
+    expect(test.controller.snapshot().attachments).toEqual([
+      {
+        name: 'tui-test.png', mediaType: 'image/png', attachmentId: 'local:tui-test.png:69',
+        bytes: 69, width: 1, height: 1,
+      },
+    ])
+    await test.controller.submit('/attach ../tui-test.png')
+    expect(test.controller.snapshot().notice?.text).toBe('Path escapes the working directory.')
+    await test.ctx.fiber.dispose()
+  })
 })
 
 describe('TUI space vs expand', () => {
