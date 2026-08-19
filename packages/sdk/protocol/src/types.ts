@@ -58,6 +58,14 @@ export interface SessionPromptParams {
   sessionId: string
   /** The prompt content blocks, sent verbatim as the user message. */
   contentBlocks: ContentBlock[]
+  /** Optional agent preset id to instantiate when lazily creating the session. */
+  agentPreset?: string
+  /** Optional LLM provider route for this session. */
+  provider?: string
+  /** Optional model name for this session. */
+  model?: string
+  /** Optional reasoning effort setting for models that support it. */
+  reasoningEffort?: string
 }
 
 /** Durable enqueue receipt for one prompt. */
@@ -81,6 +89,47 @@ export interface SessionResumeParams {
    * never creates a fresh session.
    */
   sessionId: string
+  /** Optional LLM provider route override on resume. */
+  provider?: string
+  /** Optional model name override on resume. */
+  model?: string
+  /** Optional reasoning effort setting override on resume. */
+  reasoningEffort?: string
+}
+
+/** Result returned when listing available agent presets. */
+export interface PresetListResult {
+  readonly presets: readonly PresetListItem[]
+}
+
+/** One preset item reported by the preset catalog. */
+export interface PresetListItem {
+  readonly id: string
+  readonly trust: 'system' | 'user'
+  readonly name?: string
+  readonly description?: string
+  readonly broken?: string
+}
+
+/** Parameters for copying an existing preset to a new user preset id. */
+export interface PresetCopyParams {
+  readonly from: string
+  readonly id: string
+  readonly name?: string
+}
+
+/** Parameters for setting the persona system-prompt text of a user preset. */
+export interface PresetSetPersonaParams {
+  readonly id: string
+  readonly text: string
+}
+
+/** Parameters for updating the active LLM provider, model, and reasoning effort on an active SDK session. */
+export interface SessionSetModelParams {
+  readonly sessionId: string
+  readonly provider: string
+  readonly model: string
+  readonly reasoningEffort?: string
 }
 
 /**
@@ -164,9 +213,13 @@ export interface HarnessSdkNotificationMap {
 /** Client-to-server request methods with their param and result shapes. */
 export interface HarnessSdkRequestMap {
   'initialize': { params: InitializeParams; result: InitializeResult }
+  'presets/list': { params: Record<string, never>; result: PresetListResult }
+  'presets/copy': { params: PresetCopyParams; result: Record<string, never> }
+  'presets/setPersona': { params: PresetSetPersonaParams; result: Record<string, never> }
   'session/prompt': { params: SessionPromptParams; result: SessionPromptResult }
   'session/cancel': { params: SessionCancelParams; result: Record<string, never> }
   'session/resume': { params: SessionResumeParams; result: Record<string, never> }
+  'session/setModel': { params: SessionSetModelParams; result: Record<string, never> }
   'shutdown': { params: undefined; result: Record<string, never> }
 }
 
