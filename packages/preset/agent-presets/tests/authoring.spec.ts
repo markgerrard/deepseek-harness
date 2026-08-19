@@ -16,7 +16,7 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import { beforeEach, describe, expect, it } from 'vitest'
 import AgentPresets, {
-  COMPOSITION_FILE, copyComposition, METADATA_FILE,
+  COMPOSITION_FILE, copyComposition, METADATA_FILE, setPersonaText,
 } from '@deepseek-ai/dsh-agent-presets'
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
@@ -299,5 +299,57 @@ describe('a ghost directory under the user root', () => {
     expect(existsSync(join(userRoot, 'ghost'))).toBe(false)
     await ctx.agentPresets.copy('standard', 'ghost')
     expect((await ctx.agentPresets.list()).find(preset => preset.id === 'ghost')?.broken).toBeUndefined()
+  })
+})
+
+describe('setPersona', () => {
+  it('replaces only the persona config.text on a user copy', async () => {
+    await ctx.agentPresets.copy('standard', 'mine')
+    await ctx.agentPresets.setPersona('mine', 'You are TOKEN-A. Working dir {{cwd}}. Model {{model}}.')
+    const body = await ctx.agentPresets.read('mine')
+    expect(body).toContain('You are TOKEN-A.')
+    expect(body).toContain('id: persona')
+    expect(body).toContain("name: '@deepseek-ai/dsh-persona'")
+    await ctx.agentPresets.setPersona('mine', '- id: evil\n  name: not-a-plugin')
+    const after = await ctx.agentPresets.read('mine')
+    expect(after).not.toMatch(/^- id: evil/m)
+    expect(after).toContain('- id: evil')
+  })
+
+  it('refuses a system-trust preset', async () => {
+    await expect(ctx.agentPresets.setPersona('standard', 'nope'))
+      .rejects.toThrow(/cannot be written|system/)
+  })
+
+  it('refuses non-string text', async () => {
+    await ctx.agentPresets.copy('standard', 'mine')
+    // @ts-expect-error non-string runtime validation
+    await expect(ctx.agentPresets.setPersona('mine', 12345)).rejects.toThrow(TypeError)
+  })
+
+  it('refuses a preset with no persona row', async () => {
+    await seedPreset(userRoot, 'no-persona', { composition: '- id: alpha\n  name: ../../plugins/contribute.js\n' })
+    await expect(ctx.agentPresets.setPersona('no-persona', 'hello'))
+      .rejects.toThrow(/persona row/)
+  })
+
+  it('reports an unknown preset', async () => {
+    await expect(ctx.agentPresets.setPersona('never-existed', 'hello'))
+      .rejects.toThrow(/not found/)
+  })
+
+  it('matches short persona plugin name', async () => {
+    await seedPreset(userRoot, 'short-persona', {
+      composition: '- id: persona\n  name: persona\n  config:\n    text: initial\n',
+    })
+    await ctx.agentPresets.setPersona('short-persona', 'updated')
+    expect(await ctx.agentPresets.read('short-persona')).toContain('updated')
+  })
+
+  it('setPersonaText directly updates an AgentPreset object', async () => {
+    await ctx.agentPresets.copy('standard', 'mine-direct')
+    const preset = await ctx.agentPresets.resolve('mine-direct')
+    await setPersonaText(preset, 'direct persona text')
+    expect(await ctx.agentPresets.read('mine-direct')).toContain('direct persona text')
   })
 })

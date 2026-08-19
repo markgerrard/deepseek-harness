@@ -5854,6 +5854,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
+      '@deepseek-ai/dsh-persona':
+        specifier: workspace:^
+        version: link:../persona
       '@deepseek-ai/dsh-scope':
         specifier: workspace:^
         version: link:../../core/scope

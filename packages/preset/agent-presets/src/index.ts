@@ -30,7 +30,7 @@ import type {} from '@deepseek-ai/dsh-agent'
 import { settingsNamespace, type SettingsScope, type default as SettingsService } from '@deepseek-ai/dsh-settings'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { discoverPresets, USER_PRESET_DIR } from './discovery.ts'
-import { copyComposition, deleteComposition, readComposition } from './authoring.ts'
+import { copyComposition, deleteComposition, readComposition, setPersonaText } from './authoring.ts'
 import { mountPreset, serviceForAgent, standingMountFor } from './mount.ts'
 import { PresetExistsError } from './authoring.ts'
 import { PresetMountError, UnknownPresetError, type AgentPreset, type Config, type PresetRoot } from './preset.ts'
@@ -60,7 +60,7 @@ export {
 } from './mount.ts'
 export {
   copyComposition, deleteComposition, InvalidPresetIdError, PresetExistsError,
-  PresetNotWritableError, readComposition, writableRoot,
+  PresetNotWritableError, readComposition, setPersonaText, writableRoot,
 } from './authoring.ts'
 export { resolveSessionPreset, type PresetBearingSession } from './session.ts'
 export { PresetMountError, UnknownPresetError } from './preset.ts'
@@ -414,6 +414,24 @@ export class AgentPresets extends Service {
       [{ op: 'unset', path: ['default'] }],
     )
   }
+
+  /**
+   * Replace only the persona plugin row's `config.text` on a locally authored preset.
+   *
+   * The preset must be user-writable and carry an existing persona row.
+   * After a successful write, the standing mount cache drops this preset so the
+   * next mount sees the new generation.
+   * @param id - the preset id.
+   * @param text - the new persona text.
+   * @throws when `text` is not a string, the preset is unknown, not user-writable,
+   * or has no persona row.
+   */
+  async setPersona(id: string, text: string): Promise<void> {
+    const preset = await this.resolve(id)
+    await setPersonaText(preset, text)
+    this.standing.delete(id)
+  }
+
 
   /**
    * One agent's instance of a service its preset mounted.

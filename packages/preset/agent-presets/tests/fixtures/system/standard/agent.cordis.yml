@@ -1,4 +1,9 @@
 # Shipped preset: one tool plus its guidance section.
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: You are standard.
+
 - id: alpha
   name: ../../plugins/contribute.js
   config:

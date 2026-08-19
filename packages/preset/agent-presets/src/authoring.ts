@@ -15,7 +15,9 @@
 import { chmod, cp, readdir, readFile, rm, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
+import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
 import { expandHomePath } from '@deepseek-ai/dsh-home-paths'
+import yaml from 'js-yaml'
 import { METADATA_FILE, renderPresetMetadata } from './metadata.ts'
 import { PRESET_ID, type AgentPreset, type PresetRoot } from './preset.ts'
 
@@ -193,4 +195,70 @@ export async function deleteComposition(
     throw new PresetNotWritableError(preset.id, 'it does not live under the writable preset root')
   }
   await rm(dir, { recursive: true, force: true })
+}
+
+/**
+ * Whether one parsed plugin row is a persona row.
+ *
+ * Matches an entry whose `id` is `'persona'` and whose `name` is
+ * `'@deepseek-ai/dsh-persona'` or `'persona'`.
+ */
+function isPersonaRow(row: unknown): boolean {
+  if (typeof row !== 'object' || row === null || Array.isArray(row)) return false
+  const candidate = row as { id?: unknown; name?: unknown }
+  return candidate.id === 'persona' && (candidate.name === '@deepseek-ai/dsh-persona' || candidate.name === 'persona')
+}
+
+/** Locate the persona plugin row across top-level and grouped entries. */
+function findPersonaRow(rows: unknown[]): Record<string, unknown> | undefined {
+  for (const row of rows) {
+    if (isPersonaRow(row)) return row as Record<string, unknown>
+    if (typeof row === 'object' && row !== null && (row as { group?: unknown }).group === true) {
+      const config = (row as { config?: unknown }).config
+      if (Array.isArray(config)) {
+        const nested = findPersonaRow(config)
+        if (nested !== undefined) return nested
+      }
+    }
+  }
+  return undefined
+}
+
+/**
+ * Replace only the persona plugin row's `config.text` on a locally authored preset.
+ *
+ * This writes only the persona row's text configuration, never replacing or
+ * authoring arbitrary composition rows.
+ * @param preset - the resolved preset to modify.
+ * @param text - the new persona text.
+ * @throws when `text` is not a string, `preset` is not a user-trust preset, or
+ * the preset has no persona row.
+ */
+export async function setPersonaText(preset: AgentPreset, text: string): Promise<void> {
+  if (typeof text !== 'string') {
+    throw new TypeError(`agent-presets: persona text must be a string, got ${typeof text}`)
+  }
+  if (preset.trust !== 'user') {
+    throw new PresetNotWritableError(preset.id, 'it ships with the deployment')
+  }
+  const raw = await readFile(preset.path, 'utf8')
+  let rows: unknown
+  try {
+    rows = yaml.load(raw, { schema: entryListSchema })
+  } catch (error) {
+    throw new Error(`agent-presets: preset "${preset.id}" composition is not valid YAML: ${String(error)}`, { cause: error })
+  }
+  if (!Array.isArray(rows)) {
+    throw new Error(`agent-presets: preset "${preset.id}" has no persona row (expected a top-level list of plugin rows)`)
+  }
+  const personaRow = findPersonaRow(rows)
+  if (personaRow === undefined) {
+    throw new Error(`agent-presets: preset "${preset.id}" has no persona row (id: persona, name: @deepseek-ai/dsh-persona)`)
+  }
+  if (typeof personaRow.config !== 'object' || personaRow.config === null || Array.isArray(personaRow.config)) {
+    personaRow.config = {}
+  }
+  (personaRow.config as Record<string, unknown>).text = text
+  const dumped = yaml.dump(rows, { schema: entryListSchema, noRefs: true, lineWidth: -1 })
+  await writeFileAtomic(preset.path, dumped, { mode: 0o600, dirMode: 0o700 })
 }
