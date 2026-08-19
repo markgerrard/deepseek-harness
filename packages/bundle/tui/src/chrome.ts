@@ -301,7 +301,7 @@ export function helpLines(): readonly string[] {
     'ctrl+g  this help',
     'ctrl+c  cancel / clear / quit',
     'enter   send (queues while Working)',
-    'shift+t  steer this turn (next step)',
+    'ctrl+t  steer this turn (next step)',
     'shift+tab  cycle permission mode',
     'pgup / shift+up    scroll transcript up',
     'pgdn / shift+down  scroll transcript down (re-pin at bottom)',

@@ -474,27 +474,25 @@ describe('TUI next-step steer', () => {
     await test.ctx.fiber.dispose()
   })
 
-  it('steers on Shift+T while busy and still followup/queues on Enter', async () => {
+  it('does not steer on Shift+T; Ctrl+T steers while busy and Enter still queues', async () => {
     const test = await mount()
     test.setStatus('running')
     test.controller.dispatch({ type: 'set-input', input: 'use the other file', cursor: 18 })
-    expect(await test.controller.handleKey('shift+t')).toBe(true)
+    expect(await test.controller.handleKey('shift+t')).toBe(false)
+    expect(test.controller.snapshot().input).toBe('use the other file')
+    expect(test.controller.snapshot().steering).toEqual([])
+    expect(test.agent.inbox.nextStep).toHaveLength(0)
+
+    expect(await test.controller.handleKey('ctrl+t')).toBe(true)
     expect(test.controller.snapshot().input).toBe('')
     expect(test.controller.snapshot().steering.map(item => item.text)).toEqual(['use the other file'])
     expect(test.agent.inbox.nextStep).toHaveLength(1)
-
-    test.controller.dispatch({ type: 'set-input', input: 'also via ctrl+t', cursor: 16 })
-    expect(await test.controller.handleKey('ctrl+t')).toBe(true)
-    expect(test.controller.snapshot().steering.map(item => item.text)).toEqual([
-      'use the other file',
-      'also via ctrl+t',
-    ])
 
     test.controller.dispatch({ type: 'set-input', input: 'look at tests', cursor: 13 })
     expect(await test.controller.handleKey('enter')).toBe(true)
     expect(test.controller.snapshot().queued.map(item => item.text)).toEqual(['look at tests'])
     expect(test.agent.inbox.nextTurn).toHaveLength(1)
-    expect(test.agent.inbox.nextStep).toHaveLength(2)
+    expect(test.agent.inbox.nextStep).toHaveLength(1)
     await test.ctx.fiber.dispose()
   })
 

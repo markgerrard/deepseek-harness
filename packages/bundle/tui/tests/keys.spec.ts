@@ -40,4 +40,18 @@ describe('inkKeyName', () => {
     expect(matches(KEYS.pageDown, 'shift+down')).toBe(true)
     expect(matches(KEYS.permission, 'shift+tab')).toBe(true)
   })
+
+  it('does not map Shift+T to steer; Ctrl+T is the advertised steer key', () => {
+    expect(inkKeyName('T', { shift: true })).toBe('T')
+    expect(inkKeyName('t', { shift: true })).toBe('t')
+    expect(inkKeyName('t', { ctrl: true })).toBe('ctrl+t')
+    expect(inkKeyName('T', { ctrl: true })).toBe('ctrl+T')
+    expect(KEYS.steer.key).toBe('ctrl+t')
+    expect(KEYS.steer.help).toBe('ctrl+t')
+    expect(KEYS.steer.aliases).toEqual(['ctrl+enter', 'ctrl+T'])
+    expect(matches(KEYS.steer, 'ctrl+t')).toBe(true)
+    expect(matches(KEYS.steer, 'ctrl+enter')).toBe(true)
+    expect(matches(KEYS.steer, 'ctrl+T')).toBe(true)
+    expect(matches(KEYS.steer, 'shift+t')).toBe(false)
+  })
 })

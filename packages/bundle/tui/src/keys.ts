@@ -26,7 +26,7 @@ export const KEYS = {
   sessions: { key: 'ctrl+s', help: 'ctrl+s', description: 'sessions' },
   newSession: { key: 'ctrl+n', help: 'ctrl+n', description: 'new session' },
   send: { key: 'return', aliases: ['enter'], help: 'enter', description: 'send' },
-  steer: { key: 'shift+t', aliases: ['ctrl+t', 'ctrl+enter', 'ctrl+T'], help: 'shift+t', description: 'steer this turn (next step)' },
+  steer: { key: 'ctrl+t', aliases: ['ctrl+enter', 'ctrl+T'], help: 'ctrl+t', description: 'steer this turn (next step)' },
   newline: { key: 'ctrl+j', help: 'ctrl+j', description: 'newline' },
   cancel: { key: 'escape', aliases: ['esc'], help: 'esc', description: 'cancel' },
   rewind: { key: 'escape', aliases: ['esc'], help: 'esc esc', description: 'rewind last prompt' },
@@ -111,7 +111,6 @@ export function inkKeyName(input: string, key: InkKeyFlags): string {
   if (key.pageDown === true || key.pagedown === true) return 'pagedown'
   if (key.upArrow === true && key.shift === true) return 'shift+up'
   if (key.downArrow === true && key.shift === true) return 'shift+down'
-  if (key.shift === true && (input === 't' || input === 'T')) return 'shift+t'
   if (key.ctrl === true && input !== '' && input !== undefined) return `ctrl+${input}`
   if (key.escape === true) return 'escape'
   if (key.return === true) return 'return'

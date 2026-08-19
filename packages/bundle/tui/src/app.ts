@@ -231,10 +231,6 @@ export function App(props: AppProps): React.ReactElement {
         void controller.submitSteer(state.input)
         return
       }
-      if (key.shift && (input === 't' || input === 'T')) {
-        void controller.submitSteer(state.input)
-        return
-      }
       if (key.ctrl && (input === 't' || input === 'T')) {
         void controller.submitSteer(state.input)
         return
