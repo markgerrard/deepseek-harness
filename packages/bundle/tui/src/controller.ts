@@ -1439,6 +1439,15 @@ export class TuiController {
   }
 
   /**
+   * Stamp the last assistant only after a ghost actually lands.
+   * Stamping earlier skip-locks retries when the request is cancelled.
+   */
+  private markSuggestedAssistant(): void {
+    this.syncTranscriptEvents()
+    this.suggestedAssistantId = lastAssistantId(this.transcript())
+  }
+
+  /**
    * Start a follow-up suggestion when idle, the editor is empty, and nothing
    * is already in flight. Used from both `agent/status` idle and later
    * `session/event` (retry when the first idle saw an empty snippet).
@@ -1467,7 +1476,6 @@ export class TuiController {
     if (assistantId !== undefined && assistantId === this.suggestedAssistantId) return
     const snippet = conversationSnippet(items)
     if (snippet === '') return
-    if (assistantId !== undefined) this.suggestedAssistantId = assistantId
     const abort = new AbortController()
     this.suggestionAbort = abort
     const options = suggestionGenerateOptions(
@@ -1497,6 +1505,7 @@ export class TuiController {
     const suggestion = fallbackSuggestion(this.transcript())
     if (suggestion === undefined) return
     this.dispatch({ type: 'set-suggestion', suggestion })
+    this.markSuggestedAssistant()
   }
 
   /**
@@ -1530,6 +1539,7 @@ export class TuiController {
       }
       if (!shouldApplySuggestion(this.state, epoch, this.suggestionEpoch)) return
       this.dispatch({ type: 'set-suggestion', suggestion })
+      this.markSuggestedAssistant()
     } catch {
       this.applyFallbackSuggestion(epoch)
     } finally {

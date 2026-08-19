@@ -381,6 +381,28 @@ describe('suggested next prompt', () => {
     }
     await test.ctx.fiber.dispose()
   })
+
+  it('retries a ghost after empty Enter cancels the in-flight request', async () => {
+    const waiters: Array<(text: string) => void> = []
+    const test = await mount(async function* () {
+      const text = await new Promise<string>((resolve) => { waiters.push(resolve) })
+      yield { type: 'text-delta', index: 0, text }
+    })
+    completeTurn(test, 'Test', 'Ready to work.')
+    await vi.waitFor(() => { expect(waiters).toHaveLength(1) })
+    await test.controller.submit('')
+    waiters[0]?.('stale ghost')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(test.controller.snapshot().suggestion).toBeUndefined()
+    test.setStatus('idle')
+    await vi.waitFor(() => { expect(waiters).toHaveLength(2) })
+    waiters[1]?.('Add unit tests next')
+    await vi.waitFor(() => {
+      expect(test.controller.snapshot().suggestion).toBe('Add unit tests next')
+    })
+    await test.ctx.fiber.dispose()
+  })
 })
 
 describe('TUI next-turn message queue', () => {
