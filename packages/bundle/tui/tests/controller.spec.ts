@@ -8,7 +8,7 @@ import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { Inbox, agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentHandle, AgentStatus, CreateAgentOptions } from '@deepseek-ai/dsh-agent'
 import AgentDefaultModelConfig from '@deepseek-ai/dsh-agent-default-model'
-import { createAssistantMessage, createUserMessage, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { CallId, createAssistantMessage, createUserMessage, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session, UserMessage } from '@deepseek-ai/dsh-session'
 import { TuiController } from '../src/controller.ts'
@@ -752,7 +752,7 @@ describe('TUI slash chrome commands', () => {
 describe('TUI compact command', () => {
   it('dispatches /compact through ctx.commands', async () => {
     const test = await mount()
-    const execute = vi.fn(async () => ({
+    const execute = vi.fn(async (_agent: Agent, _line: string, _signal: AbortSignal) => ({
       commandId: 'cmd-1',
       result: { kind: 'success', text: 'Compacted 3 history items (~10 tokens).' },
     }))
@@ -764,7 +764,7 @@ describe('TUI compact command', () => {
     } as never)
     await test.controller.submit('/compact')
     expect(execute).toHaveBeenCalled()
-    expect(String(execute.mock.calls[0]?.[1])).toBe('/compact')
+    expect(execute.mock.calls[0]?.[1]).toBe('/compact')
     await test.ctx.fiber.dispose()
   })
 })
@@ -1226,7 +1226,7 @@ describe('TUI space vs expand', () => {
 
   it('expands the newest tool card on ctrl+o, not space', async () => {
     const test = await mount()
-    test.session.append('tool/call', { callId: 'c1', name: 'bash', arguments: '{"cmd":"ls"}' })
+    test.session.append('tool/call', { turn: 0, step: 0, callId: CallId('c1'), name: 'bash', arguments: '{"cmd":"ls"}' })
     const tool = test.controller.transcript().find(item => item.kind === 'tool')
     expect(tool?.kind).toBe('tool')
     if (tool?.kind === 'tool') expect(tool.expanded).toBe(false)

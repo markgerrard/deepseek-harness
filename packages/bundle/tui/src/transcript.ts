@@ -6,7 +6,7 @@
 
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import type {} from '@deepseek-ai/dsh-tool-workflow/types'
+import type {} from '@deepseek-ai/dsh-tool-workflow'
 
 /** Tool-card lifecycle. */
 export type ToolCardStatus = 'running' | 'success' | 'error' | 'awaiting'

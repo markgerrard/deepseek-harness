@@ -55,6 +55,9 @@
     },
     {
       "path": "../../interaction/user-questions"
+    },
+    {
+      "path": "../../workflow/tool-workflow"
     }
   ]
 }

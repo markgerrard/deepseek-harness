@@ -16,7 +16,7 @@ import type { Agent, AgentHandle, ModelSelectionRef } from '@deepseek-ai/dsh-age
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type { CommandDescriptor } from '@deepseek-ai/dsh-commands'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
-import { createUserMessage, type GenerateOptions } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, type GenerateOptions, type ImageBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
@@ -473,6 +473,7 @@ export class TuiController {
       case 'none':
       case 'help':
       case 'cost':
+      case 'agents': // child steering is a later follow-up
         this.dispatch({ type: 'close-overlay' })
         return
       case 'quit':
@@ -536,10 +537,6 @@ export class TuiController {
         this.dispatch({ type: 'close-overlay' })
         return
       }
-      case 'agents':
-        // Stub: steering a specific child is a later follow-up.
-        this.dispatch({ type: 'close-overlay' })
-        return
       case 'files':
         this.dispatch({ type: 'accept-file' })
         return
@@ -748,7 +745,7 @@ export class TuiController {
     const commands = this.ctx.get('commands')
     const agent = this.agent()
     if (commands === undefined || agent === undefined) return
-    const execution = await commands.execute(agent, line, new AbortController().signal)
+    const execution = await commands.execute(agent, line, [], new AbortController().signal)
     if (execution === undefined) {
       this.dispatch({ type: 'open-overlay', overlay: { kind: 'help' } })
     }
@@ -994,7 +991,7 @@ export class TuiController {
       files = entries
         .filter(entry => (!hideDot || !entry.name.startsWith('.')) && entry.name.startsWith(base))
         .slice(0, 40)
-        .map(entry => {
+        .map((entry) => {
           const dirent = entry.isDirectory()
           return { path: `${dir}${entry.name}${dirent ? '/' : ''}`, dir: dirent }
         })
@@ -1003,7 +1000,8 @@ export class TuiController {
       files = []
     }
     this.dispatch({ type: 'set-files', files })
-    const exactFile = files.length === 1 && files[0]!.path === token.query && !files[0]!.dir
+    const onlyFile = files.at(0)
+    const exactFile = files.length === 1 && onlyFile !== undefined && onlyFile.path === token.query && !onlyFile.dir
     if (exactFile) {
       if (this.state.overlay.kind === 'files') this.dispatch({ type: 'close-overlay' })
       return
@@ -1053,23 +1051,13 @@ export class TuiController {
    * @param text - prompt text; omitted when empty and images are present.
    * @returns content blocks for `createUserMessage`.
    */
-  private userContent(text: string): Array<
-    { type: 'text'; text: string }
-    | { type: 'image'; attachment: {
-      attachmentId: string
-      mediaType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
-      bytes: number
-      width: number
-      height: number
-      name?: string
-    } }
-  > {
+  private userContent(text: string): Array<{ type: 'text'; text: string } | ImageBlock> {
     const pending = this.state.attachments
     if (pending.length > 0) this.dispatch({ type: 'clear-attachments' })
-    const images = pending.map(item => ({
+    const images: ImageBlock[] = pending.map(item => ({
       type: 'image' as const,
       attachment: {
-        attachmentId: item.attachmentId,
+        attachmentId: item.attachmentId as ImageBlock['attachment']['attachmentId'],
         mediaType: item.mediaType,
         bytes: item.bytes,
         width: item.width,
@@ -1241,6 +1229,7 @@ export class TuiController {
    * Cycle plan / default / accept-edits (or the mounted DSH subset) via
    * `ctx.planMode` + `ctx.permissionPresets`, falling back to `/plan` and
    * `/permission`. Shift+Tab is consumed even when nothing is mounted.
+   * @returns `true` when the keypress was consumed by a mode change or fallback.
    */
   async cyclePermission(): Promise<boolean> {
     const facts = this.permissionFacts()
@@ -1310,12 +1299,12 @@ export class TuiController {
   private permissionPresets(): {
     readonly names: readonly string[]
     current(events: readonly { readonly type: string }[]): string
-    set(session: { append(type: string, data: unknown): void }, name: string): void
+    set(session: Session, name: string): void
   } | undefined {
     return (this.ctx.get as (name: string) => {
       readonly names: readonly string[]
       current(events: readonly { readonly type: string }[]): string
-      set(session: { append(type: string, data: unknown): void }, name: string): void
+      set(session: Session, name: string): void
     } | undefined)('permissionPresets')
   }
 
@@ -1342,7 +1331,7 @@ export class TuiController {
     const commands = this.ctx.get('commands')
     const run = async (line: string): Promise<void> => {
       if (commands === undefined) return
-      await commands.execute(agent, line, new AbortController().signal)
+      await commands.execute(agent, line, [], new AbortController().signal)
     }
     if (next.kind === 'plan') {
       if (plan !== undefined) {

@@ -2921,7 +2921,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/workflow/tool-workflow/src/index.ts:33`](../packages/workflow/tool-workflow/src/index.ts)
+来源：[`packages/workflow/tool-workflow/src/index.ts:34`](../packages/workflow/tool-workflow/src/index.ts)
 
 <a id="deepseek-aidsh-tools"></a>
 
@@ -2958,6 +2958,24 @@ export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
 来源：[`packages/core/tools/src/index.ts:654`](../packages/core/tools/src/index.ts)
+
+<a id="deepseek-aidsh-tui"></a>
+
+## `@deepseek-ai/dsh-tui`
+
+依赖：`agentDefaultModel` · `agents` · `sessions` · `llm`
+
+```ts config-catalog
+/** Plugin config: resume id and optional opening prompt from the startup service. */
+export interface Config {
+  /** Persisted session id to resume, when the invocation named one. */
+  resume?: string
+  /** Optional opening prompt submitted after the TUI attaches a session. */
+  prompt?: string
+}
+```
+
+来源：[`packages/bundle/tui/src/index.ts:28`](../packages/bundle/tui/src/index.ts)
 
 <a id="deepseek-aidsh-typert-loader"></a>
 
