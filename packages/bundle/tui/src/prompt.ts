@@ -4,8 +4,6 @@
  * @module @deepseek-ai/dsh-tui/prompt
  */
 
-import { ICONS } from './theme.ts'
-
 /** Result of one prompt-buffer edit. */
 export interface PromptEdit {
   readonly input: string
@@ -62,15 +60,21 @@ export function splitAtCursor(input: string, cursor: number): { before: string; 
 }
 
 /**
- * Prompt paint parts: input split at `cursor` with the block glyph in between.
- * The glyph is an extra paint cell, never inserted into the buffer.
+ * Prompt paint parts: input split at `cursor` with the character under the
+ * caret as the cursor segment (empty at end-of-input). That character is
+ * omitted from `after` so it is not drawn twice. Extra paint cell, never
+ * inserted into the buffer.
  * @param input - editor contents.
  * @param cursor - caret index.
  * @returns segments to render left-to-right.
  */
 export function promptPaint(input: string, cursor: number): PromptPaint {
-  const { before, after } = splitAtCursor(input, cursor)
-  return { before, cursor: ICONS.cursor, after }
+  const at = clampCursor(cursor, input.length)
+  return {
+    before: input.slice(0, at),
+    cursor: input.slice(at, at + 1),
+    after: input.slice(at + 1),
+  }
 }
 
 /**

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { applyPromptKey, CSI_HIDE_CURSOR, CSI_SHOW_CURSOR, insertAtCursor, promptPaint, setHardwareCursorVisible, splitAtCursor } from '../src/prompt.ts'
 import { chromeAction, initialState, reduce } from '../src/state.ts'
-import { ICONS } from '../src/theme.ts'
 
 const seed = {
   width: 140,
@@ -102,23 +101,25 @@ describe('insertAtCursor and splitAtCursor', () => {
     expect(insertAtCursor('/attach', 7, ' ')).toEqual({ input: '/attach ', cursor: 8 })
   })
 
-  it('paints the block glyph at the caret as an extra cell, not in the buffer', () => {
+  it('paints the character under the caret as an extra cell, not in the buffer', () => {
     expect(splitAtCursor('hello', 0)).toEqual({ before: '', after: 'hello' })
     expect(splitAtCursor('hello', 2)).toEqual({ before: 'he', after: 'llo' })
     expect(splitAtCursor('hello', 5)).toEqual({ before: 'hello', after: '' })
-    expect(promptPaint('hello', 0)).toEqual({ before: '', cursor: ICONS.cursor, after: 'hello' })
-    expect(promptPaint('hello', 2)).toEqual({ before: 'he', cursor: ICONS.cursor, after: 'llo' })
-    expect(promptPaint('hello', 4)).toEqual({ before: 'hell', cursor: ICONS.cursor, after: 'o' })
-    expect(promptPaint('hello', 5)).toEqual({ before: 'hello', cursor: ICONS.cursor, after: '' })
-    expect(promptPaint('', 0)).toEqual({ before: '', cursor: ICONS.cursor, after: '' })
-    expect(promptPaint('ab\ncd', 2)).toEqual({ before: 'ab', cursor: ICONS.cursor, after: '\ncd' })
+    expect(promptPaint('hello', 0)).toEqual({ before: '', cursor: 'h', after: 'ello' })
+    expect(promptPaint('hello', 2)).toEqual({ before: 'he', cursor: 'l', after: 'lo' })
+    expect(promptPaint('hello', 4)).toEqual({ before: 'hell', cursor: 'o', after: '' })
+    expect(promptPaint('hello', 5)).toEqual({ before: 'hello', cursor: '', after: '' })
+    expect(promptPaint('', 0)).toEqual({ before: '', cursor: '', after: '' })
+    expect(promptPaint('ab\ncd', 2)).toEqual({ before: 'ab', cursor: '\n', after: 'cd' })
     const onL = promptPaint('hello', 2)
-    expect(`${onL.before}${onL.after}`).toBe('hello')
-    expect(onL.cursor).toBe(ICONS.cursor)
+    expect(`${onL.before}${onL.cursor}${onL.after}`).toBe('hello')
+    expect(onL.cursor).toBe('l')
     const mid = promptPaint('Teada', 4)
-    expect(`${mid.before}${mid.after}`).toBe('Teada')
-    expect(mid.cursor).toBe(ICONS.cursor)
-    expect(ICONS.cursor).toBe('█')
+    expect(`${mid.before}${mid.cursor}${mid.after}`).toBe('Teada')
+    expect(mid.cursor).toBe('a')
+    const eof = promptPaint('hello', 5)
+    expect(`${eof.before}${eof.cursor}${eof.after}`).toBe('hello')
+    expect(eof.cursor).toBe('')
   })
 
   it('writes CSI hide/show for the hardware caret', () => {

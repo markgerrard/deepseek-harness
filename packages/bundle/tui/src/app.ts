@@ -158,16 +158,19 @@ function coloredCard(item: TranscriptItem, width: number, skipLeadingLines = 0, 
 }
 
 /**
- * Visible block caret: inverse █ so xfce4-terminal paints a solid cell.
- * Extra paint glyph, not a buffer character.
- * @returns a single inverse Text cell.
+ * Visible block caret: cream cell, dark letter so the glyph stays readable.
+ * Empty / newline become a non-breaking space so the cell still occupies a column.
+ * Extra paint cell, not a buffer character. No inverse, no █.
+ * @param ch - character under the caret, or empty at end-of-input.
+ * @returns a single black-on-cream Text cell.
  */
-function inverseCursorCell(): React.ReactElement {
-  return React.createElement(Text, { color: COLORS.fg, inverse: true }, ICONS.cursor)
+function inverseCursorCell(ch: string): React.ReactElement {
+  const glyph = ch === '' || ch === '\n' ? '\u00a0' : ch
+  return React.createElement(Text, { color: COLORS.bg, backgroundColor: COLORS.fg }, glyph)
 }
 
 /**
- * Paint the prompt buffer as `[before][█][after]` at `state.cursor`.
+ * Paint the prompt buffer as `[before][letter][after]` at `state.cursor`.
  * Box row, not a wrap='truncate' parent — Ink drops inverse cells inside those.
  * @param input - editor contents.
  * @param cursor - caret index.
@@ -179,7 +182,7 @@ function promptCursorText(input: string, cursor: number): React.ReactElement {
     Box,
     { flexDirection: 'row', flexGrow: 1, flexShrink: 1 },
     React.createElement(Text, { color: COLORS.fg }, paint.before),
-    inverseCursorCell(),
+    inverseCursorCell(paint.cursor),
     React.createElement(Text, { color: COLORS.fg }, paint.after),
   )
 }
@@ -490,7 +493,7 @@ export function App(props: AppProps): React.ReactElement {
         ? React.createElement(
           Box,
           { flexDirection: 'row', flexGrow: 1 },
-          inverseCursorCell(),
+          inverseCursorCell(''),
           React.createElement(Text, { color: COLORS.muted }, promptPlaceholder(state)),
         )
         : promptCursorText(state.input, state.cursor)),
