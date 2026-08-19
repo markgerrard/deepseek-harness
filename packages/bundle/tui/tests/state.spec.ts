@@ -45,6 +45,7 @@ describe('Claude Code-like UI reducer', () => {
     expect(chromeAction(state, 'ctrl+p')).toEqual({ type: 'open-overlay', overlay: { kind: 'commands', query: '', selected: 0 } })
     expect(chromeAction(state, 'tab')).toEqual({ type: 'set-focus', focus: 'chat' })
     expect(chromeAction(state, 'shift+tab')).toBeUndefined()
+    expect(chromeAction(state, ' ')).toBeUndefined()
     expect(reduce(state, { type: 'set-permission-mode', permissionMode: 'plan' }).permissionMode).toBe('plan')
     const scrolled = reduce(state, { type: 'scroll-transcript', delta: -4, contentHeight: 20, viewportHeight: 8 })
     expect(scrolled.transcriptPinned).toBe(false)

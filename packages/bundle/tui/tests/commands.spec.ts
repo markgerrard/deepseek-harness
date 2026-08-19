@@ -27,6 +27,7 @@ describe('Claude Code-like command palette', () => {
     expect(routeLine('/help')).toMatchObject({ kind: 'command', name: 'help' })
     expect(routeLine('hello')).toEqual({ kind: 'prompt', text: 'hello' })
     expect(routeLine('!ls -la')).toEqual({ kind: 'shell', command: 'ls -la' })
+    expect(routeLine('/attach /tmp/x.png')).toMatchObject({ kind: 'command', name: 'attach', rawInput: ' /tmp/x.png' })
     expect(routeLine('!')).toEqual({ kind: 'empty' })
     expect(isPaletteOpen('/he')).toBe(true)
     expect(isPaletteOpen('/he\nlo')).toBe(false)

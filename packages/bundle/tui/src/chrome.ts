@@ -311,7 +311,7 @@ export function helpLines(): readonly string[] {
     'esc     cancel / close',
     'esc esc rewind last prompt',
     'tab     change focus',
-    'space   expand tool / reasoning / workflow (chat focus)',
+    'ctrl+o  expand tool / reasoning / workflow',
     '/connect  paste a provider API key',
     '/clear  new visual transcript',
     '/compact  compact session history',

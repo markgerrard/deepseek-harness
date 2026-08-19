@@ -87,6 +87,8 @@ describe('insertAtCursor and splitAtCursor', () => {
     expect(insertAtCursor('hllo', 1, 'e')).toEqual({ input: 'hello', cursor: 2 })
     expect(insertAtCursor('hello', 5, '!')).toEqual({ input: 'hello!', cursor: 6 })
     expect(insertAtCursor('hello', 0, 'x')).toEqual({ input: 'xhello', cursor: 1 })
+    expect(insertAtCursor('say', 3, ' ')).toEqual({ input: 'say ', cursor: 4 })
+    expect(insertAtCursor('/attach', 7, ' ')).toEqual({ input: '/attach ', cursor: 8 })
   })
 
   it('paints the block cursor at the caret index', () => {

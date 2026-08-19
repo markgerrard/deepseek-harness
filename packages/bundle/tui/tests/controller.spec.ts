@@ -968,3 +968,28 @@ describe('TUI /attach', () => {
     await test.ctx.fiber.dispose()
   })
 })
+
+describe('TUI space vs expand', () => {
+  it('does not consume space so the editor can type say hi and /attach /path', async () => {
+    const test = await mount()
+    test.controller.dispatch({ type: 'set-input', input: 'say', cursor: 3 })
+    expect(await test.controller.handleKey(' ')).toBe(false)
+    expect(test.controller.snapshot().input).toBe('say')
+    expect(await test.controller.handleKey('ctrl+o')).toBe(true)
+    expect(test.controller.snapshot().input).toBe('say')
+    await test.ctx.fiber.dispose()
+  })
+
+  it('expands the newest tool card on ctrl+o, not space', async () => {
+    const test = await mount()
+    test.session.append('tool/call', { callId: 'c1', name: 'bash', arguments: '{"cmd":"ls"}' })
+    const tool = test.controller.transcript().find(item => item.kind === 'tool')
+    expect(tool?.kind).toBe('tool')
+    if (tool?.kind === 'tool') expect(tool.expanded).toBe(false)
+    expect(await test.controller.handleKey(' ')).toBe(false)
+    const before = test.controller.snapshot().expansion.tools.size
+    expect(await test.controller.handleKey('ctrl+o')).toBe(true)
+    expect(test.controller.snapshot().expansion.tools.size).toBeGreaterThan(before)
+    await test.ctx.fiber.dispose()
+  })
+})

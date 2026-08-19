@@ -24,7 +24,7 @@ describe('Claude Code-like cards', () => {
     expect(ICONS.assistant).toBe('●')
     expect(renderCard({
       kind: 'reasoning', id: 'r', seq: 3, text: 'think', streaming: false, expanded: false,
-    }, 40).text).toContain('space to expand')
+    }, 40).text).toContain('ctrl+o to expand')
     const tool = renderCard({
       kind: 'tool', id: 't', seq: 4, callId: 'c', name: 'bash', args: '{"cmd":"ls"}',
       status: 'success', expanded: true, result: 'ok',

@@ -327,7 +327,7 @@ export function renderCard(item: TranscriptItem, width: number): RenderedCard {
       )
     }
     case 'reasoning': {
-      const label = item.expanded ? 'thinking' : 'thinking (space to expand)'
+      const label = item.expanded ? 'thinking' : 'thinking (ctrl+o to expand)'
       const lines = prefixedLines(`${ICONS.spinner} `, 'brand', label, 'thinking', wrapWidth)
       if (item.expanded) lines.push(...bodyLines(item.text, 'thinking', wrapWidth))
       return cardFromLines(item.id, item.kind, lines)

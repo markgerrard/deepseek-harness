@@ -31,7 +31,7 @@ export const KEYS = {
   cancel: { key: 'escape', aliases: ['esc'], help: 'esc', description: 'cancel' },
   rewind: { key: 'escape', aliases: ['esc'], help: 'esc esc', description: 'rewind last prompt' },
   tab: { key: 'tab', help: 'tab', description: 'change focus' },
-  expand: { key: 'space', help: 'space', description: 'expand/collapse' },
+  expand: { key: 'ctrl+o', help: 'ctrl+o', description: 'expand/collapse' },
   slash: { key: '/', help: '/', description: 'commands' },
   permission: { key: 'shift+tab', help: 'shift+tab', description: 'cycle permission mode' },
   pageUp: { key: 'pageup', help: 'pgup', description: 'scroll transcript up' },

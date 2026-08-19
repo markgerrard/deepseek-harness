@@ -267,19 +267,6 @@ export function App(props: AppProps): React.ReactElement {
         controller.dispatch({ type: 'open-overlay', overlay: { kind: 'help' } })
         return
       }
-      if (input === ' ' && state.focus === 'chat' && state.overlay.kind === 'none') {
-        const items = controller.transcript()
-        const last = [...items].reverse().find(item =>
-          item.kind === 'tool' || item.kind === 'reasoning' || item.kind === 'workflow')
-        if (last !== undefined && (last.kind === 'tool' || last.kind === 'reasoning' || last.kind === 'workflow')) {
-          controller.dispatch({
-            type: 'toggle-expand',
-            id: last.id,
-            target: last.kind === 'tool' ? 'tools' : last.kind === 'reasoning' ? 'reasoning' : 'workflows',
-          })
-        }
-        return
-      }
       if (input !== '' && !key.ctrl && !key.meta) {
         const edit = insertAtCursor(state.input, state.cursor, input)
         controller.dispatch({ type: 'set-input', input: edit.input, cursor: edit.cursor })

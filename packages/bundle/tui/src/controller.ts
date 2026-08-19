@@ -329,6 +329,10 @@ export class TuiController {
       if (this.state.overlay.kind === 'none') this.scrollTranscript(matches(KEYS.pageUp, key) ? -1 : 1)
       return true
     }
+    if (matches(KEYS.expand, key)) {
+      if (this.state.overlay.kind === 'none') this.toggleLastExpandable()
+      return true
+    }
     if (matches(KEYS.steer, key)) {
       if (this.state.overlay.kind === 'none') await this.submitSteer(this.state.input)
       return true
@@ -1141,6 +1145,24 @@ export class TuiController {
     const prefix = this.state.input === '' || this.state.input.endsWith(' ') ? '' : ' '
     const next = `${this.state.input}${prefix}${mention} `
     this.dispatch({ type: 'set-input', input: next, cursor: next.length })
+  }
+
+  /**
+   * Expand or collapse the newest tool / reasoning / workflow card.
+   * Bound to ctrl+o so space can type in the editor.
+   */
+  private toggleLastExpandable(): boolean {
+    const last = [...this.transcript()].reverse().find(item =>
+      item.kind === 'tool' || item.kind === 'reasoning' || item.kind === 'workflow')
+    if (last === undefined || (last.kind !== 'tool' && last.kind !== 'reasoning' && last.kind !== 'workflow')) {
+      return false
+    }
+    this.dispatch({
+      type: 'toggle-expand',
+      id: last.id,
+      target: last.kind === 'tool' ? 'tools' : last.kind === 'reasoning' ? 'reasoning' : 'workflows',
+    })
+    return true
   }
 
   /** Start the double-Esc rewind window. */
