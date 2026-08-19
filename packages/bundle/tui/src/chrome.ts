@@ -309,6 +309,7 @@ export function helpLines(): readonly string[] {
     'ctrl+r  reverse search history',
     'ctrl+j  newline',
     'esc     cancel / close',
+    'esc esc rewind last prompt',
     'tab     change focus',
     'space   expand tool / reasoning / workflow (chat focus)',
     '/connect  paste a provider API key',

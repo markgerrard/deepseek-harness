@@ -83,6 +83,7 @@ describe('Claude Code-like chrome strings', () => {
     expect(helpLines().some(line => line.includes('shift+tab') && line.includes('cycle permission mode'))).toBe(true)
     expect(helpLines().some(line => line.includes('pgup') && line.includes('scroll transcript'))).toBe(true)
     expect(helpLines().some(line => line.includes('pgdn') && line.includes('re-pin'))).toBe(true)
+    expect(helpLines().some(line => line.includes('esc esc') && line.includes('rewind last prompt'))).toBe(true)
     expect(helpLines().every(line => !line.includes('ctrl+enter'))).toBe(true)
     expect(helpLines().some(line => line.includes('take back last queued'))).toBe(true)
     expect(helpLines().some(line => line.includes('reverse search history'))).toBe(true)

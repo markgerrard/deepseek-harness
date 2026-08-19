@@ -51,6 +51,7 @@ import { cardWrapWidth, estimateTranscriptRowHeight, insertTurnClocks } from './
 import { parseAtToken, splitAtQuery, type FileRow } from './files.ts'
 import { layoutAreas } from './layout.ts'
 import { isOnFirstLine, isOnLastLine } from './history.ts'
+import { rewindArmed } from './rewind.ts'
 import { KEYS, matches } from './keys.ts'
 import {
   capSuggestion,
@@ -125,6 +126,8 @@ export class TuiController {
   private suggestionAbort: AbortController | undefined
   /** Last assistant card we already showed a ghost for; submit/type must not replay it. */
   private suggestedAssistantId: string | undefined
+  /** Epoch ms of the last Esc that armed a rewind, if any. */
+  private rewindArmedAt: number | undefined
 
   /**
    * @param ctx - settled plugin context carrying core DSH services.
@@ -299,6 +302,7 @@ export class TuiController {
         return true
       case 'dismiss':
         this.dispatch({ type: 'close-overlay' })
+        this.armRewind()
         return true
       case 'toggle':
         this.dispatch({ type: 'toggle-quit' })
@@ -331,17 +335,20 @@ export class TuiController {
     const chrome = chromeAction(this.state, key)
     if (chrome !== undefined) {
       this.dispatch(chrome)
+      if (matches(KEYS.cancel, key)) this.armRewind()
       return true
     }
     if (key === 'ctrl+n') {
       await this.create()
       return true
     }
-    if (key === 'escape' || key === 'esc') {
+    if (matches(KEYS.cancel, key)) {
       if (this.state.busy) {
         this.agent()?.cancel({ kind: 'user' }, { keepInbox: true })
-        return true
       }
+      if (this.takeRewind()) return true
+      this.armRewind()
+      return true
     }
     if ((key === 'up' || key === 'ctrl+up') && this.state.overlay.kind === 'none') {
       if (this.state.input === '' && this.takeBackLastQueued()) return true
@@ -1016,6 +1023,26 @@ export class TuiController {
     } catch {
       this.dispatch({ type: 'set-agents', agents: [] })
     }
+  }
+
+  /** Start the double-Esc rewind window. */
+  private armRewind(now = Date.now()): void {
+    this.rewindArmedAt = now
+  }
+
+  /**
+   * Restore the last submitted prompt when the second Esc is inside the arm.
+   * Leaves session history intact — DSH has no rewind / undo-last-turn API.
+   * @param now - epoch ms.
+   * @returns true when a prompt was restored.
+   */
+  private takeRewind(now = Date.now()): boolean {
+    if (!rewindArmed(this.rewindArmedAt, now)) return false
+    this.rewindArmedAt = undefined
+    const last = this.state.history[this.state.history.length - 1]
+    if (last === undefined) return false
+    this.dispatch({ type: 'set-input', input: last, cursor: last.length })
+    return true
   }
 
   /**

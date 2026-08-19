@@ -29,6 +29,7 @@ export const KEYS = {
   steer: { key: 'shift+t', aliases: ['ctrl+t', 'ctrl+enter', 'ctrl+T'], help: 'shift+t', description: 'steer this turn (next step)' },
   newline: { key: 'ctrl+j', help: 'ctrl+j', description: 'newline' },
   cancel: { key: 'escape', aliases: ['esc'], help: 'esc', description: 'cancel' },
+  rewind: { key: 'escape', aliases: ['esc'], help: 'esc esc', description: 'rewind last prompt' },
   tab: { key: 'tab', help: 'tab', description: 'change focus' },
   expand: { key: 'space', help: 'space', description: 'expand/collapse' },
   slash: { key: '/', help: '/', description: 'commands' },
