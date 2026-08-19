@@ -13,13 +13,29 @@ public struct RuntimeLaunch: Equatable, Sendable {
     self.environment = environment
   }
 
-  public static func macosProfile(repoRoot: URL, workspace: URL) -> RuntimeLaunch {
+  public static func macosProfile(repoRoot: URL, workspace: URL, node: String = "node") -> RuntimeLaunch {
     let scriptURL = repoRoot.appendingPathComponent("apps/cli/lib/bin.js")
     return RuntimeLaunch(
-      command: "node",
+      command: node,
       arguments: [scriptURL.path, "--profile", "macos"],
       cwd: workspace
     )
+  }
+
+  /// Walk from `start` (default: process cwd) until `apps/cli/lib/bin.js` exists.
+  public static func findRepoRoot(from start: URL? = nil) -> URL? {
+    if let env = ProcessInfo.processInfo.environment["DSH_REPO"], !env.isEmpty {
+      return URL(fileURLWithPath: env)
+    }
+    var dir = start ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+    for _ in 0..<10 {
+      let bin = dir.appendingPathComponent("apps/cli/lib/bin.js")
+      if FileManager.default.isReadableFile(atPath: bin.path) { return dir }
+      let parent = dir.deletingLastPathComponent()
+      if parent.path == dir.path { break }
+      dir = parent
+    }
+    return nil
   }
 }
 

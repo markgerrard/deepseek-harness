@@ -83,6 +83,14 @@ final class RuntimeProcessTests: XCTestCase {
     XCTAssertEqual(launch.cwd, workspace)
   }
 
+  func testFindRepoRootSeesCliBin() {
+    let repo = RuntimeLaunch.findRepoRoot()
+    XCTAssertNotNil(repo)
+    if let repo {
+      XCTAssertTrue(FileManager.default.isReadableFile(atPath: repo.appendingPathComponent("apps/cli/lib/bin.js").path))
+    }
+  }
+
   func testStartTwiceThrows() async throws {
     let runtime = try bundledFakeRuntimeURL()
     let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

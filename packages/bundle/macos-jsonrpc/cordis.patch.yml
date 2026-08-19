@@ -3,6 +3,48 @@
 - id: hmr
   disabled: true
 
+# Same openai-completions gateways the TUI `/connect` dialog declares.
+# Official DeepSeek stays on llm-deepseek. Cline Pass is the intended
+# Swift v0 route (provider `cline-pass`, models `cline-pass/deepseek-v4-*`).
+- id: llm-pi-ai
+  config:
+    providers:
+      opencode-go:
+        displayName: OpenCode Go
+        apiKeyEnv: OPENCODE_API_KEY
+        api: openai-completions
+        baseURL: https://opencode.ai/zen/go/v1
+        models:
+          - id: glm-5.3
+          - id: glm-5.2
+          - id: glm-5.1
+          - id: kimi-k3
+          - id: kimi-k2.7-code
+          - id: kimi-k2.6
+          - id: deepseek-v4-pro
+          - id: deepseek-v4-flash
+          - id: mimo-v2.5
+          - id: mimo-v2.5-pro
+          - id: hy3
+      cline-pass:
+        displayName: Cline Pass
+        apiKeyEnv: CLINE_API_KEY
+        api: openai-completions
+        baseURL: https://api.cline.bot/api/v1
+        models:
+          - id: cline-pass/glm-5.2
+          - id: cline-pass/kimi-k3
+          - id: cline-pass/kimi-k2.7-code
+          - id: cline-pass/kimi-k2.6
+          - id: cline-pass/deepseek-v4-pro
+          - id: cline-pass/deepseek-v4-flash
+          - id: cline-pass/mimo-v2.5
+          - id: cline-pass/mimo-v2.5-pro
+          - id: cline-pass/minimax-m3
+          - id: cline-pass/qwen3.8-max
+          - id: cline-pass/qwen3.7-max
+          - id: cline-pass/qwen3.7-plus
+
 - insert:
     - id: code-runtime
       name: '@deepseek-ai/dsh-code-runtime-worker-thread'

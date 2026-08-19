@@ -7,8 +7,8 @@ public struct CreateBotSheet: View {
 
   @State private var displayName = ""
   @State private var job = ""
-  @State private var provider = "mock"
-  @State private var model = "m"
+  @State private var provider = "cline-pass"
+  @State private var model = "cline-pass/deepseek-v4-flash"
   @State private var thinking = "off"
   @State private var template = "code"
   @State private var isSubmitting = false
@@ -47,8 +47,11 @@ public struct CreateBotSheet: View {
             .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.3)))
         }
 
-        TextField("Provider:", text: $provider, prompt: Text("e.g. deepseek-official"))
-        TextField("Model:", text: $model, prompt: Text("e.g. deepseek-v4-flash"))
+        TextField("Provider:", text: $provider, prompt: Text("cline-pass"))
+        Picker("Model:", selection: $model) {
+          Text("DeepSeek V4 Flash").tag("cline-pass/deepseek-v4-flash")
+          Text("DeepSeek V4 Pro").tag("cline-pass/deepseek-v4-pro")
+        }
 
         Picker("Thinking:", selection: $thinking) {
           Text("Off").tag("off")
