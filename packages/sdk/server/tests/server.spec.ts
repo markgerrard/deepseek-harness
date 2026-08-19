@@ -2368,7 +2368,7 @@ describe('HarnessSdkJsonRpcServer', () => {
       .rejects.toThrow(/text/)
     await expect(server.handleRequest('presets/setPersona', { id: 'bot-a', text: 123 as unknown as string }))
       .rejects.toThrow(/text/)
-    await expect(server.handleRequest('presets/setPersona', { id: 'bot-a' } as unknown as { id: string; text: string }))
+    await expect(server.handleRequest('presets/setPersona', { id: 'bot-a' }))
       .rejects.toThrow(/text/)
     expect(setPersona).not.toHaveBeenCalled()
     await server.shutdown()
@@ -2411,5 +2411,179 @@ describe('HarnessSdkJsonRpcServer', () => {
     await expect(server.handleRequest('presets/setPersona', { id: 'standard', text: 'job' }))
       .rejects.toThrow('preset is not writable: standard')
     await server.shutdown()
+  })
+
+  it('mounts different presets and model selections on two creates in one server', async () => {
+    const mounts: { id: string }[] = []
+    const creates: { preset?: string | undefined; provider: string; model: string }[] = []
+    const on = vi.fn(() => () => undefined)
+    const liveAgents = new Map<string, Agent>()
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      get: (key: string) => {
+        if (key === 'llm') return { listProviders: () => [{ id: 'mock-a' }, { id: 'mock-b' }] }
+        if (key === 'agentPresets') {
+          return {
+            mount: async (_ctx: Context, id: string) => {
+              mounts.push({ id })
+              return { id, trust: 'user', path: '/p' }
+            },
+          }
+        }
+        return undefined
+      },
+      agents: {
+        get: (id: SessionId) => liveAgents.get(String(id)),
+        create: vi.fn(async (options: {
+          sessionId: SessionId
+          meta?: { agentPreset?: string }
+          agentOptions?: { provider: string; model: string }
+          setup?: (ctx: Context) => Promise<void>
+        }) => {
+          const agentCtx = { on } as unknown as Context
+          await options.setup?.(agentCtx)
+          creates.push({
+            preset: options.meta?.agentPreset,
+            provider: options.agentOptions!.provider,
+            model: options.agentOptions!.model,
+          })
+          const agent = {
+            id: options.sessionId,
+            session: { id: options.sessionId },
+            followup: vi.fn(),
+          } as unknown as Agent
+          liveAgents.set(String(options.sessionId), agent)
+          return { agent, dispose: vi.fn(async () => undefined) }
+        }),
+      },
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+    await server.handleRequest('initialize', { cwd: '/tmp', provider: 'mock-a', model: 'default-m' })
+    await server.handleRequest('session/prompt', {
+      sessionId: 's-a',
+      contentBlocks: [{ type: 'text', text: 'a' }],
+      agentPreset: 'bot-a',
+      provider: 'mock-a',
+      model: 'model-a',
+      reasoningEffort: 'off',
+    })
+    await server.handleRequest('session/prompt', {
+      sessionId: 's-b',
+      contentBlocks: [{ type: 'text', text: 'b' }],
+      agentPreset: 'bot-b',
+      provider: 'mock-b',
+      model: 'model-b',
+      reasoningEffort: 'max',
+    })
+    expect(mounts.map(m => m.id)).toEqual(['bot-a', 'bot-b'])
+    expect(creates.map(c => c.preset)).toEqual(['bot-a', 'bot-b'])
+    expect(creates.map(c => c.model)).toEqual(['model-a', 'model-b'])
+    expect(creates.every(c => c.model !== 'default-m')).toBe(true)
+    expect(on).toHaveBeenCalled()
+    await server.shutdown()
+  })
+
+  it('rejects create when agentPreset is set but agent-presets is not composed', async () => {
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      get: (key: string) => key === 'llm' ? { listProviders: () => [{ id: 'mock' }] } : undefined,
+      agents: {
+        get: () => undefined,
+        create: vi.fn(async (options: {
+          sessionId: SessionId
+          setup?: (ctx: Context) => Promise<void>
+        }) => {
+          const agentCtx = { on: vi.fn(() => () => undefined) } as unknown as Context
+          await options.setup?.(agentCtx)
+          const agent = { id: options.sessionId, session: { id: options.sessionId }, followup: vi.fn() } as unknown as Agent
+          return { agent, dispose: vi.fn(async () => undefined) }
+        }),
+      },
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+    await server.handleRequest('initialize', { cwd: '/tmp', provider: 'mock', model: 'm' })
+    await expect(server.handleRequest('session/prompt', {
+      sessionId: 's1',
+      contentBlocks: [{ type: 'text', text: 'hi' }],
+      agentPreset: 'bot-a',
+    })).rejects.toThrow('agent-presets is not composed')
+    await server.shutdown()
+  })
+
+  it('rejects create when prompt provider has no registered adapter', async () => {
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      get: (key: string) => key === 'llm' ? { listProviders: () => [{ id: 'mock' }] } : undefined,
+      agents: {
+        get: () => undefined,
+        create: vi.fn(),
+      },
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+    await server.handleRequest('initialize', { cwd: '/tmp', provider: 'mock', model: 'm' })
+    await expect(server.handleRequest('session/prompt', {
+      sessionId: 's1',
+      contentBlocks: [{ type: 'text', text: 'hi' }],
+      provider: 'unknown-provider',
+      model: 'm',
+    })).rejects.toThrow('no adapter registered for provider "unknown-provider"')
+    await server.shutdown()
+  })
+
+  it('prompt waits for the plugin tree to settle before creating and delivering', async () => {
+    let settleTree: (() => void) | undefined
+    const settled = new Promise<void>((resolve) => { settleTree = resolve })
+    const followup = vi.fn<Agent['followup']>()
+    const agent = ({
+      id: SessionId('main'),
+      followup,
+    } satisfies Pick<Agent, 'id' | 'followup'>) as unknown as Agent
+    const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+    const create = vi.fn(async () => handle)
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: {
+        create,
+        get: (id: SessionId) => String(id) === 'main' ? agent : undefined,
+      },
+      get: (name: string) => name === 'loader' ? { await: () => settled } : undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    const pending = server.prompt({ sessionId: 'main', contentBlocks: [{ type: 'text', text: 'hi' }] })
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(create).not.toHaveBeenCalled()
+    settleTree!()
+    await expect(pending).resolves.toMatchObject({ messageId: expect.any(String) as unknown })
+    expect(create).toHaveBeenCalledOnce()
+    await server.shutdown()
+  })
+
+  it('a prompt parked on the loader cannot create an agent after shutdown', async () => {
+    let settleTree: (() => void) | undefined
+    const settled = new Promise<void>((resolve) => { settleTree = resolve })
+    const followup = vi.fn<Agent['followup']>()
+    const agent = ({
+      id: SessionId('main'),
+      followup,
+    } satisfies Pick<Agent, 'id' | 'followup'>) as unknown as Agent
+    const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+    const create = vi.fn(async () => handle)
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: {
+        create,
+        get: (id: SessionId) => String(id) === 'main' ? agent : undefined,
+      },
+      get: (name: string) => name === 'loader' ? { await: () => settled } : undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    const parked = server.prompt({ sessionId: 'main', contentBlocks: [{ type: 'text', text: 'hi' }] })
+    await new Promise(resolve => setTimeout(resolve, 20))
+    await server.shutdown()
+    settleTree!()
+    await expect(parked).rejects.toThrow(/shutting down/)
+    expect(create).not.toHaveBeenCalled()
   })
 })

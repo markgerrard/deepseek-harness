@@ -7,9 +7,9 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { resolve } from 'node:path'
-import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
+import { installModelSelection, type Agent, type AgentHandle, type ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import type AgentPresets from '@deepseek-ai/dsh-agent-presets'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { carrierKeyOf, type Scoped } from '@deepseek-ai/dsh-scope'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type SubagentRuntime from '@deepseek-ai/dsh-subagent'
@@ -54,6 +54,7 @@ function clientAdvertisesApprovals(value: unknown): boolean {
 
 interface SessionRecord {
   handle: AgentHandle
+  selection: ModelSelectionRef
 }
 
 type SessionLoadKind = 'create' | 'resume'
@@ -243,7 +244,7 @@ export class HarnessSdkJsonRpcServer {
       // request was parked on the loader, and a session created or resumed
       // now would be published AFTER shutdown's snapshot — an agent nobody
       // disposes (r3 finding).
-      if (this.shuttingDown) throw new Error('SDK server is shutting down')
+      if ((this.shuttingDown as boolean)) throw new Error('SDK server is shutting down')
     }
     // A pending load owns delivery order for its session, so the pending map
     // is consulted before the record map: a record published mid-load must not
@@ -251,7 +252,7 @@ export class HarnessSdkJsonRpcServer {
     const rec = this.sessions.get(params.sessionId)
     if (rec === undefined || this.sessionCreations.has(params.sessionId)) {
       const pending = this.sessionCreations.get(params.sessionId)
-        ?? this.beginSessionLoad(params.sessionId, 'create', () => this.createSession(params.sessionId))
+        ?? this.beginSessionLoad(params.sessionId, 'create', () => this.createSession(params.sessionId, params))
       const message = createUserMessage({ content: params.contentBlocks, source: { kind: 'user' } })
       pending.queue.push({ kind: 'prompt', message })
       await pending.outcome
@@ -325,7 +326,7 @@ export class HarnessSdkJsonRpcServer {
       await settled
       // Same post-park re-check as prompt(): no session load may begin after
       // shutdown's snapshot.
-      if (this.shuttingDown) throw new Error('SDK server is shutting down')
+      if ((this.shuttingDown as boolean)) throw new Error('SDK server is shutting down')
     }
     const pending = this.sessionCreations.get(params.sessionId)
     if (pending !== undefined) {
@@ -404,7 +405,7 @@ export class HarnessSdkJsonRpcServer {
   }
 
   private async setPersona(params: PresetSetPersonaParams): Promise<Record<string, never>> {
-    if (typeof params?.text !== 'string') {
+    if (typeof (params as { text?: unknown }).text !== 'string') {
       throw new TypeError('presets/setPersona text must be a string')
     }
     await this.requirePresets().setPersona(params.id, params.text)
@@ -521,21 +522,43 @@ export class HarnessSdkJsonRpcServer {
     return entry
   }
 
-  private async createSession(sessionId: string): Promise<SessionRecord> {
-    // No preset composition: this server's compositions keep the model-facing
-    // rows in the host plane, so this agent reads them from the global layer. A
-    // deployment that configures a roster has to join one here first
-    // (@deepseek-ai/dsh-agent-presets README, "Composing a child agent").
+  private async createSession(sessionId: string, prompt?: SessionPromptParams): Promise<SessionRecord> {
+    const provider = prompt?.provider ?? this.provider
+    const model = prompt?.model ?? this.model
+    if (prompt?.provider !== undefined && !this.hasAdapterFor(prompt.provider)) {
+      throw new Error(`no adapter registered for provider "${prompt.provider}"`)
+    }
+    const selection: ModelSelectionRef = {
+      current: {
+        provider,
+        model,
+        ...prompt?.reasoningEffort === undefined
+          ? {}
+          : { reasoningEffort: ReasoningEffortId(prompt.reasoningEffort) },
+      },
+      assembled: undefined,
+    }
+    const presets = this.ctx.get('agentPresets')
     const handle = await this.ctx.agents.create({
       sessionId: SessionId(sessionId),
-      meta: { cwd: this.cwd },
+      meta: {
+        cwd: this.cwd,
+        ...prompt?.agentPreset === undefined ? {} : { agentPreset: prompt.agentPreset },
+      },
       agentOptions: {
-        provider: this.provider,
-        model: this.model,
+        provider,
+        model,
         ...this.maxTokens === undefined ? {} : { maxTokens: this.maxTokens },
       },
+      setup: async (agentCtx) => {
+        if (prompt?.agentPreset !== undefined) {
+          if (presets === undefined) throw new Error('agent-presets is not composed')
+          await presets.mount(agentCtx, prompt.agentPreset)
+        }
+        installModelSelection(agentCtx, selection)
+      },
     })
-    const rec: SessionRecord = { handle }
+    const rec: SessionRecord = { handle, selection }
     this.sessions.set(sessionId, rec)
     return rec
   }
@@ -549,7 +572,14 @@ export class HarnessSdkJsonRpcServer {
         ...this.maxTokens === undefined ? {} : { maxTokens: this.maxTokens },
       },
     })
-    const rec: SessionRecord = { handle }
+    const selection: ModelSelectionRef = {
+      current: {
+        provider: this.provider,
+        model: this.model,
+      },
+      assembled: undefined,
+    }
+    const rec: SessionRecord = { handle, selection }
     this.sessions.set(sessionId, rec)
     return rec
   }
