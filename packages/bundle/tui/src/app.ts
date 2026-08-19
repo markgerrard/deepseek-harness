@@ -4,7 +4,7 @@
  * @module @deepseek-ai/dsh-tui/app
  */
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useState } from 'react'
 import { Box, Text, useInput, useStdout } from 'ink'
 import type { TuiController } from './controller.ts'
 import { formatAttachChip } from './attach.ts'
@@ -30,7 +30,7 @@ import {
 import { connectProviderById, formatModelPickerLines } from './connect.ts'
 import { layoutAreas } from './layout.ts'
 import { inkKeyName } from './keys.ts'
-import { insertAtCursor, promptPaint } from './prompt.ts'
+import { insertAtCursor, promptPaint, setHardwareCursorVisible } from './prompt.ts'
 import { formatDoneLine, formatStatusLine, formatWorkingLine, type StatusModel } from './status.ts'
 import { promptPlaceholder } from './suggestion.ts'
 import { COLORS, ICONS, TRANSCRIPT_PROMPT_GAP } from './theme.ts'
@@ -158,7 +158,16 @@ function coloredCard(item: TranscriptItem, width: number, skipLeadingLines = 0, 
 }
 
 /**
- * Paint the prompt buffer with the block cursor at `cursor`, not always at the end.
+ * Inverse-video caret cell: light block, dark glyph. backgroundColor on Text only.
+ * @param ch - one character, or a space at end-of-input.
+ * @returns a single colored Text cell.
+ */
+function inverseCursorCell(ch: string): React.ReactElement {
+  return React.createElement(Text, { color: COLORS.bg, backgroundColor: COLORS.fg }, ch)
+}
+
+/**
+ * Paint the prompt buffer with an inverse cell ON the character at `cursor`.
  * @param input - editor contents.
  * @param cursor - caret index.
  * @returns a truncated Ink line.
@@ -169,7 +178,7 @@ function promptCursorText(input: string, cursor: number): React.ReactElement {
     Text,
     { wrap: 'truncate' },
     React.createElement(Text, { color: COLORS.fg }, paint.before),
-    React.createElement(Text, { color: COLORS.fg }, paint.cursor),
+    inverseCursorCell(paint.cursor),
     React.createElement(Text, { color: COLORS.fg }, paint.after),
   )
 }
@@ -185,12 +194,20 @@ export function App(props: AppProps): React.ReactElement {
   const [state, setState] = useState(() => controller.snapshot())
 
   useEffect(() => controller.subscribe(setState), [controller])
+  useLayoutEffect(() => {
+    setHardwareCursorVisible(stdout, false)
+    return () => { setHardwareCursorVisible(stdout, true) }
+  }, [stdout])
+  // Re-hide after each paint — Ink's cli-cursor / log-update may restore the caret.
+  useLayoutEffect(() => { setHardwareCursorVisible(stdout, false) }, [stdout, state])
   useEffect(() => {
     const width = stdout.columns ?? 80
     const height = stdout.rows ?? 24
     controller.dispatch({ type: 'resize', width, height })
+    setHardwareCursorVisible(stdout, false)
     const onResize = (): void => {
       controller.dispatch({ type: 'resize', width: stdout.columns ?? 80, height: stdout.rows ?? 24 })
+      setHardwareCursorVisible(stdout, false)
     }
     stdout.on('resize', onResize)
     return () => { stdout.off('resize', onResize) }
@@ -476,7 +493,7 @@ export function App(props: AppProps): React.ReactElement {
         ? React.createElement(
           Text,
           { wrap: 'truncate' },
-          React.createElement(Text, { color: COLORS.fg }, ICONS.cursor),
+          inverseCursorCell(' '),
           React.createElement(Text, { color: COLORS.muted }, promptPlaceholder(state)),
         )
         : promptCursorText(state.input, state.cursor)),

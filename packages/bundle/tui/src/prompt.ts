@@ -4,8 +4,6 @@
  * @module @deepseek-ai/dsh-tui/prompt
  */
 
-import { ICONS } from './theme.ts'
-
 /** Result of one prompt-buffer edit. */
 export interface PromptEdit {
   readonly input: string
@@ -13,11 +11,29 @@ export interface PromptEdit {
   readonly kill?: string
 }
 
-/** Before / cursor-glyph / after segments for painting `state.cursor`. */
+/** Before / inverse-cell / after segments for painting `state.cursor`. */
 export interface PromptPaint {
   readonly before: string
   readonly cursor: string
   readonly after: string
+}
+
+/** CSI hide — Ink may restore the hardware caret after a paint. */
+export const CSI_HIDE_CURSOR = '\x1b[?25l'
+/** CSI show — restore the hardware caret on unmount. */
+export const CSI_SHOW_CURSOR = '\x1b[?25h'
+
+/**
+ * Hide or show the terminal hardware caret. Only our inverse cell should show
+ * while the TUI is mounted.
+ * @param stdout - stream that accepts CSI writes.
+ * @param visible - `false` hides, `true` shows.
+ */
+export function setHardwareCursorVisible(
+  stdout: { write(chunk: string): unknown },
+  visible: boolean,
+): void {
+  stdout.write(visible ? CSI_SHOW_CURSOR : CSI_HIDE_CURSOR)
 }
 
 /**
@@ -44,14 +60,19 @@ export function splitAtCursor(input: string, cursor: number): { before: string; 
 }
 
 /**
- * Prompt paint parts: input split at `cursor` with the block glyph in between.
+ * Prompt paint parts: the character at `cursor` is the inverse-video cell
+ * (a space when the caret is past the last character or on a newline).
+ * Not an extra block glyph, so wrap/truncate width matches the buffer except
+ * for one trailing cell past the last char.
  * @param input - editor contents.
  * @param cursor - caret index.
  * @returns segments to render left-to-right.
  */
 export function promptPaint(input: string, cursor: number): PromptPaint {
-  const { before, after } = splitAtCursor(input, cursor)
-  return { before, cursor: ICONS.cursor, after }
+  const at = clampCursor(cursor, input.length)
+  const raw = input[at]
+  const cell = raw === undefined || raw === '\n' ? ' ' : raw
+  return { before: input.slice(0, at), cursor: cell, after: input.slice(at + 1) }
 }
 
 /**

@@ -41,6 +41,8 @@ export const PALETTE = {
   brand: '#D97757',
   /** Default foreground. */
   fg: '#E8E4DC',
+  /** Terminal / inverse-caret background. */
+  bg: '#1A1816',
   /** Dim / muted secondary text and borders. */
   muted: '#8A8580',
   /** Pale lavender — tool titles. */
@@ -77,6 +79,7 @@ export const COLORS = {
   warning: PALETTE.warning,
   dim: PALETTE.muted,
   fg: PALETTE.fg,
+  bg: PALETTE.bg,
 } as const
 
 /** Product word kept for onboarding copy (not a Crush wordmark). */

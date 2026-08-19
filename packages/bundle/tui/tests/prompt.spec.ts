@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyPromptKey, insertAtCursor, promptPaint, splitAtCursor } from '../src/prompt.ts'
+import { applyPromptKey, CSI_HIDE_CURSOR, CSI_SHOW_CURSOR, insertAtCursor, promptPaint, setHardwareCursorVisible, splitAtCursor } from '../src/prompt.ts'
 import { chromeAction, initialState, reduce } from '../src/state.ts'
 import { ICONS } from '../src/theme.ts'
 
@@ -102,14 +102,34 @@ describe('insertAtCursor and splitAtCursor', () => {
     expect(insertAtCursor('/attach', 7, ' ')).toEqual({ input: '/attach ', cursor: 8 })
   })
 
-  it('paints the block cursor at the caret index', () => {
+  it('paints an inverse-video cell at the caret, not a block glyph', () => {
     expect(splitAtCursor('hello', 0)).toEqual({ before: '', after: 'hello' })
     expect(splitAtCursor('hello', 2)).toEqual({ before: 'he', after: 'llo' })
     expect(splitAtCursor('hello', 5)).toEqual({ before: 'hello', after: '' })
-    expect(promptPaint('hello', 0)).toEqual({ before: '', cursor: ICONS.cursor, after: 'hello' })
-    expect(promptPaint('hello', 2)).toEqual({ before: 'he', cursor: ICONS.cursor, after: 'llo' })
-    expect(promptPaint('hello', 5)).toEqual({ before: 'hello', cursor: ICONS.cursor, after: '' })
+    expect(promptPaint('hello', 0)).toEqual({ before: '', cursor: 'h', after: 'ello' })
+    expect(promptPaint('hello', 2)).toEqual({ before: 'he', cursor: 'l', after: 'lo' })
+    expect(promptPaint('hello', 4)).toEqual({ before: 'hell', cursor: 'o', after: '' })
+    expect(promptPaint('hello', 5)).toEqual({ before: 'hello', cursor: ' ', after: '' })
+    expect(promptPaint('', 0)).toEqual({ before: '', cursor: ' ', after: '' })
+    expect(promptPaint('ab\ncd', 2)).toEqual({ before: 'ab', cursor: ' ', after: 'cd' })
+    const onL = promptPaint('hello', 2)
+    expect(`${onL.before}${onL.cursor}${onL.after}`).toBe('hello')
+    expect(onL.cursor).not.toBe(ICONS.cursor)
+    const mid = promptPaint('Teada', 4)
+    expect(`${mid.before}${mid.cursor}${mid.after}`).toBe('Teada')
+    expect(mid.cursor).toBe('a')
+    expect(mid.cursor).not.toBe(ICONS.cursor)
     expect(ICONS.cursor).toBe('█')
+  })
+
+  it('writes CSI hide/show for the hardware caret', () => {
+    const chunks: string[] = []
+    const stdout = { write: (chunk: string) => { chunks.push(chunk) } }
+    setHardwareCursorVisible(stdout, false)
+    setHardwareCursorVisible(stdout, true)
+    expect(chunks).toEqual([CSI_HIDE_CURSOR, CSI_SHOW_CURSOR])
+    expect(CSI_HIDE_CURSOR).toBe('\x1b[?25l')
+    expect(CSI_SHOW_CURSOR).toBe('\x1b[?25h')
   })
 })
 
