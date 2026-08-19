@@ -299,7 +299,7 @@ export function helpLines(): readonly string[] {
     'ctrl+s  sessions',
     'ctrl+n  new session',
     'ctrl+g  this help',
-    'ctrl+c  quit (twice)',
+    'ctrl+c  cancel / clear / quit',
     'enter   send (queues while Working)',
     'shift+t  steer this turn (next step)',
     'up      take back last queued / history',

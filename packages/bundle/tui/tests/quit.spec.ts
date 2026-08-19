@@ -18,6 +18,15 @@ describe('Claude Code-like quit-twice', () => {
     expect(resolveQuitKey('models', true, 'ctrl+c')).toEqual({ type: 'open' })
   })
 
+  it('cancels a busy turn and clears idle text instead of opening quit', () => {
+    expect(resolveQuitKey('none', true, 'ctrl+c', { busy: true, input: 'hello' })).toEqual({ type: 'cancel-turn' })
+    expect(resolveQuitKey('none', true, 'ctrl+c', { busy: true, input: '' })).toEqual({ type: 'cancel-turn' })
+    expect(resolveQuitKey('models', true, 'ctrl+c', { busy: true })).toEqual({ type: 'cancel-turn' })
+    expect(resolveQuitKey('none', true, 'ctrl+c', { busy: false, input: 'hello' })).toEqual({ type: 'clear-input' })
+    expect(resolveQuitKey('none', true, 'ctrl+c', { busy: false, input: '' })).toEqual({ type: 'open' })
+    expect(resolveQuitKey('quit', true, 'ctrl+c', { busy: true })).toEqual({ type: 'exit' })
+  })
+
   it('treats y as quit and n / esc as dismiss', () => {
     expect(resolveQuitKey('quit', true, 'y')).toEqual({ type: 'exit' })
     expect(resolveQuitKey('quit', true, 'Y')).toEqual({ type: 'exit' })

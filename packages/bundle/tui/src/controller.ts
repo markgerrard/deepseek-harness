@@ -258,7 +258,10 @@ export class TuiController {
    */
   async handleKey(key: string): Promise<boolean> {
     const selectedNope = this.state.overlay.kind === 'quit' ? this.state.overlay.selectedNope : true
-    const quit = resolveQuitKey(this.state.overlay.kind, selectedNope, key)
+    const quit = resolveQuitKey(this.state.overlay.kind, selectedNope, key, {
+      busy: this.state.busy,
+      input: this.state.input,
+    })
     switch (quit.type) {
       case 'open':
         this.dispatch({ type: 'open-overlay', overlay: { kind: 'quit', selectedNope: true } })
@@ -271,6 +274,12 @@ export class TuiController {
         return true
       case 'toggle':
         this.dispatch({ type: 'toggle-quit' })
+        return true
+      case 'cancel-turn':
+        this.agent()?.cancel({ kind: 'user' }, { keepInbox: true })
+        return true
+      case 'clear-input':
+        this.dispatch({ type: 'clear-input' })
         return true
       case 'ignore':
         break

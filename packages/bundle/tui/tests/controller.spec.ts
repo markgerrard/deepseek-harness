@@ -650,3 +650,28 @@ describe('TUI prompt history', () => {
     await test.ctx.fiber.dispose()
   })
 })
+
+describe('TUI Ctrl+C', () => {
+  it('cancels a busy turn with keepInbox and does not open quit', async () => {
+    const test = await mount()
+    test.setStatus('running')
+    await test.controller.submit('look at tests')
+    expect(test.controller.snapshot().queued).toHaveLength(1)
+    expect(await test.controller.handleKey('ctrl+c')).toBe(true)
+    expect(test.agent.cancel).toHaveBeenCalledWith({ kind: 'user' }, { keepInbox: true })
+    expect(test.controller.snapshot().overlay).toEqual({ kind: 'none' })
+    expect(test.controller.snapshot().queued.map(item => item.text)).toEqual(['look at tests'])
+    await test.ctx.fiber.dispose()
+  })
+
+  it('clears idle editor text on the first Ctrl+C', async () => {
+    const test = await mount()
+    test.controller.dispatch({ type: 'set-input', input: 'hello', cursor: 5 })
+    expect(await test.controller.handleKey('ctrl+c')).toBe(true)
+    expect(test.controller.snapshot().input).toBe('')
+    expect(test.controller.snapshot().overlay).toEqual({ kind: 'none' })
+    expect(await test.controller.handleKey('ctrl+c')).toBe(true)
+    expect(test.controller.snapshot().overlay).toEqual({ kind: 'quit', selectedNope: true })
+    await test.ctx.fiber.dispose()
+  })
+})

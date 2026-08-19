@@ -60,6 +60,8 @@ export type QuitIntent =
   | { readonly type: 'dismiss' }
   | { readonly type: 'toggle' }
   | { readonly type: 'ignore' }
+  | { readonly type: 'cancel-turn' }
+  | { readonly type: 'clear-input' }
 
 /** Session row for the sessions dialog. */
 export interface SessionRow {
@@ -225,15 +227,22 @@ export function moveSelection(selected: number, length: number, delta: number): 
 }
 
 /**
- * Quit-dialog key map: first ctrl+c opens; second ctrl+c / y quits;
- * n / esc dismisses; left/right/tab toggles Yes/No; enter/space confirms
- * the selected option (No is the default).
+ * Claude Code-like Ctrl+C: while a turn is running, first Ctrl+C cancels it
+ * (keepInbox). Idle with text clears the editor. Idle empty opens the quit
+ * dialog; a second Ctrl+C / y quits. n / esc dismisses; left/right/tab
+ * toggles Yes/No; enter/space confirms the selected option (No is default).
  * @param overlayKind - current overlay kind.
  * @param selectedNope - whether No is the selected quit option.
  * @param key - Ink key name.
+ * @param context - busy/editor facts so Ctrl+C does not jump to quit mid-turn.
  * @returns the quit intent; `ignore` leaves the key to other handlers.
  */
-export function resolveQuitKey(overlayKind: Overlay['kind'], selectedNope: boolean, key: string): QuitIntent {
+export function resolveQuitKey(
+  overlayKind: Overlay['kind'],
+  selectedNope: boolean,
+  key: string,
+  context: { readonly busy?: boolean; readonly input?: string } = {},
+): QuitIntent {
   if (overlayKind === 'quit') {
     if (key === 'ctrl+c' || key === 'y' || key === 'Y') return { type: 'exit' }
     if (key === 'n' || key === 'N' || key === 'escape' || key === 'esc') return { type: 'dismiss' }
@@ -243,8 +252,10 @@ export function resolveQuitKey(overlayKind: Overlay['kind'], selectedNope: boole
     }
     return { type: 'ignore' }
   }
-  if (key === 'ctrl+c') return { type: 'open' }
-  return { type: 'ignore' }
+  if (key !== 'ctrl+c') return { type: 'ignore' }
+  if (context.busy === true) return { type: 'cancel-turn' }
+  if (context.input !== undefined && context.input !== '') return { type: 'clear-input' }
+  return { type: 'open' }
 }
 
 /**
