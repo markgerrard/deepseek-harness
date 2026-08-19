@@ -153,7 +153,7 @@ public struct ChatView: View {
                 .controlSize(.mini)
             }
           }
-          Text(text)
+          MarkdownMessageView(source: text)
             .padding(10)
             .background(Color(nsColor: .controlBackgroundColor))
             .cornerRadius(10)
