@@ -36,6 +36,29 @@ public struct JSONRPCErrorPayload: Codable, Equatable, Sendable {
   }
 }
 
+public struct JSONRPCResponse<Result: Encodable & Sendable>: Encodable, Sendable {
+  public var jsonrpc: String = "2.0"
+  public var id: JSONValue
+  public var result: Result
+
+  public init(id: JSONValue, result: Result) {
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct JSONRPCErrorResponse: Encodable, Sendable {
+  public var jsonrpc: String = "2.0"
+  public var id: JSONValue
+  public var error: JSONRPCErrorPayload
+
+  public init(id: JSONValue, error: JSONRPCErrorPayload) {
+    self.id = id
+    self.error = error
+  }
+}
+
+
 public enum JSONRPCCodec {
   public static func encodeRequest<Params: Encodable & Sendable>(
     id: Int,

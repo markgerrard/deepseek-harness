@@ -15,7 +15,7 @@ final class HarnessClientTests: XCTestCase {
 
   func testListPresetsTalksToFakeRuntime() async throws {
     let runtime = try bundledFakeRuntimeURL()
-    var client = HarnessClient(command: runtime.path, arguments: [], cwd: nil)
+    let client = HarnessClient(command: runtime.path, arguments: [], cwd: nil)
     try client.start()
     try await client.initialize(cwd: "/tmp", provider: "mock", model: "m", approvals: true)
     let presets = try await client.listPresets()
@@ -25,7 +25,7 @@ final class HarnessClientTests: XCTestCase {
 
   func testPromptReturnsMessageId() async throws {
     let runtime = try bundledFakeRuntimeURL()
-    var client = HarnessClient(command: runtime.path, arguments: [], cwd: nil)
+    let client = HarnessClient(command: runtime.path, arguments: [], cwd: nil)
     try client.start()
     try await client.initialize(cwd: "/tmp", provider: "mock", model: "m", approvals: true)
     let messageId = try await client.prompt(
@@ -42,7 +42,7 @@ final class HarnessClientTests: XCTestCase {
 
   func testPromptWithExtras() async throws {
     let runtime = try bundledFakeRuntimeURL()
-    var client = HarnessClient(command: runtime.path, arguments: [], cwd: nil)
+    let client = HarnessClient(command: runtime.path, arguments: [], cwd: nil)
     try client.start()
     try await client.initialize(cwd: "/tmp", provider: "mock", model: "m", approvals: true)
     let messageId = try await client.prompt(
@@ -59,7 +59,7 @@ final class HarnessClientTests: XCTestCase {
 
   func testOtherRPCMethods() async throws {
     let runtime = try bundledFakeRuntimeURL()
-    var client = HarnessClient(command: runtime.path, arguments: [], cwd: nil)
+    let client = HarnessClient(command: runtime.path, arguments: [], cwd: nil)
     try client.start()
     try await client.initialize(cwd: "/tmp", provider: "mock", model: "m", approvals: false)
     try await client.copyPreset(from: "code", id: "bot-1", name: "Bot One")
@@ -68,5 +68,48 @@ final class HarnessClientTests: XCTestCase {
     try await client.setModel(sessionId: "s1", provider: "mock", model: "m2", reasoningEffort: "max")
     try await client.cancel(sessionId: "s1")
     try await client.shutdown()
+  }
+
+  func testOnRequestReceivesServerRequest() async throws {
+    let runtime = try bundledFakeRuntimeURL()
+    let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    let recordPath = tempDir.appendingPathComponent("perm_response.txt").path
+    let client = HarnessClient(
+      command: runtime.path,
+      arguments: [],
+      cwd: nil,
+      environment: [
+        "FAKE_ASK_PERMISSION": "1",
+        "FAKE_RECORD_PERMISSION": recordPath
+      ]
+    )
+
+    let requestReceived = expectation(description: "onRequest received")
+    client.onRequest { method, params in
+      XCTAssertEqual(method, "session/request_permission")
+      if case .object(let dict) = params {
+        XCTAssertEqual(dict["sessionId"], .string("main"))
+        XCTAssertEqual(dict["toolName"], .string("bash"))
+      } else {
+        XCTFail("Expected params to be object")
+      }
+      requestReceived.fulfill()
+      return .object(["outcome": .string("rejected")])
+    }
+
+    try client.start()
+    try await client.initialize(cwd: "/tmp", provider: "mock", model: "m", approvals: true)
+
+    await fulfillment(of: [requestReceived], timeout: 5.0)
+
+    // Brief sleep to ensure fake runtime processed the response write
+    try await Task.sleep(nanoseconds: 50_000_000)
+    try await client.shutdown()
+
+    let record = try String(contentsOfFile: recordPath, encoding: .utf8)
+    XCTAssertTrue(record.contains("\"outcome\":\"rejected\""))
   }
 }

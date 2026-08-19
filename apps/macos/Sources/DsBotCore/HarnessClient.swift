@@ -4,6 +4,7 @@ private final class HarnessClientCore: @unchecked Sendable {
   let command: String
   let arguments: [String]
   let cwd: URL?
+  let environment: [String: String]?
 
   private let lock = NSLock()
   private var process: Process?
@@ -13,20 +14,28 @@ private final class HarnessClientCore: @unchecked Sendable {
   private var isStarted = false
   private var isShutdown = false
   private var readTask: Task<Void, Never>?
+  private var requestHandler: (@Sendable (String, JSONValue) async throws -> JSONValue)?
 
   let events: AsyncStream<SessionEventNotification>
   private var eventContinuation: AsyncStream<SessionEventNotification>.Continuation?
 
-  init(command: String, arguments: [String], cwd: URL?) {
+  init(command: String, arguments: [String], cwd: URL?, environment: [String: String]?) {
     self.command = command
     self.arguments = arguments
     self.cwd = cwd
+    self.environment = environment
 
     var cont: AsyncStream<SessionEventNotification>.Continuation?
     self.events = AsyncStream { continuation in
       cont = continuation
     }
     self.eventContinuation = cont
+  }
+
+  func onRequest(_ handler: @escaping @Sendable (String, JSONValue) async throws -> JSONValue) {
+    lock.withLock {
+      self.requestHandler = handler
+    }
   }
 
   func start() throws {
@@ -41,6 +50,9 @@ private final class HarnessClientCore: @unchecked Sendable {
       proc.arguments = arguments
       if let cwd = cwd {
         proc.currentDirectoryURL = cwd
+      }
+      if let environment = environment {
+        proc.environment = environment
       }
 
       let stdinPipe = Pipe()
@@ -129,6 +141,48 @@ private final class HarnessClientCore: @unchecked Sendable {
       return
     }
 
+    // 1. Server->Client Request (has both method and id)
+    if let method = json["method"] as? String, let rawId = json["id"] {
+      let idJSON: JSONValue
+      if let idData = try? JSONSerialization.data(withJSONObject: rawId, options: .fragmentsAllowed),
+         let parsed = try? JSONDecoder().decode(JSONValue.self, from: idData) {
+        idJSON = parsed
+      } else if let str = rawId as? String {
+        idJSON = .string(str)
+      } else if let num = rawId as? NSNumber {
+        idJSON = .number(num.doubleValue)
+      } else {
+        idJSON = .null
+      }
+
+      let paramsJSON: JSONValue
+      if let paramsObj = json["params"],
+         let paramsData = try? JSONSerialization.data(withJSONObject: paramsObj, options: .fragmentsAllowed),
+         let parsed = try? JSONDecoder().decode(JSONValue.self, from: paramsData) {
+        paramsJSON = parsed
+      } else {
+        paramsJSON = .object([:])
+      }
+
+      let handler = lock.withLock { requestHandler }
+      Task { [weak self] in
+        guard let self = self else { return }
+        guard let handler = handler else {
+          self.sendResponseError(id: idJSON, code: -32601, message: "Method not found: \(method)")
+          return
+        }
+        do {
+          let result = try await handler(method, paramsJSON)
+          self.sendResponseResult(id: idJSON, result: result)
+        } catch {
+          let code = (error as? HarnessRPCError)?.code ?? -32603
+          self.sendResponseError(id: idJSON, code: code, message: error.localizedDescription)
+        }
+      }
+      return
+    }
+
+    // 2. Server->Client Response (has id, no method)
     if let idVal = json["id"] {
       let id: Int?
       if let i = idVal as? Int {
@@ -154,7 +208,7 @@ private final class HarnessClientCore: @unchecked Sendable {
         let message = (errorObj["message"] as? String) ?? "Unknown RPC error"
         continuation.resume(throwing: HarnessRPCError(code: code, message: message))
       } else if let resultObj = json["result"] {
-        if let resultData = try? JSONSerialization.data(withJSONObject: resultObj) {
+        if let resultData = try? JSONSerialization.data(withJSONObject: resultObj, options: .fragmentsAllowed) {
           continuation.resume(returning: resultData)
         } else {
           continuation.resume(returning: Data("{}".utf8))
@@ -165,6 +219,7 @@ private final class HarnessClientCore: @unchecked Sendable {
       return
     }
 
+    // 3. Server->Client Notification (has method, no id)
     if let method = json["method"] as? String {
       if method == "session.event" {
         if let params = json["params"] as? [String: Any],
@@ -173,6 +228,28 @@ private final class HarnessClientCore: @unchecked Sendable {
           eventContinuation?.yield(notification)
         }
       }
+    }
+  }
+
+  private func sendResponseResult(id: JSONValue, result: JSONValue) {
+    let response = JSONRPCResponse(id: id, result: result)
+    guard let data = try? JSONEncoder().encode(response) else { return }
+    var lineData = data
+    lineData.append(0x0A)
+    lock.withLock {
+      guard isStarted, !isShutdown, let sin = stdinHandle else { return }
+      try? sin.write(contentsOf: lineData)
+    }
+  }
+
+  private func sendResponseError(id: JSONValue, code: Int, message: String) {
+    let response = JSONRPCErrorResponse(id: id, error: JSONRPCErrorPayload(code: code, message: message))
+    guard let data = try? JSONEncoder().encode(response) else { return }
+    var lineData = data
+    lineData.append(0x0A)
+    lock.withLock {
+      guard isStarted, !isShutdown, let sin = stdinHandle else { return }
+      try? sin.write(contentsOf: lineData)
     }
   }
 
@@ -218,8 +295,12 @@ private final class HarnessClientCore: @unchecked Sendable {
 public struct HarnessClient: Sendable {
   private let core: HarnessClientCore
 
-  public init(command: String, arguments: [String] = [], cwd: URL? = nil) {
-    self.core = HarnessClientCore(command: command, arguments: arguments, cwd: cwd)
+  public init(command: String, arguments: [String] = [], cwd: URL? = nil, environment: [String: String]? = nil) {
+    self.core = HarnessClientCore(command: command, arguments: arguments, cwd: cwd, environment: environment)
+  }
+
+  public func onRequest(_ handler: @escaping @Sendable (String, JSONValue) async throws -> JSONValue) {
+    core.onRequest(handler)
   }
 
   public func start() throws {
