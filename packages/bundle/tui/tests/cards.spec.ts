@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cardWrapWidth, estimateCardHeight, insertTurnClocks, pinTranscriptToBottom, renderCard, renderDiff, renderTranscript, summarizeArgs, toneColor, toolMarkTone } from '../src/cards.ts'
+import { cardWrapWidth, clipTranscript, estimateCardHeight, insertTurnClocks, pageTranscript, pinTranscriptToBottom, renderCard, renderDiff, renderTranscript, summarizeArgs, toneColor, toolMarkTone } from '../src/cards.ts'
 import { wrapText } from '../src/status.ts'
 import { COLORS, ICONS } from '../src/theme.ts'
 
@@ -188,5 +188,70 @@ describe('pre-wrap width matches estimateCardHeight', () => {
       members: [{ seq: 1, label: 'researcher', phase: 'scan', status: 'success' }],
     }, 40)
     expect(expanded.text).toContain('researcher · scan  success')
+  })
+})
+
+describe('transcript scroll offset math', () => {
+  const user = (id: string, text: string) => ({ kind: 'user' as const, id, seq: 1, text })
+  const assistant = (id: string, text: string) => ({
+    kind: 'assistant' as const, id, seq: 2, text, streaming: false,
+  })
+  const shortRows = [
+    { type: 'item' as const, item: user('u0', 'one') },
+    { type: 'item' as const, item: assistant('a0', 'two') },
+    { type: 'item' as const, item: user('u1', 'three') },
+    { type: 'item' as const, item: assistant('a1', 'four') },
+  ]
+
+  it('pages up from the pinned bottom and re-pins at the newest line', () => {
+    const pinned = pinTranscriptToBottom(shortRows, 40, 2)
+    expect(pinned.pinned).toBe(true)
+    expect(pinned.skipTrailingLines).toBe(0)
+    const up = pageTranscript(pinned.contentHeight, 2, { pinned: true, startLine: pinned.startLine }, -2)
+    expect(up.pinned).toBe(false)
+    expect(up.startLine).toBe(Math.max(0, pinned.contentHeight - 4))
+    const down = pageTranscript(pinned.contentHeight, 2, up, 2)
+    expect(down.pinned).toBe(true)
+    expect(down.startLine).toBe(pinned.startLine)
+    const overshoot = pageTranscript(pinned.contentHeight, 2, up, 99)
+    expect(overshoot.pinned).toBe(true)
+  })
+
+  it('keeps an unpinned start line when content grows (no yank)', () => {
+    const before = clipTranscript(shortRows, 40, 2, { pinned: false, startLine: 0 })
+    expect(before.pinned).toBe(false)
+    expect(before.startLine).toBe(0)
+    const grown = [
+      ...shortRows,
+      { type: 'item' as const, item: user('u2', 'five') },
+      { type: 'item' as const, item: assistant('a2', 'six that must not yank the window') },
+    ]
+    const after = clipTranscript(grown, 40, 2, { pinned: false, startLine: before.startLine })
+    expect(after.pinned).toBe(false)
+    expect(after.startLine).toBe(0)
+    const ids = after.rows.map(row => row.type === 'item' ? row.item.id : row.clock.id)
+    expect(ids).toContain('u0')
+    expect(ids).not.toContain('a2')
+    const follow = clipTranscript(grown, 40, 2, { pinned: true, startLine: 0 })
+    const followIds = follow.rows.map(row => row.type === 'item' ? row.item.id : row.clock.id)
+    expect(followIds[followIds.length - 1]).toBe('a2')
+  })
+
+  it('clips trailing lines on the last row when the window is mid-card', () => {
+    const long = 'word '.repeat(80).trim()
+    const rows = [{ type: 'item' as const, item: assistant('a1', long) }]
+    const width = 20
+    const viewport = 3
+    const full = pinTranscriptToBottom(rows, width, 1000)
+    const mid = clipTranscript(rows, width, viewport, { pinned: false, startLine: 2 })
+    expect(mid.rows).toHaveLength(1)
+    expect(mid.startLine).toBe(2)
+    expect(mid.visibleHeight).toBe(viewport)
+    expect(mid.skipLeadingLines).toBe(2)
+    expect(mid.skipTrailingLines).toBe(full.contentHeight - 2 - viewport)
+    expect(mid.skipTrailingLines).toBeGreaterThan(0)
+    const rendered = renderCard(rows[0]!.item, width)
+    const visible = rendered.lines.slice(mid.skipLeadingLines, rendered.lines.length - mid.skipTrailingLines)
+    expect(visible).toHaveLength(viewport)
   })
 })

@@ -414,9 +414,17 @@ export function estimateTranscriptRowHeight(row: TranscriptRow, width: number): 
   return estimateCardHeight(row.item, width)
 }
 
-/** Newest-pinned slice of a transcript that may be taller than the viewport. */
+/** Pin-to-bottom vs a held start line after PageUp. */
+export interface TranscriptScroll {
+  /** True when the viewport follows new output. */
+  readonly pinned: boolean
+  /** Top visual line of the window when unpinned. */
+  readonly startLine: number
+}
+
+/** Newest-pinned (or scrolled) slice of a transcript that may be taller than the viewport. */
 export interface PinnedTranscript {
-  /** Rows that fit, from the bottom when {@link PinnedTranscript.taller}. */
+  /** Rows that fit, from the bottom when pinned. */
   readonly rows: readonly TranscriptRow[]
   /** True when the full list is taller than the viewport. */
   readonly taller: boolean
@@ -424,8 +432,14 @@ export interface PinnedTranscript {
   readonly contentHeight: number
   /** Pre-wrapped lines dropped from the top of the first returned row. */
   readonly skipLeadingLines: number
-  /** Painted rows after top-clip. Always <= the viewport when the viewport is > 0. */
+  /** Pre-wrapped lines dropped from the bottom of the last returned row. */
+  readonly skipTrailingLines: number
+  /** Painted rows after clip. Always <= the viewport when the viewport is > 0. */
   readonly visibleHeight: number
+  /** Clamped top line of the painted window. */
+  readonly startLine: number
+  /** True when the window is at the newest lines. */
+  readonly pinned: boolean
 }
 
 /**
@@ -445,38 +459,107 @@ export function pinTranscriptToBottom(
   width: number,
   viewportHeight: number,
 ): PinnedTranscript {
+  return clipTranscript(rows, width, viewportHeight, { pinned: true, startLine: 0 })
+}
+
+/**
+ * Clamp a start line into the scrollable range.
+ * @param contentHeight - pre-wrapped line count.
+ * @param viewportHeight - transcript band rows.
+ * @returns the maximum start line (0 when content fits).
+ */
+export function maxTranscriptStart(contentHeight: number, viewportHeight: number): number {
+  return Math.max(0, contentHeight - Math.max(0, viewportHeight))
+}
+
+/**
+ * Page the transcript window. Negative delta (PageUp) unpins; reaching the
+ * bottom re-pins so new output follows again.
+ * @param contentHeight - pre-wrapped line count.
+ * @param viewportHeight - transcript band rows.
+ * @param scroll - current pin / start.
+ * @param delta - visual lines to move (negative = older).
+ * @returns the next scroll.
+ */
+export function pageTranscript(
+  contentHeight: number,
+  viewportHeight: number,
+  scroll: TranscriptScroll,
+  delta: number,
+): TranscriptScroll {
+  const maxStart = maxTranscriptStart(contentHeight, viewportHeight)
+  const current = scroll.pinned ? maxStart : Math.min(maxStart, Math.max(0, scroll.startLine))
+  const next = Math.min(maxStart, Math.max(0, current + delta))
+  if (next >= maxStart) return { pinned: true, startLine: maxStart }
+  return { pinned: false, startLine: next }
+}
+
+/**
+ * Clip a transcript to `viewportHeight` starting at the pinned bottom or at
+ * `scroll.startLine`. Never splits a visual line. New output does not move an
+ * unpinned window (the start line stays put).
+ * @param rows - interleaved cards and clocks (trailing clock already peeled).
+ * @param width - card Box columns (same value as wrap / paint).
+ * @param viewportHeight - transcript band rows.
+ * @param scroll - pin / start-line.
+ * @returns the visible slice and clip amounts.
+ */
+export function clipTranscript(
+  rows: readonly TranscriptRow[],
+  width: number,
+  viewportHeight: number,
+  scroll: TranscriptScroll,
+): PinnedTranscript {
   const wrapWidth = cardWrapWidth(width)
   const heights = rows.map(row => estimateTranscriptRowHeight(row, wrapWidth))
   const contentHeight = heights.reduce((sum, height) => sum + height, 0)
   const limit = Math.max(0, viewportHeight)
   const taller = contentHeight > limit
+  const maxStart = maxTranscriptStart(contentHeight, limit)
+  const pinned = scroll.pinned || !taller
+  const startLine = pinned ? maxStart : Math.min(maxStart, Math.max(0, scroll.startLine))
+  const empty = {
+    rows: rows.length === 0 ? rows : [] as TranscriptRow[],
+    taller: rows.length === 0 ? false : taller,
+    contentHeight,
+    skipLeadingLines: 0,
+    skipTrailingLines: 0,
+    visibleHeight: 0,
+    startLine,
+    pinned,
+  }
   if (rows.length === 0) {
-    return { rows, taller: false, contentHeight: 0, skipLeadingLines: 0, visibleHeight: 0 }
+    return { rows, taller: false, contentHeight: 0, skipLeadingLines: 0, skipTrailingLines: 0, visibleHeight: 0, startLine: 0, pinned: true }
   }
-  if (limit <= 0) {
-    return { rows: [], taller, contentHeight, skipLeadingLines: 0, visibleHeight: 0 }
-  }
-  if (!taller) {
-    return { rows, taller: false, contentHeight, skipLeadingLines: 0, visibleHeight: contentHeight }
-  }
-  let used = 0
-  let start = rows.length
+  if (limit <= 0) return empty
+  const endLine = Math.min(contentHeight, startLine + limit)
+  let acc = 0
+  let first = -1
+  let last = -1
   let skipLeadingLines = 0
-  for (let index = rows.length - 1; index >= 0; index -= 1) {
+  let skipTrailingLines = 0
+  for (let index = 0; index < rows.length; index += 1) {
     const height = heights[index] ?? 1
-    if (used + height <= limit) {
-      used += height
-      start = index
-      skipLeadingLines = 0
-      continue
+    const rowStart = acc
+    const rowEnd = acc + height
+    acc = rowEnd
+    if (rowEnd <= startLine || rowStart >= endLine) continue
+    if (first < 0) {
+      first = index
+      skipLeadingLines = Math.max(0, startLine - rowStart)
     }
-    const remaining = limit - used
-    if (remaining > 0) {
-      skipLeadingLines = height - remaining
-      used += remaining
-      start = index
-    }
-    break
+    last = index
+    skipTrailingLines = Math.max(0, rowEnd - endLine)
   }
-  return { rows: rows.slice(start), taller: true, contentHeight, skipLeadingLines, visibleHeight: used }
+  if (first < 0 || last < 0) return empty
+  return {
+    rows: rows.slice(first, last + 1),
+    taller,
+    contentHeight,
+    skipLeadingLines,
+    skipTrailingLines,
+    visibleHeight: endLine - startLine,
+    startLine,
+    pinned,
+  }
 }

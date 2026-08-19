@@ -47,7 +47,9 @@ import {
   type TuiAction,
   type TuiState,
 } from './state.ts'
+import { cardWrapWidth, estimateTranscriptRowHeight, insertTurnClocks } from './cards.ts'
 import { parseAtToken, splitAtQuery, type FileRow } from './files.ts'
+import { layoutAreas } from './layout.ts'
 import { isOnFirstLine, isOnLastLine } from './history.ts'
 import { KEYS, matches } from './keys.ts'
 import {
@@ -318,6 +320,10 @@ export class TuiController {
       await this.cyclePermission()
       return true
     }
+    if (matches(KEYS.pageUp, key) || matches(KEYS.pageDown, key)) {
+      if (this.state.overlay.kind === 'none') this.scrollTranscript(matches(KEYS.pageUp, key) ? -1 : 1)
+      return true
+    }
     if (matches(KEYS.steer, key)) {
       if (this.state.overlay.kind === 'none') await this.submitSteer(this.state.input)
       return true
@@ -374,6 +380,7 @@ export class TuiController {
     const routed = routeLine(line)
     if (routed.kind === 'prompt' || routed.kind === 'shell') this.dispatch({ type: 'push-history', text: line })
     this.dispatch({ type: 'clear-input' })
+    this.dispatch({ type: 'pin-transcript' })
     if (routed.kind === 'empty') return
     if (routed.kind === 'command') {
       await this.runCommand(routed.line, routed.name, routed.rawInput)
@@ -402,6 +409,7 @@ export class TuiController {
     const routed = routeLine(line)
     if (routed.kind === 'prompt' || routed.kind === 'shell') this.dispatch({ type: 'push-history', text: line })
     this.dispatch({ type: 'clear-input' })
+    this.dispatch({ type: 'pin-transcript' })
     if (routed.kind === 'empty') return
     if (routed.kind === 'command') {
       await this.runCommand(routed.line, routed.name, routed.rawInput)
@@ -1008,6 +1016,33 @@ export class TuiController {
     } catch {
       this.dispatch({ type: 'set-agents', agents: [] })
     }
+  }
+
+  /**
+   * Page the transcript. PageUp unpins; PageDown to the bottom re-pins.
+   * Ctrl+U / Ctrl+D stay readline kill / delete.
+   * @param direction - `-1` older, `+1` newer.
+   */
+  scrollTranscript(direction: number): void {
+    const state = this.state
+    const items = this.transcript()
+    const rows = insertTurnClocks(items, state.turnClocks, state.busy)
+    const last = rows[rows.length - 1]
+    const cardRows = last?.type === 'clock' ? rows.slice(0, -1) : rows
+    const layout = layoutAreas(state.width, state.height, Math.max(1, state.input.split('\n').length + 1))
+    const running = state.agents.filter(agent => agent.status === 'running').length
+    const inbox = state.steering.length + state.queued.length + (running > 0 ? 1 : 0)
+    const chrome = state.busy || last?.type === 'clock' ? 2 : 0
+    const viewportHeight = Math.max(0, layout.main.height - inbox - chrome)
+    const paintWidth = cardWrapWidth(layout.main.width)
+    const contentHeight = cardRows.reduce((sum, row) => sum + estimateTranscriptRowHeight(row, paintWidth), 0)
+    const page = Math.max(1, viewportHeight)
+    this.dispatch({
+      type: 'scroll-transcript',
+      delta: direction < 0 ? -page : page,
+      contentHeight,
+      viewportHeight,
+    })
   }
 
   /**

@@ -303,6 +303,8 @@ export function helpLines(): readonly string[] {
     'enter   send (queues while Working)',
     'shift+t  steer this turn (next step)',
     'shift+tab  cycle permission mode',
+    'pgup    scroll transcript up',
+    'pgdn    scroll transcript down (re-pin at bottom)',
     'up      take back last queued / history',
     'ctrl+r  reverse search history',
     'ctrl+j  newline',

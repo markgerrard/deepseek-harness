@@ -33,6 +33,8 @@ export const KEYS = {
   expand: { key: 'space', help: 'space', description: 'expand/collapse' },
   slash: { key: '/', help: '/', description: 'commands' },
   permission: { key: 'shift+tab', help: 'shift+tab', description: 'cycle permission mode' },
+  pageUp: { key: 'pageup', help: 'pgup', description: 'scroll transcript up' },
+  pageDown: { key: 'pagedown', help: 'pgdn', description: 'scroll transcript down' },
 } as const satisfies Record<string, KeyBinding>
 
 /**

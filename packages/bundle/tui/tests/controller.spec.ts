@@ -837,3 +837,38 @@ describe('TUI permission mode', () => {
     await test.ctx.fiber.dispose()
   })
 })
+
+describe('TUI transcript scrollback', () => {
+  it('unpins on PageUp and re-pins on PageDown or submit', async () => {
+    const test = await mount()
+    const surface = { surfaceOp: 'append' as const }
+    for (const [index, text] of ['alpha', 'beta', 'gamma', 'delta', 'epsilon'].entries()) {
+      test.session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text }],
+        source: { kind: 'user' },
+      }), surface)
+      test.session.append('assistant/message', {
+        turn: index + 1,
+        step: 1,
+        message: createAssistantMessage({
+          content: [{ type: 'text', text: `ok ${text}` }],
+          source: { provider: 'deepseek', model: 'v4' },
+        }),
+      }, surface)
+    }
+    test.controller.dispatch({ type: 'set-screen', screen: 'chat' })
+    test.controller.dispatch({ type: 'resize', width: 80, height: 12 })
+    expect(test.controller.snapshot().transcriptPinned).toBe(true)
+    expect(await test.controller.handleKey('pageup')).toBe(true)
+    expect(test.controller.snapshot().transcriptPinned).toBe(false)
+    expect(test.controller.snapshot().transcriptStart).toBeGreaterThanOrEqual(0)
+    expect(await test.controller.handleKey('pagedown')).toBe(true)
+    expect(await test.controller.handleKey('pagedown')).toBe(true)
+    expect(test.controller.snapshot().transcriptPinned).toBe(true)
+    expect(await test.controller.handleKey('pageup')).toBe(true)
+    expect(test.controller.snapshot().transcriptPinned).toBe(false)
+    await test.controller.submit('re-pin please')
+    expect(test.controller.snapshot().transcriptPinned).toBe(true)
+    await test.ctx.fiber.dispose()
+  })
+})

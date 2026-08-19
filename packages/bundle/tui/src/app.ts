@@ -7,7 +7,7 @@
 import React, { useEffect, useState } from 'react'
 import { Box, Text, useInput, useStdout } from 'ink'
 import type { TuiController } from './controller.ts'
-import { cardWrapWidth, insertTurnClocks, pinTranscriptToBottom, renderCard, toneColor } from './cards.ts'
+import { cardWrapWidth, clipTranscript, insertTurnClocks, renderCard, toneColor } from './cards.ts'
 import {
   connectProviderLines,
   formatQueuedLine,
@@ -118,10 +118,12 @@ function landingView(width: number, status: StatusModel, home: string | undefine
  * @param skipLeadingLines - top-clipped pre-wrapped rows from pin-to-bottom.
  * @returns a colored card.
  */
-function coloredCard(item: TranscriptItem, width: number, skipLeadingLines = 0): React.ReactElement {
+function coloredCard(item: TranscriptItem, width: number, skipLeadingLines = 0, skipTrailingLines = 0): React.ReactElement {
   const wrapWidth = cardWrapWidth(width)
   const rendered = renderCard(item, wrapWidth)
-  const lines = rendered.lines.slice(Math.max(0, skipLeadingLines))
+  const start = Math.max(0, skipLeadingLines)
+  const end = skipTrailingLines > 0 ? Math.max(start, rendered.lines.length - skipTrailingLines) : rendered.lines.length
+  const lines = rendered.lines.slice(start, end)
   const rows = lines.map((line, index) => React.createElement(
     Box,
     { key: index, width: wrapWidth, height: 1, flexShrink: 0, flexGrow: 0 },
@@ -209,18 +211,20 @@ export function App(props: AppProps): React.ReactElement {
     const name = key.return && key.ctrl ? 'ctrl+enter'
       : key.upArrow && key.ctrl ? 'ctrl+up'
         : key.tab && key.shift ? 'shift+tab'
-          : key.shift && (input === 't' || input === 'T') ? 'shift+t'
-            : key.ctrl && input ? `ctrl+${input}`
-            : key.escape ? 'escape'
-              : key.return ? 'return'
-                : key.tab ? 'tab'
-                  : key.backspace ? 'backspace'
-                    : key.delete ? 'delete'
-                      : key.upArrow ? 'up'
-                        : key.downArrow ? 'down'
-                          : key.leftArrow ? 'left'
-                            : key.rightArrow ? 'right'
-                              : input
+          : key.pageUp ? 'pageup'
+            : key.pageDown ? 'pagedown'
+            : key.shift && (input === 't' || input === 'T') ? 'shift+t'
+              : key.ctrl && input ? `ctrl+${input}`
+              : key.escape ? 'escape'
+                : key.return ? 'return'
+                  : key.tab ? 'tab'
+                    : key.backspace ? 'backspace'
+                      : key.delete ? 'delete'
+                        : key.upArrow ? 'up'
+                          : key.downArrow ? 'down'
+                            : key.leftArrow ? 'left'
+                              : key.rightArrow ? 'right'
+                                : input
     void controller.handleKey(name).then((consumed) => {
       if (consumed) return
       if (state.overlay.kind === 'connect-key') {
@@ -318,10 +322,15 @@ export function App(props: AppProps): React.ReactElement {
     const inboxCount = state.steering.length + state.queued.length + (runningPreview > 0 ? 1 : 0)
     const transcriptHeight = layout.main.height - inboxCount - (chromeLinePreview === undefined ? 0 : 1 + TRANSCRIPT_PROMPT_GAP)
     const paintWidth = cardWrapWidth(mainWidth)
-    const pin = pinTranscriptToBottom(cardRows, paintWidth, transcriptHeight)
+    const pin = clipTranscript(cardRows, paintWidth, transcriptHeight, {
+      pinned: state.transcriptPinned,
+      startLine: state.transcriptStart,
+    })
     transcriptTaller = pin.taller
+    const lastRow = pin.rows.length - 1
     const cards = pin.rows.map((row, index) => {
       const skip = index === 0 ? pin.skipLeadingLines : 0
+      const skipTail = index === lastRow ? pin.skipTrailingLines : 0
       if (row.type === 'clock') {
         return React.createElement(
           Box,
@@ -329,7 +338,7 @@ export function App(props: AppProps): React.ReactElement {
           React.createElement(Text, { color: COLORS.muted, wrap: 'truncate' }, formatDoneLine(row.clock.ms, row.clock.verb)),
         )
       }
-      return coloredCard(row.item, paintWidth, skip)
+      return coloredCard(row.item, paintWidth, skip, skipTail)
     })
     main = React.createElement(Box, {
       flexDirection: 'column',
@@ -432,7 +441,7 @@ export function App(props: AppProps): React.ReactElement {
       height: mainHeight,
       flexGrow: 0,
       flexShrink: 0,
-      justifyContent: overlay === null && transcriptTaller ? 'flex-end' : 'flex-start',
+      justifyContent: overlay === null && transcriptTaller && state.transcriptPinned ? 'flex-end' : 'flex-start',
     }, overlay === null ? main : overlay),
     agentsLine === undefined ? null : React.createElement(
       Box,

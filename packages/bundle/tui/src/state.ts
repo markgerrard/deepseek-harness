@@ -167,6 +167,10 @@ export interface TuiState {
   readonly clearedSeq?: number
   /** Footer permission label from DSH plan mode + `/permission` presets. */
   readonly permissionMode?: string
+  /** True when the transcript follows new output (pin-to-bottom). */
+  readonly transcriptPinned: boolean
+  /** Top visual line when {@link TuiState.transcriptPinned} is false. */
+  readonly transcriptStart: number
 }
 
 /** Pure UI actions. Controller-owned I/O is not represented here. */
@@ -206,6 +210,8 @@ export type TuiAction =
   | { readonly type: 'clear-history' }
   | { readonly type: 'clear-transcript'; readonly seq: number }
   | { readonly type: 'set-permission-mode'; readonly permissionMode?: string }
+  | { readonly type: 'scroll-transcript'; readonly delta: number; readonly contentHeight: number; readonly viewportHeight: number }
+  | { readonly type: 'pin-transcript' }
 
 /**
  * Initial Claude Code-like landing state.
@@ -244,6 +250,8 @@ export function initialState(seed: {
     steering: [],
     history: [],
     paletteLength: 0,
+    transcriptPinned: true,
+    transcriptStart: 0,
     ...(seed.guidance === undefined ? {} : { guidance: seed.guidance }),
   }
 }
@@ -519,6 +527,8 @@ export function reduce(state: TuiState, action: TuiAction): TuiState {
         expansion: { tools: new Set(), reasoning: new Set(), workflows: new Set() },
         overlay: { kind: 'none' },
         clearedSeq: action.seq,
+        transcriptPinned: true,
+        transcriptStart: 0,
       }
     }
     case 'set-permission-mode': {
@@ -528,6 +538,17 @@ export function reduce(state: TuiState, action: TuiAction): TuiState {
       }
       return { ...state, permissionMode: action.permissionMode }
     }
+    case 'scroll-transcript': {
+      const maxStart = Math.max(0, action.contentHeight - Math.max(0, action.viewportHeight))
+      const current = state.transcriptPinned
+        ? maxStart
+        : Math.min(maxStart, Math.max(0, state.transcriptStart))
+      const next = Math.min(maxStart, Math.max(0, current + action.delta))
+      if (next >= maxStart) return { ...state, transcriptPinned: true, transcriptStart: maxStart }
+      return { ...state, transcriptPinned: false, transcriptStart: next }
+    }
+    case 'pin-transcript':
+      return { ...state, transcriptPinned: true, transcriptStart: 0 }
     default: {
       const _exhaustive: never = action
       return _exhaustive
