@@ -5,6 +5,18 @@ import DsBotCore
 final class DsBotAppDelegate: NSObject, NSApplicationDelegate {
   var runtime: RuntimeProcess?
 
+  func applicationDidFinishLaunching(_ notification: Notification) {
+    // `swift run` starts a unix executable, not a bundled .app. Without a
+    // regular activation policy the window can appear while key events stay
+    // on Terminal.
+    NSApp.setActivationPolicy(.regular)
+    NSApp.activate(ignoringOtherApps: true)
+  }
+
+  func applicationDidBecomeActive(_ notification: Notification) {
+    NSApp.activate(ignoringOtherApps: true)
+  }
+
   func applicationWillTerminate(_ notification: Notification) {
     let sem = DispatchSemaphore(value: 0)
     Task {
@@ -62,7 +74,10 @@ struct DsBotApp: App {
   var body: some Scene {
     WindowGroup {
       RootView(controller: controller)
-        .onAppear { appDelegate.runtime = runtime }
+        .onAppear {
+          appDelegate.runtime = runtime
+          NSApp.activate(ignoringOtherApps: true)
+        }
         .task {
           do {
             try await controller.initialize(

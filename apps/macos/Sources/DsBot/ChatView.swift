@@ -5,6 +5,7 @@ public struct ChatView: View {
   var controller: SessionController
   @State private var promptText = ""
   @State private var isSending = false
+  @FocusState private var promptFocused: Bool
 
   public init(controller: SessionController) {
     self.controller = controller
@@ -76,9 +77,11 @@ public struct ChatView: View {
           TextField("Type a message...", text: $promptText, axis: .vertical)
             .lineLimit(1...5)
             .textFieldStyle(.roundedBorder)
+            .focused($promptFocused)
             .onSubmit {
               sendCurrentPrompt()
             }
+            .onAppear { promptFocused = true }
 
           Button(action: sendCurrentPrompt) {
             Image(systemName: "arrow.up.circle.fill")
