@@ -52,7 +52,7 @@ import { cardWrapWidth, estimateTranscriptRowHeight, insertTurnClocks } from './
 import { parseAtToken, splitAtQuery, type FileRow } from './files.ts'
 import { layoutAreas } from './layout.ts'
 import { isOnFirstLine, isOnLastLine } from './history.ts'
-import { rewindArmed } from './rewind.ts'
+import { REWIND_HINT, rewindReady } from './rewind.ts'
 import { KEYS, matches } from './keys.ts'
 import {
   capSuggestion,
@@ -1175,9 +1175,12 @@ export class TuiController {
     return true
   }
 
-  /** Start the double-Esc rewind window. */
+  /** Start the double-Esc rewind window and hint when idle+empty. */
   private armRewind(now = Date.now()): void {
     this.rewindArmedAt = now
+    if (!this.state.busy && this.state.input === '' && this.state.history.length > 0) {
+      this.dispatch({ type: 'set-notice', notice: { type: 'info', text: REWIND_HINT } })
+    }
   }
 
   /**
@@ -1187,11 +1190,12 @@ export class TuiController {
    * @returns true when a prompt was restored.
    */
   private takeRewind(now = Date.now()): boolean {
-    if (!rewindArmed(this.rewindArmedAt, now)) return false
+    if (!rewindReady(this.rewindArmedAt, now, this.state.notice?.text)) return false
     this.rewindArmedAt = undefined
     const last = this.state.history[this.state.history.length - 1]
     if (last === undefined) return false
     this.dispatch({ type: 'set-input', input: last, cursor: last.length })
+    if (this.state.notice?.text === REWIND_HINT) this.dispatch({ type: 'set-notice' })
     return true
   }
 

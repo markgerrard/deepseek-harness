@@ -896,7 +896,7 @@ describe('TUI transcript scrollback', () => {
 })
 
 describe('TUI Esc Esc rewind', () => {
-  it('restores the last submitted prompt on a second Esc inside 800ms', async () => {
+  it('restores the last submitted prompt on a second Esc inside 2000ms', async () => {
     const test = await mount()
     await test.controller.submit('look at tests')
     await test.controller.submit('ship it')
@@ -904,9 +904,26 @@ describe('TUI Esc Esc rewind', () => {
     expect(test.controller.snapshot().history).toEqual(['look at tests', 'ship it'])
     expect(await test.controller.handleKey('escape')).toBe(true)
     expect(test.controller.snapshot().input).toBe('')
+    expect(test.controller.snapshot().notice?.text).toBe('esc again to edit last')
     expect(await test.controller.handleKey('escape')).toBe(true)
     expect(test.controller.snapshot().input).toBe('ship it')
     expect(test.controller.snapshot().history).toEqual(['look at tests', 'ship it'])
+    await test.ctx.fiber.dispose()
+  })
+
+  it('restores the last prompt when the second Esc arrives 1500ms later', async () => {
+    const test = await mount()
+    await test.controller.submit('say hi')
+    vi.useFakeTimers()
+    vi.setSystemTime(10_000)
+    expect(await test.controller.handleKey('escape')).toBe(true)
+    expect(test.controller.snapshot().notice?.text).toBe('esc again to edit last')
+    expect(test.controller.snapshot().input).toBe('')
+    vi.setSystemTime(11_500)
+    expect(await test.controller.handleKey('escape')).toBe(true)
+    expect(test.controller.snapshot().input).toBe('say hi')
+    expect(test.controller.snapshot().history).toEqual(['say hi'])
+    vi.useRealTimers()
     await test.ctx.fiber.dispose()
   })
 
@@ -916,7 +933,8 @@ describe('TUI Esc Esc rewind', () => {
     vi.useFakeTimers()
     vi.setSystemTime(10_000)
     expect(await test.controller.handleKey('escape')).toBe(true)
-    vi.setSystemTime(10_000 + 801)
+    test.controller.dispatch({ type: 'set-notice' })
+    vi.setSystemTime(10_000 + 2001)
     expect(await test.controller.handleKey('escape')).toBe(true)
     expect(test.controller.snapshot().input).toBe('')
     expect(test.controller.snapshot().history).toEqual(['keep me'])
@@ -935,6 +953,7 @@ describe('TUI Esc Esc rewind', () => {
     expect(await test.controller.handleKey('escape')).toBe(true)
     expect(test.controller.snapshot().suggestion).toBeUndefined()
     expect(test.controller.snapshot().input).toBe('')
+    expect(test.controller.snapshot().notice?.text).toBe('esc again to edit last')
     expect(await test.controller.handleKey('escape')).toBe(true)
     expect(test.controller.snapshot().input).toBe('sayhi')
     await test.ctx.fiber.dispose()
