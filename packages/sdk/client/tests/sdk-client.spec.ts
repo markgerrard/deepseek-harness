@@ -263,6 +263,95 @@ describe('HarnessClient', () => {
     await client.close()
   })
 
+  it('resumes with extras over the wire', async () => {
+    const record = join(await tempDir('dsh-sdk-resume-extras-'), 'resume.jsonl')
+    const client = new HarnessClient(fakeLaunch({ FAKE_RECORD_RESUME: record }))
+    cleanups.push(() => client.close())
+    await client.initialize({ cwd: process.cwd(), provider: 'p', model: 'm' })
+    await client.resume('s1', {
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash',
+      reasoningEffort: 'low',
+    })
+    const recordContent = JSON.parse(await readFile(record, 'utf8')) as object
+    expect(recordContent).toEqual({
+      sessionId: 's1',
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash',
+      reasoningEffort: 'low',
+    })
+    await client.close()
+  })
+
+  it('lists presets from the runtime', async () => {
+    const client = new HarnessClient(fakeLaunch())
+    cleanups.push(() => client.close())
+    await client.initialize({ cwd: process.cwd(), provider: 'p', model: 'm' })
+    const presets = await client.listPresets()
+    expect(presets).toEqual({ presets: [{ id: 'code', trust: 'system' }] })
+    await client.close()
+  })
+
+  it('copies a preset over the wire', async () => {
+    const record = join(await tempDir('dsh-sdk-copy-'), 'copy.jsonl')
+    const client = new HarnessClient(fakeLaunch({ FAKE_RECORD_PRESETS_COPY: record }))
+    cleanups.push(() => client.close())
+    await client.initialize({ cwd: process.cwd(), provider: 'p', model: 'm' })
+    await client.copyPreset('code', 'custom', 'Custom Name')
+    await expect(readFile(record, 'utf8')).resolves.toBe('{"from":"code","id":"custom","name":"Custom Name"}\n')
+    await client.close()
+  })
+
+  it('sets persona text on a preset over the wire', async () => {
+    const record = join(await tempDir('dsh-sdk-set-persona-'), 'persona.jsonl')
+    const client = new HarnessClient(fakeLaunch({ FAKE_RECORD_PRESETS_SET_PERSONA: record }))
+    cleanups.push(() => client.close())
+    await client.initialize({ cwd: process.cwd(), provider: 'p', model: 'm' })
+    await client.setPersona('custom', 'You are a test bot.')
+    await expect(readFile(record, 'utf8')).resolves.toBe('{"id":"custom","text":"You are a test bot."}\n')
+    await client.close()
+  })
+
+  it('prompts with extras and returns a messageId', async () => {
+    const record = join(await tempDir('dsh-sdk-prompt-'), 'prompt.jsonl')
+    const client = new HarnessClient(fakeLaunch({ FAKE_RECORD_PROMPT: record }))
+    cleanups.push(() => client.close())
+    await client.initialize({ cwd: process.cwd(), provider: 'p', model: 'm' })
+    const messageId = await client.prompt('s1', normalizeInput('hello'), {
+      agentPreset: 'bot-a',
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash',
+      reasoningEffort: 'high',
+    })
+    expect(messageId).toMatch(/^fake-user-/)
+    const recordContent = JSON.parse(await readFile(record, 'utf8')) as object
+    expect(recordContent).toEqual({
+      sessionId: 's1',
+      contentBlocks: [{ type: 'text', text: 'hello' }],
+      agentPreset: 'bot-a',
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash',
+      reasoningEffort: 'high',
+    })
+    await client.close()
+  })
+
+  it('sets model on an active session over the wire', async () => {
+    const record = join(await tempDir('dsh-sdk-set-model-'), 'set-model.jsonl')
+    const client = new HarnessClient(fakeLaunch({ FAKE_RECORD_SET_MODEL: record }))
+    cleanups.push(() => client.close())
+    await client.initialize({ cwd: process.cwd(), provider: 'p', model: 'm' })
+    await client.setModel('s1', 'deepseek-official', 'deepseek-v4-flash', 'medium')
+    const recordContent = JSON.parse(await readFile(record, 'utf8')) as object
+    expect(recordContent).toEqual({
+      sessionId: 's1',
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash',
+      reasoningEffort: 'medium',
+    })
+    await client.close()
+  })
+
   it('advertises approvals and answers session/request_permission', async () => {
     const dir = await tempDir('dsh-sdk-permission-')
     const initRecord = join(dir, 'init.jsonl')
@@ -551,6 +640,14 @@ describe('wire payload validation', () => {
   it('rejects an assistant/message without a data member as a protocol error', async () => {
     const harness = harnessWith({ FAKE_MESSAGE_WITHOUT_DATA: '1' })
     await expect(harness.run('no-data')).rejects.toThrow(SdkProtocolError)
+  })
+
+  it('rejects a malformed presets/list result as a protocol error', async () => {
+    const client = new HarnessClient(fakeLaunch({ FAKE_MALFORMED_PRESETS: '1' }))
+    cleanups.push(() => client.close())
+    await client.initialize({ cwd: process.cwd(), provider: 'p', model: 'm' })
+    await expect(client.listPresets()).rejects.toThrow(SdkProtocolError)
+    await client.close()
   })
 
 })

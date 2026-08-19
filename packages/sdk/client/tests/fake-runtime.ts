@@ -42,8 +42,13 @@
  * - `FAKE_STDERR`: write this line to stderr at boot (diagnostics-tail probe).
  * - `FAKE_STDERR_NO_NEWLINE`: write this to stderr WITHOUT a newline (buffer-flush probe).
  * - `FAKE_RECORD_INIT`: append each `initialize` params JSON to this file (handshake probe).
+ * - `FAKE_RECORD_PROMPT`: append each `session/prompt` params JSON to this file.
  * - `FAKE_RECORD_CANCEL`: append each `session/cancel` params JSON to this file.
  * - `FAKE_RECORD_RESUME`: append each `session/resume` params JSON to this file.
+ * - `FAKE_RECORD_PRESETS_COPY`: append each `presets/copy` params JSON to this file.
+ * - `FAKE_RECORD_PRESETS_SET_PERSONA`: append each `presets/setPersona` params JSON to this file.
+ * - `FAKE_RECORD_SET_MODEL`: append each `session/setModel` params JSON to this file.
+ * - `FAKE_MALFORMED_PRESETS`: `presets/list` returns `{}` (malformed result probe).
  * - `FAKE_ASK_PERMISSION` + `FAKE_RECORD_PERMISSION`: after answering
  *   `initialize`, send one `session/request_permission` and append the
  *   client's response frame to the record file.
@@ -217,7 +222,23 @@ reader.on('line', (line) => {
         })
       }
       return
+    case 'presets/list':
+      if (env.FAKE_MALFORMED !== undefined || env.FAKE_MALFORMED_PRESETS !== undefined) {
+        respond({})
+        return
+      }
+      respond({ presets: [{ id: 'code', trust: 'system' }] })
+      return
+    case 'presets/copy':
+      if (env.FAKE_RECORD_PRESETS_COPY !== undefined) appendFileSync(env.FAKE_RECORD_PRESETS_COPY, `${JSON.stringify(frame.params)}\n`)
+      respond({})
+      return
+    case 'presets/setPersona':
+      if (env.FAKE_RECORD_PRESETS_SET_PERSONA !== undefined) appendFileSync(env.FAKE_RECORD_PRESETS_SET_PERSONA, `${JSON.stringify(frame.params)}\n`)
+      respond({})
+      return
     case 'session/prompt': {
+      if (env.FAKE_RECORD_PROMPT !== undefined) appendFileSync(env.FAKE_RECORD_PROMPT, `${JSON.stringify(frame.params)}\n`)
       const sessionId = sessionIdOf(frame.params)
       const messageId = `fake-user-${seq}`
       event(sessionId, 'agent/inbox/spliced', {
@@ -252,6 +273,10 @@ reader.on('line', (line) => {
       return
     case 'session/resume':
       if (env.FAKE_RECORD_RESUME !== undefined) appendFileSync(env.FAKE_RECORD_RESUME, `${JSON.stringify(frame.params)}\n`)
+      respond({})
+      return
+    case 'session/setModel':
+      if (env.FAKE_RECORD_SET_MODEL !== undefined) appendFileSync(env.FAKE_RECORD_SET_MODEL, `${JSON.stringify(frame.params)}\n`)
       respond({})
       return
     case 'shutdown':

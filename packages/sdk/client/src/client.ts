@@ -18,7 +18,12 @@ import {
   JsonRpcResponseError,
   type InitializeParams,
   type InitializeResult,
+  type PresetCopyParams,
+  type PresetListResult,
+  type PresetSetPersonaParams,
   type SessionPromptParams,
+  type SessionResumeParams,
+  type SessionSetModelParams,
 } from '@deepseek-ai/dsh-sdk-protocol'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { disposeRuntimeProcess } from './dispose.ts'
@@ -293,13 +298,67 @@ export class HarnessClient {
   }
 
   /**
+   * List available agent presets from the runtime preset catalog.
+   * @returns the preset catalog result reported by the runtime.
+   */
+  async listPresets(): Promise<PresetListResult> {
+    const result = await this.request('presets/list', {})
+    if (!isRecord(result) || !Array.isArray(result.presets)) {
+      throw new SdkProtocolError(`presets/list returned malformed result: ${JSON.stringify(result)}`)
+    }
+    return result as unknown as PresetListResult
+  }
+
+  /**
+   * Copy an existing preset to a new user preset id.
+   * @param from - source preset id to copy from.
+   * @param id - new user preset id to create.
+   * @param name - optional human-readable display name for the copied preset.
+   */
+  async copyPreset(from: string, id: string, name?: string): Promise<void> {
+    const params: PresetCopyParams = {
+      from,
+      id,
+      ...name !== undefined ? { name } : {},
+    }
+    await this.request('presets/copy', { ...params })
+  }
+
+  /**
+   * Set the persona system-prompt text of a user preset.
+   * @param id - target user preset id.
+   * @param text - persona system-prompt text to assign.
+   */
+  async setPersona(id: string, text: string): Promise<void> {
+    const params: PresetSetPersonaParams = { id, text }
+    await this.request('presets/setPersona', { ...params })
+  }
+
+  /**
    * Queue one prompt and return its durable inbox identity.
    * @param sessionId - target session; an unknown id creates it.
    * @param contentBlocks - the user message, sent verbatim.
+   * @param extras - optional per-session creation overrides (agentPreset, provider, model, reasoningEffort).
    * @returns the queued message id.
    */
-  async prompt(sessionId: string, contentBlocks: ContentBlock[]): Promise<string> {
-    const params: SessionPromptParams = { sessionId, contentBlocks }
+  async prompt(
+    sessionId: string,
+    contentBlocks: ContentBlock[],
+    extras?: {
+      agentPreset?: string
+      provider?: string
+      model?: string
+      reasoningEffort?: string
+    },
+  ): Promise<string> {
+    const params: SessionPromptParams = {
+      sessionId,
+      contentBlocks,
+      ...extras?.agentPreset !== undefined ? { agentPreset: extras.agentPreset } : {},
+      ...extras?.provider !== undefined ? { provider: extras.provider } : {},
+      ...extras?.model !== undefined ? { model: extras.model } : {},
+      ...extras?.reasoningEffort !== undefined ? { reasoningEffort: extras.reasoningEffort } : {},
+    }
     const result = await this.request('session/prompt', { ...params })
     if (!isRecord(result) || typeof result.messageId !== 'string') {
       throw new SdkProtocolError(`session/prompt returned no message id: ${JSON.stringify(result)}`)
@@ -320,9 +379,45 @@ export class HarnessClient {
    * Rehydrate a persisted session. Already-live ids succeed without reloading.
    * Does not create a fresh session — an unknown or unreadable log rejects.
    * @param sessionId - the persisted session to resume.
+   * @param extras - optional overrides for provider, model, or reasoning effort on resume.
    */
-  async resume(sessionId: string): Promise<void> {
-    await this.request('session/resume', { sessionId })
+  async resume(
+    sessionId: string,
+    extras?: {
+      provider?: string
+      model?: string
+      reasoningEffort?: string
+    },
+  ): Promise<void> {
+    const params: SessionResumeParams = {
+      sessionId,
+      ...extras?.provider !== undefined ? { provider: extras.provider } : {},
+      ...extras?.model !== undefined ? { model: extras.model } : {},
+      ...extras?.reasoningEffort !== undefined ? { reasoningEffort: extras.reasoningEffort } : {},
+    }
+    await this.request('session/resume', { ...params })
+  }
+
+  /**
+   * Update the active LLM provider, model, and optional reasoning effort on a live session.
+   * @param sessionId - the live session id.
+   * @param provider - LLM provider route.
+   * @param model - model name.
+   * @param reasoningEffort - optional reasoning effort setting.
+   */
+  async setModel(
+    sessionId: string,
+    provider: string,
+    model: string,
+    reasoningEffort?: string,
+  ): Promise<void> {
+    const params: SessionSetModelParams = {
+      sessionId,
+      provider,
+      model,
+      ...reasoningEffort !== undefined ? { reasoningEffort } : {},
+    }
+    await this.request('session/setModel', { ...params })
   }
 
   /**
