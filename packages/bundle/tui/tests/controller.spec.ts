@@ -195,18 +195,20 @@ describe('suggested next prompt', () => {
   it('does not leak last-assistant text into the editor when the LLM is missing or fails', async () => {
     const bare = await mount()
     completeTurn(bare, 'Test', 'Hi! I am your coding agent for the')
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(bare.controller.snapshot().suggestion).toBeUndefined()
+    await vi.waitFor(() => {
+      expect(bare.controller.snapshot().suggestion).toBe('Hi! I am your coding agent for the')
+    })
     expect(bare.controller.snapshot().input).toBe('')
+    expect(bare.controller.transcript().some(item => item.kind === 'user' && item.text.includes('Suggest the next user follow-up'))).toBe(false)
     await bare.ctx.fiber.dispose()
 
     const test = await mount(async function* () { throw new Error('nope') })
     completeTurn(test, 'Test', 'Hi! I am your coding agent for the')
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(test.controller.snapshot().suggestion).toBeUndefined()
+    await vi.waitFor(() => {
+      expect(test.controller.snapshot().suggestion).toBe('Hi! I am your coding agent for the')
+    })
     expect(test.controller.snapshot().input).toBe('')
+    expect(test.controller.transcript().some(item => item.kind === 'user' && item.text.includes('Suggest the next user follow-up'))).toBe(false)
     await test.ctx.fiber.dispose()
   })
 
@@ -307,7 +309,7 @@ describe('suggested next prompt', () => {
     await test.ctx.fiber.dispose()
   })
 
-  it('keeps Ask DSH when llm.stream never yields', async () => {
+  it('keeps Ask DSH while llm.stream has not settled', async () => {
     const test = await mount(async function* (options) {
       await new Promise<never>((_, reject) => {
         const fail = (): void => { reject(new Error('aborted')) }
@@ -326,12 +328,12 @@ describe('suggested next prompt', () => {
     await test.ctx.fiber.dispose()
   })
 
-  it('keeps Ask DSH when the stream text is empty', async () => {
+  it('falls back to a capped last-assistant ghost when the stream text is empty', async () => {
     const test = await mount(() => textStream('   '))
     completeTurn(test, 'Test', 'Ready to work.')
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(test.controller.snapshot().suggestion).toBeUndefined()
+    await vi.waitFor(() => {
+      expect(test.controller.snapshot().suggestion).toBe('Ready to work.')
+    })
     expect(test.controller.snapshot().input).toBe('')
     await test.ctx.fiber.dispose()
   })
@@ -352,7 +354,7 @@ describe('suggested next prompt', () => {
     await test.ctx.fiber.dispose()
   })
 
-  it('leaves Ask DSH when the stream times out or is aborted', async () => {
+  it('falls back to a capped last-assistant ghost when the stream times out', async () => {
     const signals: AbortSignal[] = []
     const test = await mount(async function* (options) {
       if (options.signal !== undefined) signals.push(options.signal)
@@ -372,7 +374,7 @@ describe('suggested next prompt', () => {
       expect(signals[0]?.aborted).toBe(false)
       await vi.advanceTimersByTimeAsync(SUGGESTION_TIMEOUT_MS)
       expect(signals[0]?.aborted).toBe(true)
-      expect(test.controller.snapshot().suggestion).toBeUndefined()
+      expect(test.controller.snapshot().suggestion).toBe('Ready to work.')
       expect(test.controller.snapshot().input).toBe('')
     } finally {
       vi.useRealTimers()

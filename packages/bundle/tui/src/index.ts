@@ -14,6 +14,7 @@ import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-cmdline'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
+import type {} from '@deepseek-ai/dsh-llm'
 import { App } from './app.ts'
 import { TuiController } from './controller.ts'
 
@@ -21,7 +22,7 @@ import { TuiController } from './controller.ts'
 export const name = 'tui-runner'
 
 /** Core services required before the interactive surface can start. */
-export const inject = ['agentDefaultModel', 'agents', 'sessions']
+export const inject = ['agentDefaultModel', 'agents', 'sessions', 'llm']
 
 /** Plugin config: resume id and optional opening prompt from the startup service. */
 export interface Config {

@@ -57,6 +57,7 @@ import { KEYS, matches } from './keys.ts'
 import {
   capSuggestion,
   conversationSnippet,
+  fallbackSuggestion,
   readSuggestionText,
   shouldApplySuggestion,
   suggestionGenerateOptions,
@@ -1452,8 +1453,9 @@ export class TuiController {
 
   /**
    * Fire one detached follow-up completion for the empty-editor ghost.
-   * Empty transcripts and a missing, empty, hung, or failing LLM keep
-   * `Ask DSH…` — last-assistant text must not leak into the editor.
+   * Empty transcripts keep Ask DSH…. A missing, empty, hung, or failing LLM
+   * uses {@link fallbackSuggestion} as muted placeholder text — never editor
+   * input and never a transcript card.
    */
   private requestSuggestion(): void {
     this.cancelSuggestionRequest()
@@ -1463,9 +1465,9 @@ export class TuiController {
     const assistantId = lastAssistantId(items)
     // Submit/type/escape clear the ghost; do not replay the same completed turn.
     if (assistantId !== undefined && assistantId === this.suggestedAssistantId) return
-    if (assistantId !== undefined) this.suggestedAssistantId = assistantId
     const snippet = conversationSnippet(items)
     if (snippet === '') return
+    if (assistantId !== undefined) this.suggestedAssistantId = assistantId
     const abort = new AbortController()
     this.suggestionAbort = abort
     const options = suggestionGenerateOptions(
@@ -1477,9 +1479,30 @@ export class TuiController {
   }
 
   /**
+   * LLM used for the detached ghost. Prefer the runner context; fall back to
+   * the agent context so a missing inject cannot silently no-op.
+   */
+  private llmRuntime() {
+    return this.ctx.get('llm') ?? this.agent()?.ctx.get('llm')
+  }
+
+  /**
+   * Commit last-assistant fallback as the muted ghost when the request is still current.
+   * Does not write editor input and does not append a transcript card.
+   * @param epoch - epoch captured when the request started.
+   */
+  private applyFallbackSuggestion(epoch: number): void {
+    if (!shouldApplySuggestion(this.state, epoch, this.suggestionEpoch)) return
+    this.syncTranscriptEvents()
+    const suggestion = fallbackSuggestion(this.transcript())
+    if (suggestion === undefined) return
+    this.dispatch({ type: 'set-suggestion', suggestion })
+  }
+
+  /**
    * Read a detached stream and upgrade the ghost when the request is still current.
-   * Empty or junk text leaves Ask DSH…. The stream is aborted
-   * after {@link SUGGESTION_TIMEOUT_MS} so a hang cannot block forever.
+   * Empty, missing, hung, or failing streams fall back to {@link fallbackSuggestion}.
+   * The stream is aborted after {@link SUGGESTION_TIMEOUT_MS} so a hang cannot block forever.
    * @param options - `ctx.llm.stream` generate options.
    * @param epoch - epoch captured when the request started.
    * @param abort - controller for this request; cleared when it settles.
@@ -1491,8 +1514,9 @@ export class TuiController {
   ): Promise<void> {
     const timer = setTimeout(() => abort.abort(), SUGGESTION_TIMEOUT_MS)
     try {
-      const llm = this.ctx.get('llm')
+      const llm = this.llmRuntime()
       if (llm === undefined) {
+        this.applyFallbackSuggestion(epoch)
         return
       }
       const text = await Promise.race([
@@ -1501,12 +1525,13 @@ export class TuiController {
       ])
       const suggestion = capSuggestion(text)
       if (suggestion === undefined) {
+        this.applyFallbackSuggestion(epoch)
         return
       }
       if (!shouldApplySuggestion(this.state, epoch, this.suggestionEpoch)) return
       this.dispatch({ type: 'set-suggestion', suggestion })
     } catch {
-      // Leave Ask DSH… — last-assistant fallback looked like leaked editor text.
+      this.applyFallbackSuggestion(epoch)
     } finally {
       clearTimeout(timer)
       if (this.suggestionAbort === abort) this.suggestionAbort = undefined
