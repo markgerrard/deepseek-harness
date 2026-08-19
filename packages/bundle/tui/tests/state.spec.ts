@@ -67,6 +67,18 @@ describe('Claude Code-like UI reducer', () => {
     expect(chromeAction(help, 'escape')).toEqual({ type: 'close-overlay' })
   })
 
+  it('does not treat k as a chrome / set-input command while typing a slash path', () => {
+    const typed = reduce(initialState(seed), { type: 'set-input', input: '/wor', cursor: 4 })
+    expect(typed.overlay.kind).toBe('commands')
+    expect(chromeAction(typed, 'k')).toBeUndefined()
+    expect(chromeAction(typed, 'K')).toBeUndefined()
+    expect(chromeAction(typed, 'j')).toBeUndefined()
+    expect(chromeAction(typed, 'up')).toEqual({ type: 'move-overlay', delta: -1 })
+    const models = reduce(initialState(seed), { type: 'open-overlay', overlay: { kind: 'models', selected: 1 } })
+    expect(chromeAction(models, 'k')).toEqual({ type: 'move-overlay', delta: -1 })
+    expect(chromeAction(typed, 'ctrl+k')).toEqual({ type: 'set-input', input: '/wor', cursor: 4 })
+  })
+
   it('stores a connect key on the overlay and does not force chat back to landing', () => {
     const opened = reduce(initialState(seed), {
       type: 'open-overlay',

@@ -321,6 +321,12 @@ function isListOverlay(kind: Overlay['kind']): boolean {
     || kind === 'agents' || kind === 'files'
 }
 
+/** List overlays that are not also a text field (so j/k may move). */
+function isPickListOverlay(kind: Overlay['kind']): boolean {
+  return kind === 'models' || kind === 'sessions' || kind === 'connect-provider'
+    || kind === 'approval' || kind === 'question' || kind === 'agents'
+}
+
 /**
  * Reduce one pure UI action.
  * @param state - current Claude Code-like UI state.
@@ -584,11 +590,16 @@ export function chromeAction(state: TuiState, key: string): TuiAction | undefine
     if (matches(KEYS.cancel, key)) return { type: 'close-overlay' }
     if (state.overlay.kind === 'connect-key' || state.overlay.kind === 'help' || state.overlay.kind === 'cost') return undefined
     if (state.overlay.kind === 'files' && matches(KEYS.tab, key)) return { type: 'accept-file' }
-    if ((key === 'up' || key === 'k') && isListOverlay(state.overlay.kind)) {
+    if (key === 'up' && isListOverlay(state.overlay.kind)) {
       return { type: 'move-overlay', delta: -1 }
     }
-    if ((key === 'down' || key === 'j') && isListOverlay(state.overlay.kind)) {
+    if (key === 'down' && isListOverlay(state.overlay.kind)) {
       return { type: 'move-overlay', delta: 1 }
+    }
+    // j/k are vim-style only on pick lists. The commands/files palettes
+    // are typing surfaces — a lone `k` must insert like any other letter.
+    if (isPickListOverlay(state.overlay.kind) && (key === 'k' || key === 'j')) {
+      return { type: 'move-overlay', delta: key === 'k' ? -1 : 1 }
     }
     if (state.overlay.kind === 'commands' || state.overlay.kind === 'files') return promptInputAction(state, key)
     return undefined

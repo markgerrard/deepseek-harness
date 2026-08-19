@@ -12,6 +12,7 @@ import { createAssistantMessage, createUserMessage, type GenerateOptions, type S
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session, UserMessage } from '@deepseek-ai/dsh-session'
 import { TuiController } from '../src/controller.ts'
+import { chromeAction } from '../src/state.ts'
 import { formatWorkingLine } from '../src/status.ts'
 import { SUGGESTION_TIMEOUT_MS } from '../src/suggestion.ts'
 
@@ -1075,6 +1076,23 @@ describe('TUI space vs expand', () => {
     const before = test.controller.snapshot().expansion.tools.size
     expect(await test.controller.handleKey('ctrl+o')).toBe(true)
     expect(test.controller.snapshot().expansion.tools.size).toBeGreaterThan(before)
+    await test.ctx.fiber.dispose()
+  })
+})
+
+describe('TUI letter k', () => {
+  it('does not consume k or K so the editor can type /workspace/', async () => {
+    const test = await mount()
+    test.controller.dispatch({ type: 'set-input', input: '/wor', cursor: 4 })
+    expect(test.controller.snapshot().overlay.kind).toBe('commands')
+    expect(await test.controller.handleKey('k')).toBe(false)
+    expect(chromeAction(test.controller.snapshot(), 'k')).toBeUndefined()
+    expect(await test.controller.handleKey('K')).toBe(false)
+    expect(chromeAction(test.controller.snapshot(), 'K')).toBeUndefined()
+    expect(test.controller.snapshot().input).toBe('/wor')
+    test.controller.dispatch({ type: 'set-input', input: '', cursor: 0 })
+    expect(await test.controller.handleKey('k')).toBe(false)
+    expect(chromeAction(test.controller.snapshot(), 'k')).toBeUndefined()
     await test.ctx.fiber.dispose()
   })
 })
