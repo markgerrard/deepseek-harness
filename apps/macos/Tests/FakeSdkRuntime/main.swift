@@ -1,5 +1,17 @@
 import Foundation
 
+func record(envVar: String, content: String) {
+  guard let recordPath = ProcessInfo.processInfo.environment[envVar] else { return }
+  let fileURL = URL(fileURLWithPath: recordPath)
+  if let fileHandle = try? FileHandle(forWritingTo: fileURL) {
+    defer { try? fileHandle.close() }
+    fileHandle.seekToEndOfFile()
+    fileHandle.write(Data((content + "\n").utf8))
+  } else {
+    try? (content + "\n").write(to: fileURL, atomically: true, encoding: .utf8)
+  }
+}
+
 while let line = readLine() {
   let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
   if trimmed.isEmpty { continue }
@@ -14,16 +26,7 @@ while let line = readLine() {
 
   // Handle client responses (frame with id but no method)
   if json["method"] == nil {
-    if let recordPath = ProcessInfo.processInfo.environment["FAKE_RECORD_PERMISSION"] {
-      let fileURL = URL(fileURLWithPath: recordPath)
-      if let fileHandle = try? FileHandle(forWritingTo: fileURL) {
-        defer { try? fileHandle.close() }
-        fileHandle.seekToEndOfFile()
-        fileHandle.write(Data((trimmed + "\n").utf8))
-      } else {
-        try? (trimmed + "\n").write(to: fileURL, atomically: true, encoding: .utf8)
-      }
-    }
+    record(envVar: "FAKE_RECORD_PERMISSION", content: trimmed)
     continue
   }
 
@@ -47,23 +50,21 @@ while let line = readLine() {
     }
   case "presets/list":
     response["result"] = ["presets": [["id": "code", "trust": "system"]]]
-  case "presets/copy", "presets/setPersona", "session/resume", "session/setModel", "session/cancel":
+  case "presets/copy":
+    record(envVar: "FAKE_RECORD_PRESETS_COPY", content: trimmed)
+    response["result"] = [String: Any]()
+  case "presets/setPersona":
+    record(envVar: "FAKE_RECORD_PRESETS_SET_PERSONA", content: trimmed)
+    response["result"] = [String: Any]()
+  case "session/resume", "session/setModel", "session/cancel":
     response["result"] = [String: Any]()
   case "session/prompt":
+    record(envVar: "FAKE_RECORD_PROMPT", content: trimmed)
     response["result"] = ["messageId": "m1"]
   case "shutdown":
     response["result"] = [String: Any]()
     shouldExit = true
-    if let recordPath = ProcessInfo.processInfo.environment["FAKE_RECORD_SHUTDOWN"] {
-      let fileURL = URL(fileURLWithPath: recordPath)
-      if let fileHandle = try? FileHandle(forWritingTo: fileURL) {
-        defer { try? fileHandle.close() }
-        fileHandle.seekToEndOfFile()
-        fileHandle.write(Data("shutdown\n".utf8))
-      } else {
-        try? "shutdown\n".write(to: fileURL, atomically: true, encoding: .utf8)
-      }
-    }
+    record(envVar: "FAKE_RECORD_SHUTDOWN", content: "shutdown")
   default:
     response["error"] = ["code": -32601, "message": "method not found"]
   }
