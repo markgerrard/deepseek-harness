@@ -30,6 +30,9 @@
       "path": "../../packages/bundle/headless"
     },
     {
+      "path": "../../packages/bundle/macos-jsonrpc"
+    },
+    {
       "path": "../../packages/bundle/web-app"
     },
     {
