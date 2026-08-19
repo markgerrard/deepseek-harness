@@ -105,6 +105,20 @@ public struct RootView: View {
         .frame(minWidth: 350, idealWidth: 500)
     }
     .frame(minWidth: 700, minHeight: 450)
+    .safeAreaInset(edge: .top, spacing: 0) {
+      if let initError = controller.initializationError {
+        HStack(spacing: 8) {
+          Image(systemName: "exclamationmark.triangle.fill")
+            .foregroundColor(.yellow)
+          Text(initError)
+            .font(.callout)
+            .foregroundColor(.red)
+          Spacer()
+        }
+        .padding(10)
+        .background(Color.red.opacity(0.12))
+      }
+    }
     .sheet(isPresented: $isCreateBotPresented) {
       CreateBotSheet(controller: controller, isPresented: $isCreateBotPresented)
     }

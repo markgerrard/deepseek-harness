@@ -176,6 +176,14 @@ public final class SessionController {
     return slug
   }
 
+  /// `off` and blank thinking are omitted on the wire. Cline Pass models
+  /// reject an explicit `reasoningEffort` they do not advertise.
+  nonisolated public static func wireReasoningEffort(_ stored: String) -> String? {
+    let trimmed = stored.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.isEmpty || trimmed == "off" { return nil }
+    return trimmed
+  }
+
   @discardableResult
   public func createBot(
     displayName: String,
@@ -224,10 +232,10 @@ public final class SessionController {
           agentPreset: bot.id,
           provider: bot.provider,
           model: bot.model,
-          reasoningEffort: bot.reasoningEffort
+          reasoningEffort: Self.wireReasoningEffort(bot.reasoningEffort)
         )
       } catch {
-        handleKeyError(error, sessionId: sessionId)
+        handlePromptError(error, sessionId: sessionId)
         throw error
       }
     }
@@ -247,11 +255,11 @@ public final class SessionController {
         agentPreset: bot.id,
         provider: bot.provider,
         model: bot.model,
-        reasoningEffort: bot.reasoningEffort
+        reasoningEffort: Self.wireReasoningEffort(bot.reasoningEffort)
       )
       return msgId
     } catch {
-      handleKeyError(error, sessionId: threadId)
+      handlePromptError(error, sessionId: threadId)
       throw error
     }
   }
@@ -260,27 +268,15 @@ public final class SessionController {
     do {
       try await client.initialize(cwd: cwd, provider: provider, model: model, approvals: approvals)
     } catch {
-      if let keyMsg = extractKeyError(error) {
-        initializationError = keyMsg
-      }
+      initializationError = (error as? HarnessRPCError)?.message ?? error.localizedDescription
       throw error
     }
   }
 
-  private func extractKeyError(_ error: Error) -> String? {
+  private func handlePromptError(_ error: Error, sessionId: String) {
     let msg = (error as? HarnessRPCError)?.message ?? error.localizedDescription
-    if msg.contains("DEEPSEEK_API_KEY") ||
-       msg.contains("OPENCODE_API_KEY") ||
-       msg.contains("CLINE_API_KEY") {
-      return msg
-    }
-    return nil
-  }
-
-  private func handleKeyError(_ error: Error, sessionId: String) {
-    if let msg = extractKeyError(error) {
-      threadErrors[sessionId] = msg
-    }
+    guard !msg.isEmpty else { return }
+    threadErrors[sessionId] = msg
   }
 
   public func appendEvent(_ event: SessionEventDTO, forSessionId sessionId: String) {

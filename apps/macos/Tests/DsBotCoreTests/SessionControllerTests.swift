@@ -245,4 +245,134 @@ final class SessionControllerTests: XCTestCase {
     controller.toggleExpansion(id: "reason:2", kind: "reasoning")
     XCTAssertTrue(controller.transcriptExpansion.reasoning.contains("reason:2"))
   }
+
+  func testWireReasoningEffortOmitsOff() {
+    XCTAssertNil(SessionController.wireReasoningEffort("off"))
+    XCTAssertNil(SessionController.wireReasoningEffort(""))
+    XCTAssertNil(SessionController.wireReasoningEffort("  "))
+    XCTAssertEqual(SessionController.wireReasoningEffort("high"), "high")
+    XCTAssertEqual(SessionController.wireReasoningEffort("max"), "max")
+  }
+
+  @MainActor
+  func testPromptOmitsReasoningEffortWhenThinkingOff() async throws {
+    let params = try await promptParams(thinking: "off", initialPrompt: "hello")
+    XCTAssertNil(params["reasoningEffort"])
+  }
+
+  @MainActor
+  func testPromptSendsReasoningEffortWhenThinkingHigh() async throws {
+    let params = try await promptParams(thinking: "high", initialPrompt: "hello")
+    XCTAssertEqual(params["reasoningEffort"] as? String, "high")
+  }
+
+  @MainActor
+  func testSendPromptAlsoOmitsOff() async throws {
+    let runtime = try bundledFakeRuntimeURL()
+    let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    let promptRecordFile = tempDir.appendingPathComponent("prompt.txt")
+    let launch = RuntimeLaunch(
+      command: runtime.path,
+      arguments: [],
+      cwd: tempDir,
+      environment: ["FAKE_RECORD_PROMPT": promptRecordFile.path]
+    )
+    let process = RuntimeProcess(launch: launch)
+    let client = try process.start()
+    let controller = SessionController(client: client, store: BotStore(fileURL: tempDir.appendingPathComponent("bots.json")))
+    try await controller.initialize(cwd: tempDir.path, provider: "mock", model: "m", approvals: true)
+    let bot = try await controller.createBot(
+      displayName: "Off Bot",
+      job: "j",
+      provider: "cline-pass",
+      model: "cline-pass/deepseek-v4-flash",
+      thinking: "off"
+    )
+    let thread = try await controller.newThread(forBot: bot, initialPrompt: "")
+    XCTAssertFalse(FileManager.default.fileExists(atPath: promptRecordFile.path))
+    _ = try await controller.sendPrompt(threadId: thread.id, text: "hi")
+    try await process.stop()
+    let params = try lastPromptParams(from: promptRecordFile)
+    XCTAssertNil(params["reasoningEffort"])
+  }
+
+  @MainActor
+  func testRpcErrorSurfacesOnThreadBanner() async throws {
+    let runtime = try bundledFakeRuntimeURL()
+    let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    let launch = RuntimeLaunch(
+      command: runtime.path,
+      arguments: [],
+      cwd: tempDir,
+      environment: [
+        "FAKE_PROMPT_ERROR": "provider \"cline-pass\" model \"cline-pass/deepseek-v4-flash\" does not support reasoning effort \"off\""
+      ]
+    )
+    let process = RuntimeProcess(launch: launch)
+    let client = try process.start()
+    let controller = SessionController(client: client, store: BotStore(fileURL: tempDir.appendingPathComponent("bots.json")))
+    try await controller.initialize(cwd: tempDir.path, provider: "mock", model: "m", approvals: true)
+    let bot = try await controller.createBot(
+      displayName: "Err Bot",
+      job: "j",
+      provider: "cline-pass",
+      model: "cline-pass/deepseek-v4-flash",
+      thinking: "off"
+    )
+    do {
+      _ = try await controller.newThread(forBot: bot, initialPrompt: "hello")
+      XCTFail("expected prompt RPC error")
+    } catch {
+      let threadId = controller.selectedThreadId
+      XCTAssertNotNil(threadId)
+      let banner = threadId.flatMap { controller.threadErrors[$0] }
+      XCTAssertEqual(
+        banner,
+        "provider \"cline-pass\" model \"cline-pass/deepseek-v4-flash\" does not support reasoning effort \"off\""
+      )
+    }
+    try await process.stop()
+  }
+
+  @MainActor
+  private func promptParams(thinking: String, initialPrompt: String) async throws -> [String: Any] {
+    let runtime = try bundledFakeRuntimeURL()
+    let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+    let promptRecordFile = tempDir.appendingPathComponent("prompt.txt")
+    let launch = RuntimeLaunch(
+      command: runtime.path,
+      arguments: [],
+      cwd: tempDir,
+      environment: ["FAKE_RECORD_PROMPT": promptRecordFile.path]
+    )
+    let process = RuntimeProcess(launch: launch)
+    let client = try process.start()
+    let controller = SessionController(client: client, store: BotStore(fileURL: tempDir.appendingPathComponent("bots.json")))
+    try await controller.initialize(cwd: tempDir.path, provider: "mock", model: "m", approvals: true)
+    let bot = try await controller.createBot(
+      displayName: "Rec Bot",
+      job: "j",
+      provider: "cline-pass",
+      model: "cline-pass/deepseek-v4-flash",
+      thinking: thinking
+    )
+    _ = try await controller.newThread(forBot: bot, initialPrompt: initialPrompt)
+    try await process.stop()
+    return try lastPromptParams(from: promptRecordFile)
+  }
+
+  private func lastPromptParams(from url: URL) throws -> [String: Any] {
+    let text = try String(contentsOf: url, encoding: .utf8)
+    let line = text.split(whereSeparator: \.isNewline).map(String.init).last(where: { !$0.isEmpty }) ?? ""
+    let obj = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+    return obj?["params"] as? [String: Any] ?? [:]
+  }
 }

@@ -60,7 +60,11 @@ while let line = readLine() {
     response["result"] = [String: Any]()
   case "session/prompt":
     record(envVar: "FAKE_RECORD_PROMPT", content: trimmed)
-    response["result"] = ["messageId": "m1"]
+    if let errorMessage = ProcessInfo.processInfo.environment["FAKE_PROMPT_ERROR"], !errorMessage.isEmpty {
+      response["error"] = ["code": -32000, "message": errorMessage]
+    } else {
+      response["result"] = ["messageId": "m1"]
+    }
   case "shutdown":
     response["result"] = [String: Any]()
     shouldExit = true

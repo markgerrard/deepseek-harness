@@ -1,8 +1,23 @@
+import AppKit
 import SwiftUI
 import DsBotCore
 
+final class DsBotAppDelegate: NSObject, NSApplicationDelegate {
+  var runtime: RuntimeProcess?
+
+  func applicationWillTerminate(_ notification: Notification) {
+    let sem = DispatchSemaphore(value: 0)
+    Task {
+      try? await runtime?.stop()
+      sem.signal()
+    }
+    _ = sem.wait(timeout: .now() + 4)
+  }
+}
+
 @main
 struct DsBotApp: App {
+  @NSApplicationDelegateAdaptor(DsBotAppDelegate.self) private var appDelegate
   @State private var controller: SessionController
   private let runtime: RuntimeProcess?
   private let workspace: URL
@@ -10,16 +25,23 @@ struct DsBotApp: App {
   init() {
     let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
     let dsBotDir = appSupport.appendingPathComponent("DsBot", isDirectory: true)
-    try? FileManager.default.createDirectory(at: dsBotDir, withIntermediateDirectories: true)
+    let workspace = dsBotDir.appendingPathComponent("workspace", isDirectory: true)
+    try? FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
     let storeURL = dsBotDir.appendingPathComponent("bots.json")
     let store = BotStore(fileURL: storeURL)
-    let workspace = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
     self.workspace = workspace
-    let repo = RuntimeLaunch.findRepoRoot() ?? URL(fileURLWithPath: "/Volumes/Workspace/repos/dsbot")
+    let repo = RuntimeLaunch.findRepoRoot()
+      ?? ProcessInfo.processInfo.environment["DSH_REPO"].flatMap { URL(fileURLWithPath: $0) }
+      ?? URL(fileURLWithPath: "/Volumes/Workspace/repos/dsbot")
     let node = FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/node")
       ? "/opt/homebrew/bin/node"
       : "node"
-    let launch = RuntimeLaunch.macosProfile(repoRoot: repo, workspace: workspace, node: node)
+    let launch = RuntimeLaunch.macosProfile(
+      repoRoot: repo,
+      workspace: workspace,
+      node: node,
+      environment: LaunchCredentials.childEnvironment()
+    )
     let runtime = RuntimeProcess(launch: launch)
     let client: HarnessClient
     do {
@@ -27,7 +49,12 @@ struct DsBotApp: App {
       self.runtime = runtime
     } catch {
       self.runtime = nil
-      client = HarnessClient(command: launch.command, arguments: launch.arguments, cwd: launch.cwd)
+      client = HarnessClient(
+        command: launch.command,
+        arguments: launch.arguments,
+        cwd: launch.cwd,
+        environment: launch.environment
+      )
     }
     _controller = State(initialValue: SessionController(client: client, store: store))
   }
@@ -35,13 +62,18 @@ struct DsBotApp: App {
   var body: some Scene {
     WindowGroup {
       RootView(controller: controller)
+        .onAppear { appDelegate.runtime = runtime }
         .task {
-          try? await controller.initialize(
-            cwd: workspace.path,
-            provider: "cline-pass",
-            model: "cline-pass/deepseek-v4-flash",
-            approvals: true
-          )
+          do {
+            try await controller.initialize(
+              cwd: workspace.path,
+              provider: "cline-pass",
+              model: "cline-pass/deepseek-v4-flash",
+              approvals: true
+            )
+          } catch {
+            // initializationError is already recorded on the controller
+          }
         }
     }
   }

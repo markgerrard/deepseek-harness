@@ -13,12 +13,18 @@ public struct RuntimeLaunch: Equatable, Sendable {
     self.environment = environment
   }
 
-  public static func macosProfile(repoRoot: URL, workspace: URL, node: String = "node") -> RuntimeLaunch {
+  public static func macosProfile(
+    repoRoot: URL,
+    workspace: URL,
+    node: String = "node",
+    environment: [String: String]? = nil
+  ) -> RuntimeLaunch {
     let scriptURL = repoRoot.appendingPathComponent("apps/cli/lib/bin.js")
     return RuntimeLaunch(
       command: node,
       arguments: [scriptURL.path, "--profile", "macos"],
-      cwd: workspace
+      cwd: workspace,
+      environment: environment
     )
   }
 
