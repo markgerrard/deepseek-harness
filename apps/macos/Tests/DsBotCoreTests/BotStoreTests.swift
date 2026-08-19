@@ -1,0 +1,161 @@
+import Foundation
+import XCTest
+@testable import DsBotCore
+
+final class BotStoreTests: XCTestCase {
+  private func temporaryStoreURL() -> URL {
+    FileManager.default.temporaryDirectory
+      .appendingPathComponent("botstore-test-\(UUID().uuidString).json")
+  }
+
+  func testOneBotOwnsManyThreadsAndDoesNotLeak() throws {
+    let fileURL = temporaryStoreURL()
+    defer { try? FileManager.default.removeItem(at: fileURL) }
+
+    var store = BotStore(fileURL: fileURL)
+
+    let botA = Bot(
+      id: "bot-a",
+      displayName: "Bot A",
+      provider: "deepseek",
+      model: "deepseek-chat",
+      reasoningEffort: "off"
+    )
+    let botB = Bot(
+      id: "bot-b",
+      displayName: "Bot B",
+      provider: "deepseek",
+      model: "deepseek-reasoner",
+      reasoningEffort: "high"
+    )
+
+    try store.addBot(botA)
+    try store.addBot(botB)
+
+    let thread1 = Thread(id: "s1", botID: "bot-a", title: "Session 1", createdAt: Date())
+    let thread2 = Thread(id: "s2", botID: "bot-a", title: "Session 2", createdAt: Date())
+    let thread3 = Thread(id: "s3", botID: "bot-b", title: "Session 3", createdAt: Date())
+
+    try store.addThread(thread1)
+    try store.addThread(thread2)
+    try store.addThread(thread3)
+
+    XCTAssertEqual(store.threads(forBot: "bot-a").map(\.id), ["s1", "s2"])
+    XCTAssertEqual(store.threads(forBot: "bot-b").map(\.id), ["s3"])
+    XCTAssertEqual(store.bot(forThread: "s1")?.id, "bot-a")
+    XCTAssertEqual(store.bot(forThread: "s2")?.id, "bot-a")
+    XCTAssertEqual(store.bot(forThread: "s3")?.id, "bot-b")
+    XCTAssertFalse(store.threads(forBot: "bot-a").map(\.id).contains("s3"))
+
+    let store2 = BotStore(fileURL: fileURL)
+    XCTAssertEqual(store2.threads(forBot: "bot-a").map(\.id), ["s1", "s2"])
+    XCTAssertEqual(store2.threads(forBot: "bot-b").map(\.id), ["s3"])
+    XCTAssertEqual(store2.bot(forThread: "s1")?.id, "bot-a")
+    XCTAssertEqual(store2.bot(forThread: "s2")?.id, "bot-a")
+    XCTAssertEqual(store2.bot(forThread: "s3")?.id, "bot-b")
+    XCTAssertFalse(store2.threads(forBot: "bot-a").map(\.id).contains("s3"))
+  }
+
+  func testAddThreadForUnknownBotThrows() throws {
+    let fileURL = temporaryStoreURL()
+    defer { try? FileManager.default.removeItem(at: fileURL) }
+
+    var store = BotStore(fileURL: fileURL)
+    let thread = Thread(id: "s1", botID: "unknown-bot", title: "Session 1")
+
+    XCTAssertThrowsError(try store.addThread(thread)) { error in
+      guard let storeError = error as? BotStoreError else {
+        return XCTFail("Expected BotStoreError, got \(error)")
+      }
+      XCTAssertEqual(storeError, .botNotFound("unknown-bot"))
+    }
+  }
+
+  func testAddDuplicateBotThrows() throws {
+    let fileURL = temporaryStoreURL()
+    defer { try? FileManager.default.removeItem(at: fileURL) }
+
+    var store = BotStore(fileURL: fileURL)
+    let bot = Bot(
+      id: "bot-a",
+      displayName: "Bot A",
+      provider: "deepseek",
+      model: "deepseek-chat"
+    )
+
+    try store.addBot(bot)
+
+    XCTAssertThrowsError(try store.addBot(bot)) { error in
+      guard let storeError = error as? BotStoreError else {
+        return XCTFail("Expected BotStoreError, got \(error)")
+      }
+      XCTAssertEqual(storeError, .duplicateBot("bot-a"))
+    }
+  }
+
+  func testAddDuplicateThreadThrows() throws {
+    let fileURL = temporaryStoreURL()
+    defer { try? FileManager.default.removeItem(at: fileURL) }
+
+    var store = BotStore(fileURL: fileURL)
+    let bot = Bot(
+      id: "bot-a",
+      displayName: "Bot A",
+      provider: "deepseek",
+      model: "deepseek-chat"
+    )
+
+    try store.addBot(bot)
+
+    let thread = Thread(id: "s1", botID: "bot-a", title: "Session 1")
+    try store.addThread(thread)
+
+    XCTAssertThrowsError(try store.addThread(thread)) { error in
+      guard let storeError = error as? BotStoreError else {
+        return XCTFail("Expected BotStoreError, got \(error)")
+      }
+      XCTAssertEqual(storeError, .duplicateThread("s1"))
+    }
+  }
+
+  func testMissingFileInitializesEmpty() {
+    let fileURL = temporaryStoreURL()
+    let store = BotStore(fileURL: fileURL)
+
+    XCTAssertTrue(store.threads(forBot: "bot-a").isEmpty)
+    XCTAssertNil(store.bot(forThread: "s1"))
+  }
+
+  func testDateRoundTrip() throws {
+    let fileURL = temporaryStoreURL()
+    defer { try? FileManager.default.removeItem(at: fileURL) }
+
+    var store = BotStore(fileURL: fileURL)
+    let bot = Bot(
+      id: "bot-a",
+      displayName: "Bot A",
+      provider: "deepseek",
+      model: "deepseek-chat"
+    )
+    try store.addBot(bot)
+
+    let isoFormatter = ISO8601DateFormatter()
+    let date = try XCTUnwrap(isoFormatter.date(from: "2026-08-19T12:34:56Z"))
+    let thread = Thread(id: "s1", botID: "bot-a", title: "Session 1", createdAt: date)
+    try store.addThread(thread)
+
+    let store2 = BotStore(fileURL: fileURL)
+    let threads = store2.threads(forBot: "bot-a")
+    XCTAssertEqual(threads.count, 1)
+    XCTAssertEqual(threads.first?.id, "s1")
+    XCTAssertEqual(threads.first?.createdAt, date)
+  }
+
+  func testBotForUnknownThreadReturnsNil() throws {
+    let fileURL = temporaryStoreURL()
+    defer { try? FileManager.default.removeItem(at: fileURL) }
+
+    let store = BotStore(fileURL: fileURL)
+    XCTAssertNil(store.bot(forThread: "unknown-session"))
+  }
+}
