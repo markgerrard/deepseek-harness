@@ -1199,7 +1199,7 @@ export class TuiController {
     const cardRows = last?.type === 'clock' ? rows.slice(0, -1) : rows
     const layout = layoutAreas(state.width, state.height, Math.max(1, state.input.split('\n').length + 1))
     const running = state.agents.filter(agent => agent.status === 'running').length
-    const inbox = state.steering.length + state.queued.length + (running > 0 ? 1 : 0)
+    const inbox = state.steering.length + state.queued.length + state.attachments.length + (running > 0 ? 1 : 0)
     const chrome = state.busy || last?.type === 'clock' ? 2 : 0
     const viewportHeight = Math.max(0, layout.main.height - inbox - chrome)
     const paintWidth = cardWrapWidth(layout.main.width)

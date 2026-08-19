@@ -29,6 +29,7 @@ import {
 } from './chrome.ts'
 import { connectProviderById, formatModelPickerLines } from './connect.ts'
 import { layoutAreas } from './layout.ts'
+import { inkKeyName } from './keys.ts'
 import { insertAtCursor, promptPaint } from './prompt.ts'
 import { formatDoneLine, formatStatusLine, formatWorkingLine, type StatusModel } from './status.ts'
 import { promptPlaceholder } from './suggestion.ts'
@@ -209,23 +210,7 @@ export function App(props: AppProps): React.ReactElement {
   const home = controller.home()
 
   useInput((input, key) => {
-    const name = key.return && key.ctrl ? 'ctrl+enter'
-      : key.upArrow && key.ctrl ? 'ctrl+up'
-        : key.tab && key.shift ? 'shift+tab'
-          : key.pageUp ? 'pageup'
-            : key.pageDown ? 'pagedown'
-            : key.shift && (input === 't' || input === 'T') ? 'shift+t'
-              : key.ctrl && input ? `ctrl+${input}`
-              : key.escape ? 'escape'
-                : key.return ? 'return'
-                  : key.tab ? 'tab'
-                    : key.backspace ? 'backspace'
-                      : key.delete ? 'delete'
-                        : key.upArrow ? 'up'
-                          : key.downArrow ? 'down'
-                            : key.leftArrow ? 'left'
-                              : key.rightArrow ? 'right'
-                                : input
+    const name = inkKeyName(input, key)
     void controller.handleKey(name).then((consumed) => {
       if (consumed) return
       if (state.overlay.kind === 'connect-key') {

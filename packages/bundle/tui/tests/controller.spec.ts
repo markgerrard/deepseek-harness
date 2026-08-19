@@ -883,6 +883,13 @@ describe('TUI transcript scrollback', () => {
     expect(test.controller.snapshot().transcriptPinned).toBe(true)
     expect(await test.controller.handleKey('pageup')).toBe(true)
     expect(test.controller.snapshot().transcriptPinned).toBe(false)
+    const afterPage = test.controller.snapshot().transcriptStart
+    expect(await test.controller.handleKey('shift+down')).toBe(true)
+    expect(await test.controller.handleKey('shift+down')).toBe(true)
+    expect(test.controller.snapshot().transcriptPinned).toBe(true)
+    expect(await test.controller.handleKey('shift+up')).toBe(true)
+    expect(test.controller.snapshot().transcriptPinned).toBe(false)
+    expect(test.controller.snapshot().transcriptStart).toBeLessThanOrEqual(afterPage)
     await test.controller.submit('re-pin please')
     expect(test.controller.snapshot().transcriptPinned).toBe(true)
     await test.ctx.fiber.dispose()

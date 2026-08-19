@@ -34,8 +34,8 @@ export const KEYS = {
   expand: { key: 'ctrl+o', help: 'ctrl+o', description: 'expand/collapse' },
   slash: { key: '/', help: '/', description: 'commands' },
   permission: { key: 'shift+tab', help: 'shift+tab', description: 'cycle permission mode' },
-  pageUp: { key: 'pageup', help: 'pgup', description: 'scroll transcript up' },
-  pageDown: { key: 'pagedown', help: 'pgdn', description: 'scroll transcript down' },
+  pageUp: { key: 'pageup', aliases: ['pageUp', 'page-up', 'shift+up'], help: 'pgup', description: 'scroll transcript up' },
+  pageDown: { key: 'pagedown', aliases: ['pageDown', 'page-down', 'shift+down'], help: 'pgdn', description: 'scroll transcript down' },
 } as const satisfies Record<string, KeyBinding>
 
 /**
@@ -67,4 +67,58 @@ export function editorHelp(compact: boolean): readonly { key: string; label: str
 export function matches(binding: KeyBinding, key: string): boolean {
   if (key === binding.key) return true
   return binding.aliases?.includes(key) === true
+}
+
+/** Ink `useInput` key flags (Ink 5 uses camelCase `pageUp` / `pageDown`). */
+export interface InkKeyFlags {
+  readonly return?: boolean
+  readonly escape?: boolean
+  readonly tab?: boolean
+  readonly backspace?: boolean
+  readonly delete?: boolean
+  readonly upArrow?: boolean
+  readonly downArrow?: boolean
+  readonly leftArrow?: boolean
+  readonly rightArrow?: boolean
+  readonly pageUp?: boolean
+  readonly pageDown?: boolean
+  readonly ctrl?: boolean
+  readonly shift?: boolean
+  readonly meta?: boolean
+  readonly pageup?: boolean
+  readonly pagedown?: boolean
+}
+
+/**
+ * Map an Ink `useInput` event onto the KEYS vocabulary.
+ * Shift+Tab is `key.tab && key.shift` (not bare tab). PageUp/PageDown use
+ * Ink 5 `key.pageUp` / `key.pageDown`, plus shift+up/down aliases tmux will not steal.
+ * @param input - raw input string from Ink.
+ * @param key - Ink key flags.
+ * @returns a KEYS name or the raw input.
+ */
+export function inkKeyName(input: string, key: InkKeyFlags): string {
+  if (key.return === true && key.ctrl === true) return 'ctrl+enter'
+  if (key.upArrow === true && key.ctrl === true) return 'ctrl+up'
+  if (key.downArrow === true && key.ctrl === true) return 'ctrl+down'
+  if (key.tab === true && key.shift === true) return 'shift+tab'
+  if (key.pageUp === true || key.pageup === true) return 'pageup'
+  if (key.pageDown === true || key.pagedown === true) return 'pagedown'
+  if (key.upArrow === true && key.shift === true) return 'shift+up'
+  if (key.downArrow === true && key.shift === true) return 'shift+down'
+  if (key.shift === true && (input === 't' || input === 'T')) return 'shift+t'
+  if (key.ctrl === true && input !== '' && input !== undefined) return `ctrl+${input}`
+  if (key.escape === true) return 'escape'
+  if (key.return === true) return 'return'
+  if (key.tab === true) return 'tab'
+  if (key.backspace === true) return 'backspace'
+  if (key.delete === true) return 'delete'
+  if (key.upArrow === true) return 'up'
+  if (key.downArrow === true) return 'down'
+  if (key.leftArrow === true) return 'left'
+  if (key.rightArrow === true) return 'right'
+  if (input === String.fromCharCode(27) + '[Z') return 'shift+tab'
+  if (input === String.fromCharCode(27) + '[5~' || input === String.fromCharCode(27) + '[5;2~') return 'pageup'
+  if (input === String.fromCharCode(27) + '[6~' || input === String.fromCharCode(27) + '[6;2~') return 'pagedown'
+  return input
 }
