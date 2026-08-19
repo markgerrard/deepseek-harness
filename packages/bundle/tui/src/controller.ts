@@ -57,7 +57,6 @@ import { KEYS, matches } from './keys.ts'
 import {
   capSuggestion,
   conversationSnippet,
-  fallbackSuggestion,
   readSuggestionText,
   shouldApplySuggestion,
   suggestionGenerateOptions,
@@ -336,6 +335,16 @@ export class TuiController {
     }
     if (matches(KEYS.steer, key)) {
       if (this.state.overlay.kind === 'none') await this.submitSteer(this.state.input)
+      return true
+    }
+    if (matches(KEYS.cancel, key) && this.state.overlay.kind === 'none') {
+      if (this.state.busy) {
+        this.agent()?.cancel({ kind: 'user' }, { keepInbox: true })
+      }
+      if (this.takeRewind()) return true
+      this.armRewind()
+      const dismiss = chromeAction(this.state, key)
+      if (dismiss !== undefined) this.dispatch(dismiss)
       return true
     }
     const chrome = chromeAction(this.state, key)
@@ -1428,9 +1437,9 @@ export class TuiController {
   }
 
   /**
-   * Show a last-assistant fallback immediately, then fire one detached
-   * follow-up completion that may upgrade the ghost. Empty transcripts keep
-   * `Ask DSH…`. A missing, empty, hung, or failing LLM leaves the fallback.
+   * Fire one detached follow-up completion for the empty-editor ghost.
+   * Empty transcripts and a missing, empty, hung, or failing LLM keep
+   * `Ask DSH…` — last-assistant text must not leak into the editor.
    */
   private requestSuggestion(): void {
     this.cancelSuggestionRequest()
@@ -1440,7 +1449,6 @@ export class TuiController {
     const assistantId = lastAssistantId(items)
     // Submit/type/escape clear the ghost; do not replay the same completed turn.
     if (assistantId !== undefined && assistantId === this.suggestedAssistantId) return
-    this.applyFallbackSuggestion(epoch, items)
     if (assistantId !== undefined) this.suggestedAssistantId = assistantId
     const snippet = conversationSnippet(items)
     if (snippet === '') return
@@ -1451,29 +1459,26 @@ export class TuiController {
       snippet,
       abort.signal,
     )
-    void this.consumeSuggestion(options, epoch, items, abort)
+    void this.consumeSuggestion(options, epoch, abort)
   }
 
   /**
    * Read a detached stream and upgrade the ghost when the request is still current.
-   * Empty or junk text keeps the fallback already shown. The stream is aborted
+   * Empty or junk text leaves Ask DSH…. The stream is aborted
    * after {@link SUGGESTION_TIMEOUT_MS} so a hang cannot block forever.
    * @param options - `ctx.llm.stream` generate options.
    * @param epoch - epoch captured when the request started.
-   * @param items - transcript snapshot used for a local fallback.
    * @param abort - controller for this request; cleared when it settles.
    */
   private async consumeSuggestion(
     options: GenerateOptions,
     epoch: number,
-    items: TranscriptItem[],
     abort: AbortController,
   ): Promise<void> {
     const timer = setTimeout(() => abort.abort(), SUGGESTION_TIMEOUT_MS)
     try {
       const llm = this.ctx.get('llm')
       if (llm === undefined) {
-        this.applyFallbackSuggestion(epoch, items)
         return
       }
       const text = await Promise.race([
@@ -1482,28 +1487,15 @@ export class TuiController {
       ])
       const suggestion = capSuggestion(text)
       if (suggestion === undefined) {
-        this.applyFallbackSuggestion(epoch, items)
         return
       }
       if (!shouldApplySuggestion(this.state, epoch, this.suggestionEpoch)) return
       this.dispatch({ type: 'set-suggestion', suggestion })
     } catch {
-      this.applyFallbackSuggestion(epoch, items)
+      // Leave Ask DSH… — last-assistant fallback looked like leaked editor text.
     } finally {
       clearTimeout(timer)
       if (this.suggestionAbort === abort) this.suggestionAbort = undefined
     }
-  }
-
-  /**
-   * Commit a last-assistant phrase when a detached LLM call cannot run.
-   * @param epoch - epoch captured when the request started.
-   * @param items - transcript snapshot.
-   */
-  private applyFallbackSuggestion(epoch: number, items: readonly TranscriptItem[]): void {
-    if (!shouldApplySuggestion(this.state, epoch, this.suggestionEpoch)) return
-    const suggestion = fallbackSuggestion(items)
-    if (suggestion === undefined) return
-    this.dispatch({ type: 'set-suggestion', suggestion })
   }
 }

@@ -191,19 +191,21 @@ describe('suggested next prompt', () => {
     await test.ctx.fiber.dispose()
   })
 
-  it('falls back to the last assistant when the LLM is missing or the call fails', async () => {
+  it('does not leak last-assistant text into the editor when the LLM is missing or fails', async () => {
     const bare = await mount()
-    completeTurn(bare, 'Test', 'Ready to work.')
-    await vi.waitFor(() => {
-      expect(bare.controller.snapshot().suggestion).toBe('Ready to work.')
-    })
+    completeTurn(bare, 'Test', 'Hi! I am your coding agent for the')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(bare.controller.snapshot().suggestion).toBeUndefined()
+    expect(bare.controller.snapshot().input).toBe('')
     await bare.ctx.fiber.dispose()
 
     const test = await mount(async function* () { throw new Error('nope') })
-    completeTurn(test, 'Test', 'The girl whispered a secret about the gears tonight')
-    await vi.waitFor(() => {
-      expect(test.controller.snapshot().suggestion).toBe('The girl whispered a secret about the gears')
-    })
+    completeTurn(test, 'Test', 'Hi! I am your coding agent for the')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(test.controller.snapshot().suggestion).toBeUndefined()
+    expect(test.controller.snapshot().input).toBe('')
     await test.ctx.fiber.dispose()
   })
 
@@ -304,7 +306,7 @@ describe('suggested next prompt', () => {
     await test.ctx.fiber.dispose()
   })
 
-  it('applies fallback immediately even when llm.stream never yields', async () => {
+  it('keeps Ask DSH when llm.stream never yields', async () => {
     const test = await mount(async function* (options) {
       await new Promise<never>((_, reject) => {
         const fail = (): void => { reject(new Error('aborted')) }
@@ -316,26 +318,24 @@ describe('suggested next prompt', () => {
       })
     })
     completeTurn(test, 'Test', 'Ready to work.')
-    expect(test.controller.snapshot().suggestion).toBe('Ready to work.')
-    expect(await test.controller.handleKey('tab')).toBe(true)
-    expect(test.controller.snapshot().input).toBe('Ready to work.')
     expect(test.controller.snapshot().suggestion).toBeUndefined()
+    expect(test.controller.snapshot().input).toBe('')
+    expect(await test.controller.handleKey('tab')).toBe(true)
+    expect(test.controller.snapshot().input).toBe('')
     await test.ctx.fiber.dispose()
   })
 
-  it('keeps a fallback when the stream text is empty', async () => {
+  it('keeps Ask DSH when the stream text is empty', async () => {
     const test = await mount(() => textStream('   '))
     completeTurn(test, 'Test', 'Ready to work.')
-    expect(test.controller.snapshot().suggestion).toBe('Ready to work.')
-    await vi.waitFor(() => {
-      expect(test.controller.snapshot().suggestion).toBe('Ready to work.')
-    })
-    expect(await test.controller.handleKey('tab')).toBe(true)
-    expect(test.controller.snapshot().input).toBe('Ready to work.')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(test.controller.snapshot().suggestion).toBeUndefined()
+    expect(test.controller.snapshot().input).toBe('')
     await test.ctx.fiber.dispose()
   })
 
-  it('replaces the fallback when a successful stream returns a suggestion', async () => {
+  it('shows an LLM follow-up ghost without first copying the assistant reply', async () => {
     let release: ((text: string) => void) | undefined
     const pending = new Promise<string>((resolve) => { release = resolve })
     const test = await mount(async function* () {
@@ -343,7 +343,7 @@ describe('suggested next prompt', () => {
       yield { type: 'text-delta', index: 0, text }
     })
     completeTurn(test, 'Test', 'Ready to work.')
-    expect(test.controller.snapshot().suggestion).toBe('Ready to work.')
+    expect(test.controller.snapshot().suggestion).toBeUndefined()
     release?.('Add unit tests next')
     await vi.waitFor(() => {
       expect(test.controller.snapshot().suggestion).toBe('Add unit tests next')
@@ -351,7 +351,7 @@ describe('suggested next prompt', () => {
     await test.ctx.fiber.dispose()
   })
 
-  it('keeps the fallback when the stream times out or is aborted', async () => {
+  it('leaves Ask DSH when the stream times out or is aborted', async () => {
     const signals: AbortSignal[] = []
     const test = await mount(async function* (options) {
       if (options.signal !== undefined) signals.push(options.signal)
@@ -367,16 +367,15 @@ describe('suggested next prompt', () => {
     vi.useFakeTimers()
     try {
       completeTurn(test, 'Test', 'Ready to work.')
-      expect(test.controller.snapshot().suggestion).toBe('Ready to work.')
+      expect(test.controller.snapshot().suggestion).toBeUndefined()
       expect(signals[0]?.aborted).toBe(false)
       await vi.advanceTimersByTimeAsync(SUGGESTION_TIMEOUT_MS)
       expect(signals[0]?.aborted).toBe(true)
-      expect(test.controller.snapshot().suggestion).toBe('Ready to work.')
+      expect(test.controller.snapshot().suggestion).toBeUndefined()
+      expect(test.controller.snapshot().input).toBe('')
     } finally {
       vi.useRealTimers()
     }
-    expect(await test.controller.handleKey('tab')).toBe(true)
-    expect(test.controller.snapshot().input).toBe('Ready to work.')
     await test.ctx.fiber.dispose()
   })
 })
@@ -924,6 +923,20 @@ describe('TUI Esc Esc rewind', () => {
     expect(await test.controller.handleKey('escape')).toBe(true)
     expect(test.controller.snapshot().input).toBe('keep me')
     vi.useRealTimers()
+    await test.ctx.fiber.dispose()
+  })
+
+  it('restores the last prompt after an idle finished turn even when a ghost is showing', async () => {
+    const test = await mount()
+    await test.controller.submit('sayhi')
+    completeTurn(test, 'sayhi', 'Hi! I am your coding agent for the')
+    test.controller.dispatch({ type: 'set-suggestion', suggestion: 'Hi! I am your coding agent for the' })
+    expect(test.controller.snapshot().input).toBe('')
+    expect(await test.controller.handleKey('escape')).toBe(true)
+    expect(test.controller.snapshot().suggestion).toBeUndefined()
+    expect(test.controller.snapshot().input).toBe('')
+    expect(await test.controller.handleKey('escape')).toBe(true)
+    expect(test.controller.snapshot().input).toBe('sayhi')
     await test.ctx.fiber.dispose()
   })
 })
