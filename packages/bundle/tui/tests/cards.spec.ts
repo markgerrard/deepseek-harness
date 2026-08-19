@@ -161,4 +161,32 @@ describe('pre-wrap width matches estimateCardHeight', () => {
       expect(cells).toBeLessThanOrEqual(width)
     }
   })
+
+  it('renders a lavender workflow card and expands members', () => {
+    const collapsed = renderCard({
+      kind: 'workflow',
+      id: 'workflow:run-1',
+      seq: 1,
+      runId: 'run-1',
+      name: 'review',
+      status: 'running',
+      expanded: false,
+      members: [{ seq: 1, label: 'researcher', phase: 'scan', status: 'running' }],
+    }, 40)
+    expect(collapsed.text).toContain('workflow: review')
+    expect(collapsed.segments.some(segment => segment.tone === 'tool' && segment.text.includes('workflow'))).toBe(true)
+    expect(collapsed.text).toContain('1 member')
+    expect(collapsed.text).not.toContain('researcher')
+    const expanded = renderCard({
+      kind: 'workflow',
+      id: 'workflow:run-1',
+      seq: 1,
+      runId: 'run-1',
+      name: 'review',
+      status: 'success',
+      expanded: true,
+      members: [{ seq: 1, label: 'researcher', phase: 'scan', status: 'success' }],
+    }, 40)
+    expect(expanded.text).toContain('researcher · scan  success')
+  })
 })

@@ -718,3 +718,25 @@ describe('TUI compact command', () => {
     await test.ctx.fiber.dispose()
   })
 })
+
+describe('TUI agents command', () => {
+  it('opens an agents overlay from ctx.subagents.listChildren', async () => {
+    const test = await mount()
+    test.ctx.provide('subagents', {
+      listChildren: async () => [
+        { kind: 'child', id: 'child-1', mode: 'continuable', label: 'researcher' },
+        { kind: 'child', id: 'child-2', mode: 'one-shot', label: 'writer' },
+        { kind: 'diagnostic', id: 'child-3', reason: 'corrupt' },
+      ],
+    } as never)
+    await test.controller.submit('/agents')
+    expect(test.controller.snapshot().overlay).toEqual({ kind: 'agents', selected: 0 })
+    expect(test.controller.snapshot().agents).toEqual([
+      { id: 'child-1', name: 'researcher', mode: 'continuable', status: 'ready' },
+      { id: 'child-2', name: 'writer', mode: 'one-shot', status: 'ready' },
+    ])
+    await test.controller.confirmOverlay()
+    expect(test.controller.snapshot().overlay).toEqual({ kind: 'none' })
+    await test.ctx.fiber.dispose()
+  })
+})

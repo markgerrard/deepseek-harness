@@ -355,6 +355,25 @@ export function renderCard(item: TranscriptItem, width: number): RenderedCard {
         item.kind,
         prefixedLines(`${ICONS.check} `, 'success', item.text, 'fg', wrapWidth),
       )
+    case 'workflow': {
+      const mark = item.status === 'success' ? ICONS.toolSuccess
+        : item.status === 'error' ? ICONS.toolError
+          : ICONS.toolPending
+      const title = `workflow: ${item.name}`
+      const lines = prefixedLines(`${mark} `, toolMarkTone(item.status), title, 'tool', wrapWidth)
+      const summary = `${item.members.length} member${item.members.length === 1 ? '' : 's'}`
+      lines.push(...prefixedLines('  ', 'muted', summary, 'muted', wrapWidth))
+      if (item.expanded) {
+        const body = item.members.length === 0
+          ? 'no members yet'
+          : item.members.map(member => {
+            const phase = member.phase === undefined ? '' : ` · ${member.phase}`
+            return `${member.label}${phase}  ${member.status}`
+          }).join('\n')
+        lines.push(...bodyLines(body, 'muted', wrapWidth))
+      }
+      return cardFromLines(item.id, item.kind, lines)
+    }
     default: {
       const _exhaustive: never = item
       return _exhaustive

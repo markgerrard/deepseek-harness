@@ -12,6 +12,8 @@ import {
   connectProviderLines,
   formatQueuedLine,
   formatCostLines,
+  formatAgentsLine,
+  agentLines,
   formatSteerLine,
   helpLines,
   renderApprovalDialog,
@@ -261,9 +263,14 @@ export function App(props: AppProps): React.ReactElement {
       }
       if (input === ' ' && state.focus === 'chat' && state.overlay.kind === 'none') {
         const items = controller.transcript()
-        const last = [...items].reverse().find(item => item.kind === 'tool' || item.kind === 'reasoning')
-        if (last !== undefined && (last.kind === 'tool' || last.kind === 'reasoning')) {
-          controller.dispatch({ type: 'toggle-expand', id: last.id, target: last.kind === 'tool' ? 'tools' : 'reasoning' })
+        const last = [...items].reverse().find(item =>
+          item.kind === 'tool' || item.kind === 'reasoning' || item.kind === 'workflow')
+        if (last !== undefined && (last.kind === 'tool' || last.kind === 'reasoning' || last.kind === 'workflow')) {
+          controller.dispatch({
+            type: 'toggle-expand',
+            id: last.id,
+            target: last.kind === 'tool' ? 'tools' : last.kind === 'reasoning' ? 'reasoning' : 'workflows',
+          })
         }
         return
       }
@@ -306,7 +313,8 @@ export function App(props: AppProps): React.ReactElement {
       trailingClock = formatDoneLine(last.clock.ms, last.clock.verb)
     }
     const chromeLinePreview = workingLine ?? trailingClock
-    const inboxCount = state.steering.length + state.queued.length
+    const runningPreview = state.agents.filter(agent => agent.status === 'running').length
+    const inboxCount = state.steering.length + state.queued.length + (runningPreview > 0 ? 1 : 0)
     const transcriptHeight = layout.main.height - inboxCount - (chromeLinePreview === undefined ? 0 : 1 + TRANSCRIPT_PROMPT_GAP)
     const paintWidth = cardWrapWidth(mainWidth)
     const pin = pinTranscriptToBottom(cardRows, paintWidth, transcriptHeight)
@@ -333,15 +341,20 @@ export function App(props: AppProps): React.ReactElement {
   const chromeLine = workingLine ?? trailingClock
   const chromeColor = workingLine === undefined ? COLORS.muted : COLORS.brand
   const queuedWidth = Math.max(1, mainWidth - 2)
+  const runningAgents = state.agents.filter(agent => agent.status === 'running').length
+  const agentsLine = runningAgents > 0 ? formatAgentsLine(state.agents.length, runningAgents) : undefined
   const steerLines = state.steering.map((item, index) => formatSteerLine(index + 1, item.text, queuedWidth))
   const queuedLines = state.queued.map((item, index) => formatQueuedLine(index + 1, item.text, queuedWidth))
-  const mainHeight = Math.max(0, layout.main.height - steerLines.length - queuedLines.length - (chromeLine === undefined ? 0 : 1 + TRANSCRIPT_PROMPT_GAP))
+  const inboxChrome = (agentsLine === undefined ? 0 : 1) + steerLines.length + queuedLines.length
+  const mainHeight = Math.max(0, layout.main.height - inboxChrome - (chromeLine === undefined ? 0 : 1 + TRANSCRIPT_PROMPT_GAP))
 
   let overlay: React.ReactNode = null
   if (state.overlay.kind === 'help') {
     overlay = coloredLines(renderOverlay(state.width, 'Shortcuts', helpLines()))
   } else if (state.overlay.kind === 'cost') {
     overlay = coloredLines(renderOverlay(state.width, 'Cost', formatCostLines(state.usedTokens, state.contextWindow)))
+  } else if (state.overlay.kind === 'agents') {
+    overlay = coloredLines(renderOverlay(state.width, 'Agents', agentLines(state.agents), state.overlay.selected))
   } else if (state.overlay.kind === 'quit') {
     overlay = coloredLines(renderQuitDialog(state.width, state.overlay.selectedNope))
   } else if (state.overlay.kind === 'commands') {
@@ -413,6 +426,11 @@ export function App(props: AppProps): React.ReactElement {
       flexShrink: 0,
       justifyContent: overlay === null && transcriptTaller ? 'flex-end' : 'flex-start',
     }, overlay === null ? main : overlay),
+    agentsLine === undefined ? null : React.createElement(
+      Box,
+      { key: 'agents-swarm', height: 1, width: mainWidth, paddingX: 1, flexShrink: 0, flexGrow: 0 },
+      React.createElement(Text, { color: COLORS.muted, wrap: 'truncate' }, agentsLine),
+    ),
     ...steerLines.map((line, index) => React.createElement(
       Box,
       {

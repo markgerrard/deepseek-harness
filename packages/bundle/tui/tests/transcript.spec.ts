@@ -60,7 +60,7 @@ describe('Claude Code-like transcript projection', () => {
         },
         meta: { oldText: 'a', newText: 'b' },
       }),
-    ], { tools: new Set(['tool:c1']), reasoning: new Set() })
+    ], { tools: new Set(['tool:c1']), reasoning: new Set(), workflows: new Set() })
     expect(items[0]).toMatchObject({
       kind: 'tool', callId: 'c1', name: 'bash', status: 'success', expanded: true, result: 'ok',
     })
@@ -70,5 +70,29 @@ describe('Claude Code-like transcript projection', () => {
     const added = toggleId(new Set(), 'x')
     expect(added.has('x')).toBe(true)
     expect(toggleId(added, 'x').has('x')).toBe(false)
+  })
+
+  it('projects a workflow run from start through members to run-end', () => {
+    const items = projectTranscript([
+      event('tool-workflow/run-start', 1, { runId: 'run-1', name: 'review' }),
+      event('tool-workflow/agent-start', 2, { runId: 'run-1', seq: 1, label: 'researcher', phase: 'scan', childId: 'child-1' }),
+      event('tool-workflow/agent-end', 3, { runId: 'run-1', seq: 1, outcome: 'completed' }),
+      event('tool-workflow/agent-start', 4, { runId: 'run-1', seq: 2, label: 'writer', childId: 'child-2' }),
+      event('tool-workflow/agent-end', 5, { runId: 'run-1', seq: 2, outcome: 'failed' }),
+      event('tool-workflow/run-end', 6, { runId: 'run-1', stopReason: 'error' }),
+    ], { tools: new Set(), reasoning: new Set(), workflows: new Set(['workflow:run-1']) })
+    expect(items).toEqual([{
+      kind: 'workflow',
+      id: 'workflow:run-1',
+      seq: 1,
+      runId: 'run-1',
+      name: 'review',
+      status: 'error',
+      expanded: true,
+      members: [
+        { seq: 1, label: 'researcher', phase: 'scan', status: 'success' },
+        { seq: 2, label: 'writer', status: 'error' },
+      ],
+    }])
   })
 })

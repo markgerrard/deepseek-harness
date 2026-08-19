@@ -30,6 +30,7 @@ export type Overlay =
   | { readonly kind: 'sessions'; readonly selected: number }
   | { readonly kind: 'help' }
   | { readonly kind: 'cost' }
+  | { readonly kind: 'agents'; readonly selected: number }
   | { readonly kind: 'quit'; readonly selectedNope: boolean }
   | { readonly kind: 'connect-provider'; readonly selected: number }
   | {
@@ -85,6 +86,14 @@ export interface TurnClock {
   readonly verb: string
 }
 
+/** One subagent row for the /agents overlay. */
+export interface AgentRow {
+  readonly id: string
+  readonly name: string
+  readonly mode: string
+  readonly status: 'running' | 'idle' | 'ready'
+}
+
 /** Model row for the models dialog. */
 export interface ModelRow {
   readonly provider: string
@@ -106,6 +115,7 @@ export interface TuiState {
   readonly expansion: TranscriptExpansion
   readonly sessions: readonly SessionRow[]
   readonly models: readonly ModelRow[]
+  readonly agents: readonly AgentRow[]
   readonly connectProviders: readonly ConnectProviderRow[]
   readonly sessionId?: string
   readonly title?: string
@@ -157,9 +167,10 @@ export type TuiAction =
   | { readonly type: 'set-connect-error'; readonly error?: string }
   | { readonly type: 'set-connect-providers'; readonly connectProviders: readonly ConnectProviderRow[] }
   | { readonly type: 'set-focus'; readonly focus: Focus }
-  | { readonly type: 'toggle-expand'; readonly id: string; readonly target: 'tools' | 'reasoning' }
+  | { readonly type: 'toggle-expand'; readonly id: string; readonly target: 'tools' | 'reasoning' | 'workflows' }
   | { readonly type: 'set-sessions'; readonly sessions: readonly SessionRow[] }
   | { readonly type: 'set-models'; readonly models: readonly ModelRow[] }
+  | { readonly type: 'set-agents'; readonly agents: readonly AgentRow[] }
   | { readonly type: 'set-session'; readonly sessionId: string; readonly title?: string }
   | { readonly type: 'set-model'; readonly provider: string; readonly model: string }
   | { readonly type: 'set-tokens'; readonly usedTokens?: number; readonly contextWindow?: number }
@@ -198,9 +209,10 @@ export function initialState(seed: {
     cursor: 0,
     width: seed.width,
     height: seed.height,
-    expansion: { tools: new Set(), reasoning: new Set() },
+    expansion: { tools: new Set(), reasoning: new Set(), workflows: new Set() },
     sessions: [],
     models: [],
+    agents: [],
     connectProviders: [],
     provider: seed.provider,
     model: seed.model,
@@ -270,6 +282,7 @@ export function resolveQuitKey(
 function isListOverlay(kind: Overlay['kind']): boolean {
   return kind === 'commands' || kind === 'models' || kind === 'sessions'
     || kind === 'connect-provider' || kind === 'approval' || kind === 'question'
+    || kind === 'agents'
 }
 
 /**
@@ -321,9 +334,10 @@ export function reduce(state: TuiState, action: TuiAction): TuiState {
       const length = overlay.kind === 'models' ? state.models.length
         : overlay.kind === 'sessions' ? state.sessions.length
           : overlay.kind === 'connect-provider' ? state.connectProviders.length
-            : overlay.kind === 'approval' ? 2
-              : overlay.kind === 'commands' ? state.paletteLength
-                : 0
+            : overlay.kind === 'agents' ? state.agents.length
+              : overlay.kind === 'approval' ? 2
+                : overlay.kind === 'commands' ? state.paletteLength
+                  : 0
       return { ...state, overlay: { ...overlay, selected: moveSelection(overlay.selected, length, action.delta) } }
     }
     case 'toggle-quit':
@@ -345,19 +359,23 @@ export function reduce(state: TuiState, action: TuiAction): TuiState {
     case 'set-focus':
       return { ...state, focus: action.focus }
     case 'toggle-expand': {
-      const current = action.target === 'tools' ? state.expansion.tools : state.expansion.reasoning
+      const current = action.target === 'tools' ? state.expansion.tools
+        : action.target === 'reasoning' ? state.expansion.reasoning
+          : state.expansion.workflows
       const next = toggleId(current, action.id)
       return {
         ...state,
-        expansion: action.target === 'tools'
-          ? { ...state.expansion, tools: next }
-          : { ...state.expansion, reasoning: next },
+        expansion: action.target === 'tools' ? { ...state.expansion, tools: next }
+          : action.target === 'reasoning' ? { ...state.expansion, reasoning: next }
+            : { ...state.expansion, workflows: next },
       }
     }
     case 'set-sessions':
       return { ...state, sessions: action.sessions }
     case 'set-models':
       return { ...state, models: action.models }
+    case 'set-agents':
+      return { ...state, agents: action.agents }
     case 'set-session':
       return {
         ...state,
@@ -451,7 +469,7 @@ export function reduce(state: TuiState, action: TuiAction): TuiState {
         ...rest,
         screen: state.screen === 'onboarding' ? 'onboarding' : 'landing',
         turnClocks: [],
-        expansion: { tools: new Set(), reasoning: new Set() },
+        expansion: { tools: new Set(), reasoning: new Set(), workflows: new Set() },
         overlay: { kind: 'none' },
         clearedSeq: action.seq,
       }

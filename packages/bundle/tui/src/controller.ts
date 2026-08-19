@@ -38,6 +38,7 @@ import {
   initialState,
   reduce,
   resolveQuitKey,
+  type AgentRow,
   type ModelRow,
   type Overlay,
   type SessionRow,
@@ -467,6 +468,10 @@ export class TuiController {
         this.dispatch({ type: 'close-overlay' })
         return
       }
+      case 'agents':
+        // Stub: steering a specific child is a later follow-up.
+        this.dispatch({ type: 'close-overlay' })
+        return
       default: {
         const _exhaustive: never = overlay
         return _exhaustive
@@ -555,6 +560,7 @@ export class TuiController {
     const offStatus = this.ctx.on('agent/status', ({ agent: next, status }) => {
       if (next.id !== agent.id) return
       this.dispatch({ type: 'set-busy', busy: status === 'running' })
+      void this.refreshAgents()
       if (status !== 'running') {
         this.refreshTokens()
         this.maybeRequestSuggestion()
@@ -576,6 +582,24 @@ export class TuiController {
     }
     this.dispatch({ type: 'set-busy', busy: agent.status === 'running' })
     this.refreshQueued()
+    void this.refreshAgents()
+    const onKids = (): void => { void this.refreshAgents() }
+    const listen = (name: string, fn: () => void): (() => void) =>
+      (this.ctx.on as (event: string, listener: () => void) => unknown)(name, fn) as () => void
+    let offChildStart = (): void => {}
+    let offChildEnd = (): void => {}
+    try {
+      offChildStart = listen('subagent/start', onKids)
+      offChildEnd = listen('subagent/end', onKids)
+    } catch {
+      // Subagent plugin not mounted; swarm chrome stays empty until /agents.
+    }
+    const prevDispose = this.eventDisposer
+    this.eventDisposer = () => {
+      prevDispose?.()
+      offChildStart()
+      offChildEnd()
+    }
   }
 
   private async disposeHandle(): Promise<void> {
@@ -587,6 +611,7 @@ export class TuiController {
     this.handle = undefined
     this.events = []
     this.dispatch({ type: 'set-queued', queued: [], steering: [] })
+    this.dispatch({ type: 'set-agents', agents: [] })
     this.dispatch({ type: 'clear-history' })
     if (existing === undefined) return
     existing.agent.cancel({ kind: 'user' })
@@ -630,6 +655,10 @@ export class TuiController {
       case 'cost':
         this.refreshTokens()
         this.dispatch({ type: 'open-overlay', overlay: { kind: 'cost' } })
+        return
+      case 'agents':
+        await this.refreshAgents()
+        this.dispatch({ type: 'open-overlay', overlay: { kind: 'agents', selected: 0 } })
         return
       case 'quit':
         this.dispatch({ type: 'open-overlay', overlay: { kind: 'quit', selectedNope: true } })
@@ -816,6 +845,40 @@ export class TuiController {
         })
       },
     })
+  }
+
+  /**
+   * List direct children through `ctx.subagents.listChildren` and refine status
+   * from the live Agent registry (running / idle / ready).
+   */
+  private async refreshAgents(): Promise<void> {
+    const agent = this.agent()
+    const subagents = (this.ctx.get as (name: string) => {
+      listChildren(id: string): Promise<readonly unknown[]>
+    } | undefined)('subagents')
+    if (agent === undefined || subagents === undefined) {
+      this.dispatch({ type: 'set-agents', agents: [] })
+      return
+    }
+    try {
+      const entries = await subagents.listChildren(agent.id)
+      const agents: AgentRow[] = []
+      for (const entry of entries) {
+        if (entry === null || typeof entry !== 'object') continue
+        const row = entry as { kind?: string; id?: string; mode?: string; label?: string }
+        if (row.kind !== 'child' || typeof row.id !== 'string') continue
+        const live = this.ctx.agents.get(row.id as Agent['id'])
+        agents.push({
+          id: row.id,
+          name: row.label ?? row.id,
+          mode: typeof row.mode === 'string' ? row.mode : 'one-shot',
+          status: live === undefined ? 'ready' : live.status === 'running' ? 'running' : 'idle',
+        })
+      }
+      this.dispatch({ type: 'set-agents', agents })
+    } catch {
+      this.dispatch({ type: 'set-agents', agents: [] })
+    }
   }
 
   /**

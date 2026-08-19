@@ -166,3 +166,26 @@ describe('visual clear and cost overlay', () => {
     expect(cleared.history).toEqual(idle.history)
   })
 })
+
+describe('workflow expansion and agents overlay', () => {
+  it('toggles workflow expansion separately from tools', () => {
+    const idle = initialState(seed)
+    const opened = reduce(idle, { type: 'toggle-expand', id: 'workflow:run-1', target: 'workflows' })
+    expect(opened.expansion.workflows.has('workflow:run-1')).toBe(true)
+    expect(opened.expansion.tools.size).toBe(0)
+    const closed = reduce(opened, { type: 'toggle-expand', id: 'workflow:run-1', target: 'workflows' })
+    expect(closed.expansion.workflows.has('workflow:run-1')).toBe(false)
+  })
+
+  it('moves the agents overlay using listed children', () => {
+    const seeded = reduce(initialState(seed), {
+      type: 'set-agents',
+      agents: [
+        { id: 'a', name: 'researcher', mode: 'continuable', status: 'running' },
+        { id: 'b', name: 'writer', mode: 'one-shot', status: 'ready' },
+      ],
+    })
+    const opened = reduce(seeded, { type: 'open-overlay', overlay: { kind: 'agents', selected: 0 } })
+    expect(reduce(opened, { type: 'move-overlay', delta: 1 }).overlay).toEqual({ kind: 'agents', selected: 1 })
+  })
+})

@@ -307,11 +307,12 @@ export function helpLines(): readonly string[] {
     'ctrl+j  newline',
     'esc     cancel / close',
     'tab     change focus',
-    'space   expand tool / reasoning (chat focus)',
+    'space   expand tool / reasoning / workflow (chat focus)',
     '/connect  paste a provider API key',
     '/clear  new visual transcript',
     '/compact  compact session history',
     '/cost   token occupancy',
+    '/agents  list subagents',
     '/help   command list',
   ]
 }
@@ -374,4 +375,24 @@ export function formatCostLines(used: number | undefined, window: number | undef
     return [`${used} / ${window} tokens`, `${pct}% of context`]
   }
   return [`${used} tokens`]
+}
+
+/**
+ * Compact swarm status above the prompt when any child is running.
+ * @param total - listed child count.
+ * @param running - children whose live status is running.
+ * @returns `agents 3  ·  1 running`.
+ */
+export function formatAgentsLine(total: number, running: number): string {
+  return `agents ${total}  ·  ${running} running`
+}
+
+/**
+ * Overlay rows for `/agents`.
+ * @param agents - listed children.
+ * @returns display lines.
+ */
+export function agentLines(agents: readonly { readonly name: string; readonly mode: string; readonly status: string }[]): readonly string[] {
+  if (agents.length === 0) return ['No subagents.']
+  return agents.map(agent => `${agent.name}  ${agent.mode}  ${agent.status}`)
 }

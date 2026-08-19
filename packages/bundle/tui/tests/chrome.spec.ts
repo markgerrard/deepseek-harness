@@ -3,6 +3,8 @@ import {
   formatNumberedOption,
   formatQueuedLine,
   formatCostLines,
+  formatAgentsLine,
+  agentLines,
   formatSteerLine,
   helpLines,
   renderApprovalDialog,
@@ -84,6 +86,7 @@ describe('Claude Code-like chrome strings', () => {
     expect(helpLines().some(line => line.includes('reverse search history'))).toBe(true)
     expect(helpLines().some(line => line.includes('/clear'))).toBe(true)
     expect(helpLines().some(line => line.includes('/cost'))).toBe(true)
+    expect(helpLines().some(line => line.includes('/agents'))).toBe(true)
     expect(formatCostLines(undefined, 128000)).toEqual(['No token measurement yet.'])
     expect(formatCostLines(1280, 128000)).toEqual(['1280 / 128000 tokens', '1% of context'])
     expect(formatCostLines(42, undefined)).toEqual(['42 tokens'])
@@ -91,6 +94,9 @@ describe('Claude Code-like chrome strings', () => {
     expect(formatQueuedLine(2, 'a very long follow-up prompt', 18)).toBe('queued 2  a very …')
     expect(formatSteerLine(1, 'stop rewriting', 40)).toBe('steer 1  stop rewriting')
     expect(formatSteerLine(2, 'a very long steer prompt', 18)).toBe('steer 2  a very l…')
+    expect(formatAgentsLine(3, 1)).toBe('agents 3  ·  1 running')
+    expect(agentLines([])).toEqual(['No subagents.'])
+    expect(agentLines([{ name: 'researcher', mode: 'continuable', status: 'running' }])).toEqual(['researcher  continuable  running'])
     expect(formatNumberedOption(2, 'No', 2)).toContain(`${ICONS.selector} 3. No`)
   })
 

@@ -6,6 +6,7 @@
 
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-tool-workflow/types'
 
 /** Tool-card lifecycle. */
 export type ToolCardStatus = 'running' | 'success' | 'error' | 'awaiting'
@@ -51,11 +52,30 @@ export type TranscriptItem =
     readonly seq: number
     readonly text: string
   }
+  | {
+    readonly kind: 'workflow'
+    readonly id: string
+    readonly seq: number
+    readonly runId: string
+    readonly name: string
+    readonly status: 'running' | 'success' | 'error'
+    readonly members: readonly WorkflowMember[]
+    readonly expanded: boolean
+  }
+
+/** One workflow member projected from tool-workflow agent events. */
+export interface WorkflowMember {
+  readonly seq: number
+  readonly label: string
+  readonly phase?: string
+  readonly status: 'running' | 'success' | 'error'
+}
 
 /** Expansion sets owned by the TUI, keyed by item id. */
 export interface TranscriptExpansion {
   readonly tools: ReadonlySet<string>
   readonly reasoning: ReadonlySet<string>
+  readonly workflows: ReadonlySet<string>
 }
 
 /**
@@ -123,11 +143,12 @@ function applyChunk(
  */
 export function projectTranscript(
   events: readonly SessionEvent[],
-  expansion: TranscriptExpansion = { tools: new Set(), reasoning: new Set() },
+  expansion: TranscriptExpansion = { tools: new Set(), reasoning: new Set(), workflows: new Set() },
 ): TranscriptItem[] {
   const items: TranscriptItem[] = []
   let chunkBuffers = new Map<number, { text: string; reasoning: string }>()
   const openTools = new Map<string, TranscriptItem & { kind: 'tool' }>()
+  const openWorkflows = new Map<string, TranscriptItem & { kind: 'workflow' }>()
   let streamingTurn: { turn: number; step: number } | undefined
 
   for (const event of events) {
@@ -218,6 +239,66 @@ export function projectTranscript(
         openTools.set(callId, card)
         break
       }
+      case 'tool-workflow/run-start': {
+        const id = `workflow:${event.data.runId}`
+        const card: TranscriptItem & { kind: 'workflow' } = {
+          kind: 'workflow',
+          id,
+          seq: event.seq,
+          runId: event.data.runId,
+          name: event.data.name,
+          status: 'running',
+          members: [],
+          expanded: expansion.workflows.has(id),
+        }
+        openWorkflows.set(event.data.runId, card)
+        items.push(card)
+        break
+      }
+      case 'tool-workflow/agent-start': {
+        const prior = openWorkflows.get(event.data.runId)
+        if (prior === undefined) break
+        const card: TranscriptItem & { kind: 'workflow' } = {
+          ...prior,
+          members: [...prior.members, {
+            seq: event.data.seq,
+            label: event.data.label,
+            ...(event.data.phase === undefined ? {} : { phase: event.data.phase }),
+            status: 'running',
+          }],
+          expanded: expansion.workflows.has(prior.id),
+        }
+        replaceItem(items, prior, card)
+        openWorkflows.set(event.data.runId, card)
+        break
+      }
+      case 'tool-workflow/agent-end': {
+        const prior = openWorkflows.get(event.data.runId)
+        if (prior === undefined) break
+        const memberStatus = event.data.outcome === 'completed' ? 'success' : 'error'
+        const card: TranscriptItem & { kind: 'workflow' } = {
+          ...prior,
+          members: prior.members.map(member => member.seq === event.data.seq
+            ? { ...member, status: memberStatus }
+            : member),
+          expanded: expansion.workflows.has(prior.id),
+        }
+        replaceItem(items, prior, card)
+        openWorkflows.set(event.data.runId, card)
+        break
+      }
+      case 'tool-workflow/run-end': {
+        const prior = openWorkflows.get(event.data.runId)
+        if (prior === undefined) break
+        const card: TranscriptItem & { kind: 'workflow' } = {
+          ...prior,
+          status: event.data.stopReason === 'completed' ? 'success' : 'error',
+          expanded: expansion.workflows.has(prior.id),
+        }
+        replaceItem(items, prior, card)
+        openWorkflows.set(event.data.runId, card)
+        break
+      }
       case 'command/done': {
         const text = event.data.text
         if (typeof text === 'string' && text.trim() !== '') {
@@ -259,6 +340,16 @@ export function projectTranscript(
     }
   }
   return items
+}
+
+/** Replace a projected card in place when a later event updates it. */
+function replaceItem(
+  items: TranscriptItem[],
+  prior: TranscriptItem,
+  next: TranscriptItem,
+): void {
+  const index = items.lastIndexOf(prior)
+  if (index >= 0) items[index] = next
 }
 
 /**
