@@ -8,6 +8,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { resolve } from 'node:path'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
+import type AgentPresets from '@deepseek-ai/dsh-agent-presets'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { carrierKeyOf, type Scoped } from '@deepseek-ai/dsh-scope'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -18,6 +19,9 @@ import type {
   InitializeParams,
   InitializeResult,
   JsonRpcTransportPeer,
+  PresetCopyParams,
+  PresetListResult,
+  PresetSetPersonaParams,
   SdkPermissionOutcome,
   SessionCancelParams,
   SessionEventNotification,
@@ -375,6 +379,38 @@ export class HarnessSdkJsonRpcServer {
     return {}
   }
 
+  private requirePresets(): AgentPresets {
+    const presets = this.ctx.get('agentPresets')
+    if (presets === undefined) throw new Error('agent-presets is not composed')
+    return presets
+  }
+
+  private async listPresets(): Promise<PresetListResult> {
+    const presets = await this.requirePresets().list()
+    return {
+      presets: presets.map(({ id, trust, name, description, broken }) => ({
+        id,
+        trust,
+        ...name === undefined ? {} : { name },
+        ...description === undefined ? {} : { description },
+        ...broken === undefined ? {} : { broken },
+      })),
+    }
+  }
+
+  private async copyPreset(params: PresetCopyParams): Promise<Record<string, never>> {
+    await this.requirePresets().copy(params.from, params.id, params.name)
+    return {}
+  }
+
+  private async setPersona(params: PresetSetPersonaParams): Promise<Record<string, never>> {
+    if (typeof params?.text !== 'string') {
+      throw new TypeError('presets/setPersona text must be a string')
+    }
+    await this.requirePresets().setPersona(params.id, params.text)
+    return {}
+  }
+
   /**
    * Dispatch one incoming JSON-RPC request to its typed handler. Throws (→ a
    * JSON-RPC error response) on an unknown method.
@@ -386,6 +422,12 @@ export class HarnessSdkJsonRpcServer {
     switch (method) {
       case 'initialize':
         return this.initialize(params as unknown as InitializeParams)
+      case 'presets/list':
+        return this.listPresets()
+      case 'presets/copy':
+        return this.copyPreset(params as unknown as PresetCopyParams)
+      case 'presets/setPersona':
+        return this.setPersona(params as unknown as PresetSetPersonaParams)
       case 'session/prompt':
         return this.prompt(params as unknown as SessionPromptParams)
       case 'session/cancel':

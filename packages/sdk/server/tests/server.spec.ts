@@ -2316,4 +2316,100 @@ describe('HarnessSdkJsonRpcServer', () => {
     await expect(server.shutdown()).rejects.toBe(listenerFailure)
     expect(on).toHaveBeenCalledTimes(5)
   })
+
+  it('lists, copies, and sets persona through JSON-RPC', async () => {
+    const list = vi.fn(async () => [
+      { id: 'code', trust: 'system' as const, path: '/presets/code', name: 'Code Preset', description: 'For coding' },
+      { id: 'custom', trust: 'user' as const, path: '/presets/custom', broken: 'broken yaml' },
+    ])
+    const copy = vi.fn(async () => undefined)
+    const setPersona = vi.fn(async () => undefined)
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: { create: vi.fn(), get: vi.fn() },
+      get: (key: string) => key === 'agentPresets'
+        ? { list, copy, setPersona }
+        : { listProviders: () => [{ id: 'mock' }] },
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+    await server.handleRequest('initialize', { cwd: '/tmp', provider: 'mock', model: 'm' })
+
+    const listed = await server.handleRequest('presets/list', {})
+    expect(listed).toEqual({
+      presets: [
+        { id: 'code', trust: 'system', name: 'Code Preset', description: 'For coding' },
+        { id: 'custom', trust: 'user', broken: 'broken yaml' },
+      ],
+    })
+    expect(list).toHaveBeenCalledOnce()
+
+    const copied = await server.handleRequest('presets/copy', { from: 'code', id: 'bot-a', name: 'A' })
+    expect(copied).toEqual({})
+    expect(copy).toHaveBeenCalledWith('code', 'bot-a', 'A')
+
+    const personaSet = await server.handleRequest('presets/setPersona', { id: 'bot-a', text: 'job' })
+    expect(personaSet).toEqual({})
+    expect(setPersona).toHaveBeenCalledWith('bot-a', 'job')
+    await server.shutdown()
+  })
+
+  it('rejects setPersona when text is not a string without calling setPersona', async () => {
+    const setPersona = vi.fn(async () => undefined)
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: { create: vi.fn(), get: vi.fn() },
+      get: (key: string) => key === 'agentPresets'
+        ? { setPersona }
+        : { listProviders: () => [{ id: 'mock' }] },
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    await expect(server.handleRequest('presets/setPersona', { id: 'bot-a', text: { yaml: true } as unknown as string }))
+      .rejects.toThrow(/text/)
+    await expect(server.handleRequest('presets/setPersona', { id: 'bot-a', text: 123 as unknown as string }))
+      .rejects.toThrow(/text/)
+    await expect(server.handleRequest('presets/setPersona', { id: 'bot-a' } as unknown as { id: string; text: string }))
+      .rejects.toThrow(/text/)
+    expect(setPersona).not.toHaveBeenCalled()
+    await server.shutdown()
+  })
+
+  it('throws when agentPresets service is not composed', async () => {
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: { create: vi.fn(), get: vi.fn() },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    await expect(server.handleRequest('presets/list', {}))
+      .rejects.toThrow('agent-presets is not composed')
+    await expect(server.handleRequest('presets/copy', { from: 'code', id: 'bot-a' }))
+      .rejects.toThrow('agent-presets is not composed')
+    await expect(server.handleRequest('presets/setPersona', { id: 'bot-a', text: 'job' }))
+      .rejects.toThrow('agent-presets is not composed')
+    await server.shutdown()
+  })
+
+  it('relays errors thrown by agentPresets service methods', async () => {
+    const list = vi.fn(async () => { throw new Error('filesystem read failed') })
+    const copy = vi.fn(async () => { throw new Error('preset already exists: bot-a') })
+    const setPersona = vi.fn(async () => { throw new Error('preset is not writable: standard') })
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: { create: vi.fn(), get: vi.fn() },
+      get: (key: string) => key === 'agentPresets'
+        ? { list, copy, setPersona }
+        : { listProviders: () => [{ id: 'mock' }] },
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    await expect(server.handleRequest('presets/list', {}))
+      .rejects.toThrow('filesystem read failed')
+    await expect(server.handleRequest('presets/copy', { from: 'code', id: 'bot-a' }))
+      .rejects.toThrow('preset already exists: bot-a')
+    await expect(server.handleRequest('presets/setPersona', { id: 'standard', text: 'job' }))
+      .rejects.toThrow('preset is not writable: standard')
+    await server.shutdown()
+  })
 })
