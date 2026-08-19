@@ -46,10 +46,23 @@ export function renderSidebar(
   return [heading, cwd, model].join('\n')
 }
 
-/** One splash-art line plus whether it is whale body or spray/eye accent. */
-export interface WhaleLine {
+/** Per-glyph tone inside one landing-whale row. */
+export type WhaleTone = 'spray' | 'body' | 'belly' | 'eye' | 'water' | 'accent'
+
+/** One coloured run inside a whale row. */
+export interface WhaleSegment {
   readonly text: string
-  readonly tone: 'body' | 'accent'
+  readonly tone: WhaleTone
+}
+
+/** One splash-art row: mixed tones, plus joined `text` for string renderers. */
+export interface WhaleLine {
+  readonly segments: readonly WhaleSegment[]
+  readonly text: string
+}
+
+function whaleLine(...segments: readonly WhaleSegment[]): WhaleLine {
+  return { segments, text: segments.map(segment => segment.text).join('') }
 }
 
 /**
@@ -59,31 +72,72 @@ export interface WhaleLine {
 export const WHALE_EYE = '(O)'
 
 /**
- * Original DeepSeek-ish whale splash for the empty landing view.
+ * Original side-on whale splash for the empty landing view.
  * Not the official DeepSeek / DSH banner — original composition.
  */
 export const WHALE_ART: readonly WhaleLine[] = [
-  { tone: 'accent', text: "              .  '  ." },
-  { tone: 'body', text: '           __/        \__' },
-  { tone: 'body', text: '      ____/  ^    ^    \___' },
-  { tone: 'accent', text: `     /    .  ${WHALE_EYE}  .      \\` },
-  { tone: 'body', text: '    |   ~~          ~~    )' },
-  { tone: 'accent', text: '     \\    .   ~~~~    .  /' },
-  { tone: 'body', text: "      '--____________--'" },
-  { tone: 'body', text: '           \\/      \\/' },
+  whaleLine(
+    { tone: 'spray', text: '               .  ' },
+    { tone: 'accent', text: '*' },
+    { tone: 'spray', text: '  .' },
+  ),
+  whaleLine({ tone: 'spray', text: '                \\ | /' }),
+  whaleLine({ tone: 'body', text: "      .-----------'  '--." }),
+  whaleLine(
+    { tone: 'body', text: '     /          ' },
+    { tone: 'eye', text: WHALE_EYE },
+    { tone: 'body', text: '      \\' },
+  ),
+  whaleLine(
+    { tone: 'body', text: '    (        ' },
+    { tone: 'belly', text: '.~~~~~~.' },
+    { tone: 'body', text: '     >' },
+  ),
+  whaleLine(
+    { tone: 'body', text: '     \\       ' },
+    { tone: 'belly', text: "'------'" },
+    { tone: 'body', text: '   ./' },
+  ),
+  whaleLine({ tone: 'body', text: "      '--.__________.--'" }),
+  whaleLine(
+    { tone: 'water', text: '       ~   ' },
+    { tone: 'accent', text: '\\/' },
+    { tone: 'water', text: '    ' },
+    { tone: 'accent', text: '\\/' },
+    { tone: 'water', text: '   ~' },
+  ),
 ]
 
 /** Narrow-terminal whale when the full drawing will clip. */
 export const WHALE_ART_COMPACT: readonly WhaleLine[] = [
-  { tone: 'body', text: '   __/o\__' },
-  { tone: 'accent', text: `  /  ${WHALE_EYE}   )` },
-  { tone: 'body', text: "  '--___--'" },
+  whaleLine({ tone: 'spray', text: '    .*.' }),
+  whaleLine(
+    { tone: 'body', text: '  _/' },
+    { tone: 'spray', text: ' | ' },
+    { tone: 'body', text: '\\_' },
+  ),
+  whaleLine(
+    { tone: 'body', text: ' /  ' },
+    { tone: 'eye', text: WHALE_EYE },
+    { tone: 'body', text: '  )' },
+  ),
+  whaleLine(
+    { tone: 'body', text: " '--" },
+    { tone: 'belly', text: '~~~' },
+    { tone: 'body', text: "--'" },
+  ),
+  whaleLine(
+    { tone: 'water', text: ' ~ ' },
+    { tone: 'accent', text: '\\/' },
+    { tone: 'water', text: ' ~' },
+    { tone: 'accent', text: '\\/' },
+  ),
 ]
 
 /**
  * Pick whale splash lines that fit `width`.
  * @param width - landing columns.
- * @returns original whale lines (body + accent).
+ * @returns original whale rows with per-segment tones.
  */
 export function whaleArt(width: number): readonly WhaleLine[] {
   return width < 32 ? WHALE_ART_COMPACT : WHALE_ART

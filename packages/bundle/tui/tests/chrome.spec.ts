@@ -18,7 +18,7 @@ import {
   WHALE_EYE,
   whaleArt,
 } from '../src/chrome.ts'
-import { COLORS, ICONS, PALETTE, PRODUCT_MARK, PRODUCT_NAME } from '../src/theme.ts'
+import { COLORS, ICONS, PALETTE, PRODUCT_MARK, PRODUCT_NAME, WHALE_TONES } from '../src/theme.ts'
 
 const status = {
   provider: 'deepseek',
@@ -48,13 +48,29 @@ describe('Claude Code-like chrome strings', () => {
 
   it('puts an original whale splash above cwd/model/hint on landing', () => {
     const landing = renderLanding(60, status, '/home/mark')
+    expect(WHALE_EYE).toBe('(O)')
     expect(landing).toContain(WHALE_EYE)
     expect(landing.indexOf(WHALE_EYE)).toBeLessThan(landing.indexOf('~/src'))
     expect(landing).not.toContain('Crush')
     const lines = whaleArt(60)
-    expect(lines.some(line => line.tone === 'body')).toBe(true)
-    expect(lines.some(line => line.tone === 'accent')).toBe(true)
+    const tones = new Set(lines.flatMap(line => line.segments.map(segment => segment.tone)))
+    expect(tones.has('body')).toBe(true)
+    expect(tones.has('spray')).toBe(true)
+    expect(tones.has('eye')).toBe(true)
+    expect(tones.has('belly')).toBe(true)
+    expect(tones.has('water')).toBe(true)
+    expect(tones.has('accent')).toBe(true)
+    expect(lines.some(line => line.segments.length > 1)).toBe(true)
+    expect(lines.every(line => line.text === line.segments.map(segment => segment.text).join(''))).toBe(true)
+    expect(Math.max(...lines.map(line => line.text.length))).toBeLessThan(40)
+    expect(lines).toHaveLength(8)
     expect(whaleArt(20).some(line => line.text.includes(WHALE_EYE))).toBe(true)
+    expect(WHALE_TONES.spray).toBe(COLORS.tool)
+    expect(WHALE_TONES.body).toBe(COLORS.brand)
+    expect(WHALE_TONES.belly).toBe(COLORS.fg)
+    expect(WHALE_TONES.eye).toBe(COLORS.warning)
+    expect(WHALE_TONES.water).toBe(COLORS.success)
+    expect(WHALE_TONES.accent).toBe(COLORS.selector)
   })
 
   it('uses terracotta, lavender, green, red, and purple tokens — not default white', () => {

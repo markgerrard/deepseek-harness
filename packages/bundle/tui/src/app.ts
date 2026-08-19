@@ -33,7 +33,7 @@ import { inkKeyName } from './keys.ts'
 import { insertAtCursor, promptPaint, setHardwareCursorVisible } from './prompt.ts'
 import { formatDoneLine, formatStatusLine, formatWorkingLine, type StatusModel } from './status.ts'
 import { promptPlaceholder } from './suggestion.ts'
-import { COLORS, ICONS, TRANSCRIPT_PROMPT_GAP } from './theme.ts'
+import { COLORS, ICONS, TRANSCRIPT_PROMPT_GAP, WHALE_TONES } from './theme.ts'
 import type { TuiState } from './state.ts'
 import type { TranscriptItem } from './transcript.ts'
 
@@ -93,8 +93,8 @@ function coloredLines(text: string): React.ReactElement {
 }
 
 /**
- * Landing / empty-transcript column: terracotta whale body, lavender accent,
- * muted cwd/model/hint underneath.
+ * Landing / empty-transcript column: per-segment whale colours, muted
+ * cwd/model/hint underneath.
  * @param width - main columns.
  * @param status - model/cwd facts.
  * @param home - `$HOME` for path collapsing.
@@ -107,12 +107,13 @@ function landingView(width: number, status: StatusModel, home: string | undefine
     Box,
     { flexDirection: 'column', width },
     ...whale.map((line, index) => React.createElement(
-      Text,
-      {
-        key: `whale-${index}`,
-        color: line.tone === 'body' ? COLORS.brand : COLORS.tool,
-      },
-      line.text,
+      Box,
+      { key: `whale-${index}`, flexDirection: 'row', height: 1, flexShrink: 0, flexGrow: 0 },
+      ...line.segments.map((segment, segIndex) => React.createElement(
+        Text,
+        { key: segIndex, color: WHALE_TONES[segment.tone] },
+        segment.text,
+      )),
     )),
     React.createElement(Text, { key: 'meta', color: COLORS.muted, wrap: 'wrap' }, `\n${meta}`),
   )

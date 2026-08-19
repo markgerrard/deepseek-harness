@@ -82,6 +82,16 @@ export const COLORS = {
   bg: PALETTE.bg,
 } as const
 
+/** Per-segment colours for the landing whale (not one tint per whole line). */
+export const WHALE_TONES = {
+  spray: COLORS.tool,
+  body: COLORS.brand,
+  belly: COLORS.fg,
+  eye: COLORS.warning,
+  water: COLORS.success,
+  accent: COLORS.selector,
+} as const
+
 /** Product word kept for onboarding copy (not a Crush wordmark). */
 export const PRODUCT_NAME = 'DSH'
 
