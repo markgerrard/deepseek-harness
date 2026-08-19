@@ -102,23 +102,22 @@ describe('insertAtCursor and splitAtCursor', () => {
     expect(insertAtCursor('/attach', 7, ' ')).toEqual({ input: '/attach ', cursor: 8 })
   })
 
-  it('paints an inverse-video cell at the caret, not a block glyph', () => {
+  it('paints the block glyph at the caret as an extra cell, not in the buffer', () => {
     expect(splitAtCursor('hello', 0)).toEqual({ before: '', after: 'hello' })
     expect(splitAtCursor('hello', 2)).toEqual({ before: 'he', after: 'llo' })
     expect(splitAtCursor('hello', 5)).toEqual({ before: 'hello', after: '' })
-    expect(promptPaint('hello', 0)).toEqual({ before: '', cursor: 'h', after: 'ello' })
-    expect(promptPaint('hello', 2)).toEqual({ before: 'he', cursor: 'l', after: 'lo' })
-    expect(promptPaint('hello', 4)).toEqual({ before: 'hell', cursor: 'o', after: '' })
-    expect(promptPaint('hello', 5)).toEqual({ before: 'hello', cursor: ' ', after: '' })
-    expect(promptPaint('', 0)).toEqual({ before: '', cursor: ' ', after: '' })
-    expect(promptPaint('ab\ncd', 2)).toEqual({ before: 'ab', cursor: ' ', after: 'cd' })
+    expect(promptPaint('hello', 0)).toEqual({ before: '', cursor: ICONS.cursor, after: 'hello' })
+    expect(promptPaint('hello', 2)).toEqual({ before: 'he', cursor: ICONS.cursor, after: 'llo' })
+    expect(promptPaint('hello', 4)).toEqual({ before: 'hell', cursor: ICONS.cursor, after: 'o' })
+    expect(promptPaint('hello', 5)).toEqual({ before: 'hello', cursor: ICONS.cursor, after: '' })
+    expect(promptPaint('', 0)).toEqual({ before: '', cursor: ICONS.cursor, after: '' })
+    expect(promptPaint('ab\ncd', 2)).toEqual({ before: 'ab', cursor: ICONS.cursor, after: '\ncd' })
     const onL = promptPaint('hello', 2)
-    expect(`${onL.before}${onL.cursor}${onL.after}`).toBe('hello')
-    expect(onL.cursor).not.toBe(ICONS.cursor)
+    expect(`${onL.before}${onL.after}`).toBe('hello')
+    expect(onL.cursor).toBe(ICONS.cursor)
     const mid = promptPaint('Teada', 4)
-    expect(`${mid.before}${mid.cursor}${mid.after}`).toBe('Teada')
-    expect(mid.cursor).toBe('a')
-    expect(mid.cursor).not.toBe(ICONS.cursor)
+    expect(`${mid.before}${mid.after}`).toBe('Teada')
+    expect(mid.cursor).toBe(ICONS.cursor)
     expect(ICONS.cursor).toBe('█')
   })
 
@@ -159,6 +158,27 @@ describe('chromeAction prompt keys', () => {
     expect(chromeAction(typed('helloworld', 5), 'delete')).toEqual({
       type: 'set-input', input: 'helloorld', cursor: 5,
     })
+  })
+
+  it('keeps the cursor at the edited index after left then backspace', () => {
+    let state = typed('hello', 5)
+    const left1 = chromeAction(state, 'left')
+    expect(left1).toEqual({ type: 'set-input', input: 'hello', cursor: 4 })
+    state = reduce(state, left1!)
+    expect(state.cursor).toBe(4)
+    const left2 = chromeAction(state, 'left')
+    expect(left2).toEqual({ type: 'set-input', input: 'hello', cursor: 3 })
+    state = reduce(state, left2!)
+    expect(state.cursor).toBe(3)
+    const bs1 = chromeAction(state, 'backspace')
+    expect(bs1).toEqual({ type: 'set-input', input: 'helo', cursor: 2 })
+    state = reduce(state, bs1!)
+    expect(state).toMatchObject({ input: 'helo', cursor: 2 })
+    const bs2 = chromeAction(state, 'backspace')
+    expect(bs2).toEqual({ type: 'set-input', input: 'hlo', cursor: 1 })
+    state = reduce(state, bs2!)
+    expect(state).toMatchObject({ input: 'hlo', cursor: 1 })
+    expect(state.cursor).not.toBe(state.input.length)
   })
 
   it('leaves reserved chrome keys and dialogs alone', () => {

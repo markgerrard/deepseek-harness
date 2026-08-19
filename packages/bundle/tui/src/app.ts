@@ -158,20 +158,20 @@ function coloredCard(item: TranscriptItem, width: number, skipLeadingLines = 0, 
 }
 
 /**
- * Inverse-video caret cell: light block, dark glyph. backgroundColor on Text only.
- * @param ch - one character, or a space at end-of-input.
- * @returns a single colored Text cell.
+ * Visible block caret: inverse █ so xfce4-terminal paints a solid cell.
+ * Extra paint glyph, not a buffer character.
+ * @returns a single inverse Text cell.
  */
-function inverseCursorCell(ch: string): React.ReactElement {
-  const cell = ch === '' || ch === ' ' || ch === '\n' ? '\u00a0' : ch
-  return React.createElement(Text, { inverse: true }, cell)
+function inverseCursorCell(): React.ReactElement {
+  return React.createElement(Text, { color: COLORS.fg, inverse: true }, ICONS.cursor)
 }
 
 /**
- * Paint the prompt buffer with an inverse cell ON the character at `cursor`.
+ * Paint the prompt buffer as `[before][█][after]` at `state.cursor`.
+ * Box row, not a wrap='truncate' parent — Ink drops inverse cells inside those.
  * @param input - editor contents.
  * @param cursor - caret index.
- * @returns a truncated Ink line.
+ * @returns a prompt row.
  */
 function promptCursorText(input: string, cursor: number): React.ReactElement {
   const paint = promptPaint(input, cursor)
@@ -179,7 +179,7 @@ function promptCursorText(input: string, cursor: number): React.ReactElement {
     Box,
     { flexDirection: 'row', flexGrow: 1, flexShrink: 1 },
     React.createElement(Text, { color: COLORS.fg }, paint.before),
-    inverseCursorCell(paint.cursor),
+    inverseCursorCell(),
     React.createElement(Text, { color: COLORS.fg }, paint.after),
   )
 }
@@ -225,45 +225,45 @@ export function App(props: AppProps): React.ReactElement {
 
   useInput((input, key) => {
     const name = inkKeyName(input, key)
+    // Prompt keys (left/right/backspace/delete) go through handleKey / chromeAction
+    // only. Never insert a backspace/DEL byte, and never use a stale React
+    // snapshot that still has cursor === input.length.
     void controller.handleKey(name).then((consumed) => {
       if (consumed) return
-      if (state.overlay.kind === 'connect-key') {
-        if (key.backspace || key.delete) {
-          controller.dispatch({
-            type: 'set-connect-key',
-            value: state.overlay.value.slice(0, Math.max(0, state.overlay.value.length - 1)),
-          })
-          return
-        }
+      if (key.backspace === true || key.delete === true) return
+      if (input === '' || input === '\x7f' || input === '\b') return
+      if (name === 'backspace' || name === 'delete' || name === 'left' || name === 'right') return
+      const live = controller.snapshot()
+      if (live.overlay.kind === 'connect-key') {
         if (input !== '' && !key.ctrl && !key.meta) {
-          controller.dispatch({ type: 'set-connect-key', value: `${state.overlay.value}${input}` })
+          controller.dispatch({ type: 'set-connect-key', value: `${live.overlay.value}${input}` })
         }
         return
       }
-      if (state.overlay.kind !== 'none' && state.overlay.kind !== 'commands' && state.overlay.kind !== 'files') return
+      if (live.overlay.kind !== 'none' && live.overlay.kind !== 'commands' && live.overlay.kind !== 'files') return
       if (key.return && key.ctrl) {
-        void controller.submitSteer(state.input)
+        void controller.submitSteer(live.input)
         return
       }
       if (key.ctrl && (input === 't' || input === 'T')) {
-        void controller.submitSteer(state.input)
+        void controller.submitSteer(live.input)
         return
       }
       if (key.return && !key.ctrl) {
-        void controller.submit(state.input)
+        void controller.submit(live.input)
         return
       }
       if (key.ctrl && input === 'j') {
-        const edit = insertAtCursor(state.input, state.cursor, '\n')
+        const edit = insertAtCursor(live.input, live.cursor, '\n')
         controller.dispatch({ type: 'set-input', input: edit.input, cursor: edit.cursor })
         return
       }
-      if (input === '?' && state.input === '' && state.overlay.kind === 'none') {
+      if (input === '?' && live.input === '' && live.overlay.kind === 'none') {
         controller.dispatch({ type: 'open-overlay', overlay: { kind: 'help' } })
         return
       }
       if (input !== '' && !key.ctrl && !key.meta) {
-        const edit = insertAtCursor(state.input, state.cursor, input)
+        const edit = insertAtCursor(live.input, live.cursor, input)
         controller.dispatch({ type: 'set-input', input: edit.input, cursor: edit.cursor })
       }
     })
@@ -490,7 +490,7 @@ export function App(props: AppProps): React.ReactElement {
         ? React.createElement(
           Box,
           { flexDirection: 'row', flexGrow: 1 },
-          inverseCursorCell('\u00a0'),
+          inverseCursorCell(),
           React.createElement(Text, { color: COLORS.muted }, promptPlaceholder(state)),
         )
         : promptCursorText(state.input, state.cursor)),

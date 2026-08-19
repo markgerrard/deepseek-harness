@@ -4,6 +4,8 @@
  * @module @deepseek-ai/dsh-tui/prompt
  */
 
+import { ICONS } from './theme.ts'
+
 /** Result of one prompt-buffer edit. */
 export interface PromptEdit {
   readonly input: string
@@ -11,7 +13,7 @@ export interface PromptEdit {
   readonly kill?: string
 }
 
-/** Before / inverse-cell / after segments for painting `state.cursor`. */
+/** Before / cursor-glyph / after segments for painting `state.cursor`. */
 export interface PromptPaint {
   readonly before: string
   readonly cursor: string
@@ -24,7 +26,7 @@ export const CSI_HIDE_CURSOR = '\x1b[?25l'
 export const CSI_SHOW_CURSOR = '\x1b[?25h'
 
 /**
- * Hide or show the terminal hardware caret. Only our inverse cell should show
+ * Hide or show the terminal hardware caret. Only our block caret should show
  * while the TUI is mounted.
  * @param stdout - stream that accepts CSI writes.
  * @param visible - `false` hides, `true` shows.
@@ -60,19 +62,15 @@ export function splitAtCursor(input: string, cursor: number): { before: string; 
 }
 
 /**
- * Prompt paint parts: the character at `cursor` is the inverse-video cell
- * (a space when the caret is past the last character or on a newline).
- * Not an extra block glyph, so wrap/truncate width matches the buffer except
- * for one trailing cell past the last char.
+ * Prompt paint parts: input split at `cursor` with the block glyph in between.
+ * The glyph is an extra paint cell, never inserted into the buffer.
  * @param input - editor contents.
  * @param cursor - caret index.
  * @returns segments to render left-to-right.
  */
 export function promptPaint(input: string, cursor: number): PromptPaint {
-  const at = clampCursor(cursor, input.length)
-  const raw = input[at]
-  const cell = raw === undefined || raw === '\n' ? ' ' : raw
-  return { before: input.slice(0, at), cursor: cell, after: input.slice(at + 1) }
+  const { before, after } = splitAtCursor(input, cursor)
+  return { before, cursor: ICONS.cursor, after }
 }
 
 /**
