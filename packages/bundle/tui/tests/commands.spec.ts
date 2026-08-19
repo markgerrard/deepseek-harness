@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CHROME_COMMANDS, filterPalette, isPaletteOpen, mergePalette, routeLine } from '../src/commands.ts'
+import { CHROME_COMMANDS, filterPalette, isPaletteOpen, mergePalette, routeLine, slashEnterLine } from '../src/commands.ts'
 
 describe('Claude Code-like command palette', () => {
   it('merges chrome first and skips colliding DSH names', () => {
@@ -31,5 +31,15 @@ describe('Claude Code-like command palette', () => {
     expect(routeLine('!')).toEqual({ kind: 'empty' })
     expect(isPaletteOpen('/he')).toBe(true)
     expect(isPaletteOpen('/he\nlo')).toBe(false)
+  })
+
+  it('submits a complete slash line on the first Enter', () => {
+    const attach = CHROME_COMMANDS.find(item => item.name === 'attach')
+    expect(slashEnterLine('/attach /workspace/tui-live-test.png', attach)).toBe('/attach /workspace/tui-live-test.png')
+    expect(slashEnterLine('/attach', attach)).toBe('/attach')
+    expect(slashEnterLine('/att', attach)).toBe('/attach')
+    expect(slashEnterLine('/model sonnet', CHROME_COMMANDS.find(item => item.name === 'model'))).toBe('/model sonnet')
+    expect(slashEnterLine('/xyz', undefined)).toBe('/xyz')
+    expect(slashEnterLine('/', CHROME_COMMANDS[0])).toBe('/help')
   })
 })

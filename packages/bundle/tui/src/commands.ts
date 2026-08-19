@@ -101,3 +101,24 @@ export function routeLine(line: string):
 export function isPaletteOpen(line: string): boolean {
   return line.startsWith('/') && !line.includes('\n')
 }
+
+/**
+ * Editor line to execute when Enter confirms the slash palette.
+ * A complete command with args (`/attach /abs/path.png`) or an already-typed
+ * name is submitted as-is so the first Enter runs it. An incomplete prefix
+ * (`/att`) accepts the selected completion.
+ * @param typed - exact editor contents.
+ * @param selected - highlighted palette row, if any.
+ * @returns the line to submit, or undefined when nothing is ready.
+ */
+export function slashEnterLine(
+  typed: string,
+  selected: PaletteItem | undefined,
+): string | undefined {
+  const routed = routeLine(typed)
+  if (routed.kind === 'command') {
+    const exact = selected !== undefined && selected.name === routed.name
+    if (routed.rawInput.trim() !== '' || exact || selected === undefined) return typed
+  }
+  return selected?.line
+}

@@ -27,7 +27,7 @@ import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-user-questions'
 import type { AskUserQuestionAnswer } from '@deepseek-ai/dsh-user-questions'
 import { attachDisplayName, detectImageMediaType, fallbackPendingAttachment } from './attach.ts'
-import { CHROME_COMMANDS, filterPalette, mergePalette, routeLine } from './commands.ts'
+import { CHROME_COMMANDS, filterPalette, mergePalette, routeLine, slashEnterLine } from './commands.ts'
 import {
   CONNECT_PROVIDERS,
   MISSING_KEY_GUIDANCE,
@@ -303,7 +303,6 @@ export class TuiController {
         return true
       case 'dismiss':
         this.dispatch({ type: 'close-overlay' })
-        this.armRewind()
         return true
       case 'toggle':
         this.dispatch({ type: 'toggle-quit' })
@@ -337,9 +336,19 @@ export class TuiController {
       if (this.state.overlay.kind === 'none') await this.submitSteer(this.state.input)
       return true
     }
-    if (matches(KEYS.cancel, key) && this.state.overlay.kind === 'none') {
+    if (matches(KEYS.cancel, key)) {
+      if (this.state.overlay.kind !== 'none') {
+        const chrome = chromeAction(this.state, key)
+        if (chrome !== undefined) this.dispatch(chrome)
+        return true
+      }
       if (this.state.busy) {
         this.agent()?.cancel({ kind: 'user' }, { keepInbox: true })
+      }
+      if (this.state.input !== '') {
+        this.dispatch({ type: 'clear-input' })
+        this.armRewind()
+        return true
       }
       if (this.takeRewind()) return true
       this.armRewind()
@@ -350,19 +359,10 @@ export class TuiController {
     const chrome = chromeAction(this.state, key)
     if (chrome !== undefined) {
       this.dispatch(chrome)
-      if (matches(KEYS.cancel, key)) this.armRewind()
       return true
     }
     if (key === 'ctrl+n') {
       await this.create()
-      return true
-    }
-    if (matches(KEYS.cancel, key)) {
-      if (this.state.busy) {
-        this.agent()?.cancel({ kind: 'user' }, { keepInbox: true })
-      }
-      if (this.takeRewind()) return true
-      this.armRewind()
       return true
     }
     if ((key === 'up' || key === 'ctrl+up') && this.state.overlay.kind === 'none') {
@@ -481,8 +481,9 @@ export class TuiController {
       case 'commands': {
         const items = this.palette()
         const item = items[overlay.selected]
+        const line = slashEnterLine(this.state.input, item)
         this.dispatch({ type: 'close-overlay' })
-        if (item !== undefined) await this.submit(item.line)
+        if (line !== undefined) await this.submit(line)
         return
       }
       case 'models': {

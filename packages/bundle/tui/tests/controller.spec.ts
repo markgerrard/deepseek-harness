@@ -959,6 +959,47 @@ describe('TUI Esc Esc rewind', () => {
     expect(test.controller.snapshot().input).toBe('sayhi')
     await test.ctx.fiber.dispose()
   })
+
+  it('clears editor text on first Esc and restores last prompt on second Esc', async () => {
+    const test = await mount()
+    await test.controller.submit('look at tests')
+    test.controller.dispatch({ type: 'set-input', input: 'rewind-me-please', cursor: 16 })
+    test.controller.dispatch({ type: 'set-suggestion', suggestion: 'ghost leftover' })
+    expect(await test.controller.handleKey('escape')).toBe(true)
+    expect(test.controller.snapshot().input).toBe('')
+    expect(test.controller.snapshot().suggestion).toBeUndefined()
+    expect(test.controller.snapshot().notice?.text).toBe('esc again to edit last')
+    expect(await test.controller.handleKey('escape')).toBe(true)
+    expect(test.controller.snapshot().input).toBe('look at tests')
+    expect(test.controller.snapshot().history).toEqual(['look at tests'])
+    await test.ctx.fiber.dispose()
+  })
+
+  it('dismisses an overlay on Esc without clearing or rewinding', async () => {
+    const test = await mount()
+    await test.controller.submit('look at tests')
+    test.controller.dispatch({ type: 'set-input', input: 'keep me', cursor: 7 })
+    test.controller.dispatch({ type: 'open-overlay', overlay: { kind: 'help' } })
+    expect(await test.controller.handleKey('escape')).toBe(true)
+    expect(test.controller.snapshot().overlay).toEqual({ kind: 'none' })
+    expect(test.controller.snapshot().input).toBe('keep me')
+    expect(test.controller.snapshot().notice?.text).not.toBe('esc again to edit last')
+    await test.ctx.fiber.dispose()
+  })
+
+
+  it('dismisses the slash palette on Esc without clearing the typed command', async () => {
+    const test = await mount()
+    await test.controller.submit('look at tests')
+    test.controller.dispatch({ type: 'set-input', input: '/att', cursor: 4 })
+    expect(test.controller.snapshot().overlay.kind).toBe('commands')
+    expect(await test.controller.handleKey('escape')).toBe(true)
+    expect(test.controller.snapshot().overlay).toEqual({ kind: 'none' })
+    expect(test.controller.snapshot().input).toBe('/att')
+    expect(test.controller.snapshot().notice?.text).not.toBe('esc again to edit last')
+    await test.ctx.fiber.dispose()
+  })
+
 })
 
 describe('TUI /attach', () => {
@@ -1085,6 +1126,44 @@ describe('TUI /attach', () => {
     expect(test.controller.snapshot().notice?.text).toBe('Path escapes the working directory.')
     await test.ctx.fiber.dispose()
   })
+
+  it('executes /attach <path> on the first Enter while the palette is open', async () => {
+    const test = await mount()
+    const tiny = Buffer.from([
+      137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82,
+      0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0, 0, 0, 144, 119, 83, 222,
+      0, 0, 0, 12, 73, 68, 65, 84, 120, 218, 99, 96, 96, 96, 0, 0,
+      0, 4, 0, 1, 200, 234, 235, 249, 0, 0, 0, 0, 73, 69, 78, 68,
+      174, 66, 96, 130,
+    ])
+    const dir = resolve(process.cwd(), '..', `dsh-tui-attach-enter-${Date.now()}`)
+    await mkdir(dir, { recursive: true })
+    const file = join(dir, 'tui-live-test.png')
+    await writeFile(file, tiny)
+    test.ctx.provide('attachments', { saveImage: async () => { throw new Error('skip') } } as never)
+    const line = `/attach ${file}`
+    test.controller.dispatch({ type: 'set-input', input: line, cursor: line.length })
+    expect(test.controller.snapshot().overlay.kind).toBe('commands')
+    expect(await test.controller.handleKey('enter')).toBe(true)
+    expect(test.controller.snapshot().notice?.type).toBe('success')
+    expect(test.controller.snapshot().notice?.text).toBe('image attached  tui-live-test.png')
+    expect(test.controller.snapshot().attachments).toHaveLength(1)
+    expect(test.controller.snapshot().input).toBe('')
+    expect(test.controller.snapshot().overlay.kind).toBe('none')
+    await test.ctx.fiber.dispose()
+  })
+
+  it('accepts an incomplete slash prefix then executes on the first Enter', async () => {
+    const test = await mount()
+    test.controller.dispatch({ type: 'set-input', input: '/att', cursor: 4 })
+    expect(test.controller.snapshot().overlay.kind).toBe('commands')
+    expect(await test.controller.handleKey('enter')).toBe(true)
+    expect(test.controller.snapshot().notice?.text).toContain('/attach')
+    expect(test.controller.snapshot().input).toBe('')
+    expect(test.controller.snapshot().overlay.kind).toBe('none')
+    await test.ctx.fiber.dispose()
+  })
+
 })
 
 describe('TUI space vs expand', () => {
