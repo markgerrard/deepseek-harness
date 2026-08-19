@@ -82,7 +82,7 @@ function previousWordStart(input: string, cursor: number): number {
 /**
  * Apply one readline-style (or insert/backspace) key to the prompt buffer.
  * Reserved chrome keys (`ctrl+c`, `ctrl+n`, `ctrl+l`, `ctrl+p`, `ctrl+s`,
- * `ctrl+g`) are not handled here.
+ * `ctrl+g`, `ctrl+t`) are not handled here.
  * @param input - editor contents.
  * @param cursor - caret index.
  * @param key - Ink key name (`ctrl+a`, `backspace`, …).

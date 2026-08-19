@@ -301,6 +301,7 @@ export function helpLines(): readonly string[] {
     'ctrl+g  this help',
     'ctrl+c  quit (twice)',
     'enter   send (queues while Working)',
+    'shift+t  steer this turn (next step)',
     'up      take back last queued',
     'ctrl+j  newline',
     'esc     cancel / close',
@@ -319,8 +320,31 @@ export function helpLines(): readonly string[] {
  * @returns `queued 1  look at tests`, truncated to one line.
  */
 export function formatQueuedLine(index: number, text: string, width: number): string {
+  return formatInboxLine('queued', index, text, width)
+}
+
+/**
+ * One muted next-step steer row above the queued rows / clock / prompt.
+ * @param index - 1-based position in `agent.inbox.nextStep`.
+ * @param text - steer prompt text.
+ * @param width - available columns.
+ * @returns `steer 1  look at tests`, truncated to one line.
+ */
+export function formatSteerLine(index: number, text: string, width: number): string {
+  return formatInboxLine('steer', index, text, width)
+}
+
+/**
+ * One muted inbox row (`queued 1  …` / `steer 1  …`), truncated to one line.
+ * @param label - `queued` or `steer`.
+ * @param index - 1-based position.
+ * @param text - prompt text.
+ * @param width - available columns.
+ * @returns the collapsed, truncated row.
+ */
+function formatInboxLine(label: string, index: number, text: string, width: number): string {
   const collapsed = text.replace(/\s+/g, ' ').trim()
-  return truncate(`queued ${index}  ${collapsed}`, width)
+  return truncate(`${label} ${index}  ${collapsed}`, width)
 }
 
 /**

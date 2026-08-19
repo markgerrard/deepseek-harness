@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   formatNumberedOption,
   formatQueuedLine,
+  formatSteerLine,
   helpLines,
   renderApprovalDialog,
   renderConnectKeyDialog,
@@ -75,9 +76,14 @@ describe('Claude Code-like chrome strings', () => {
     expect(sessionLines([{ id: 's', title: 'Hello', createdAt: 1 }])).toEqual(['Hello'])
     expect(helpLines().some(line => line.includes('ctrl+p'))).toBe(true)
     expect(helpLines().some(line => line.includes('queues while Working'))).toBe(true)
+    expect(helpLines().some(line => line.includes('shift+t') && line.includes('steer this turn (next step)'))).toBe(true)
+    expect(helpLines().every(line => !line.includes('shift+tab'))).toBe(true)
+    expect(helpLines().every(line => !line.includes('ctrl+enter'))).toBe(true)
     expect(helpLines().some(line => line.includes('take back last queued'))).toBe(true)
     expect(formatQueuedLine(1, 'look at tests', 40)).toBe('queued 1  look at tests')
     expect(formatQueuedLine(2, 'a very long follow-up prompt', 18)).toBe('queued 2  a very …')
+    expect(formatSteerLine(1, 'stop rewriting', 40)).toBe('steer 1  stop rewriting')
+    expect(formatSteerLine(2, 'a very long steer prompt', 18)).toBe('steer 2  a very l…')
     expect(formatNumberedOption(2, 'No', 2)).toContain(`${ICONS.selector} 3. No`)
   })
 

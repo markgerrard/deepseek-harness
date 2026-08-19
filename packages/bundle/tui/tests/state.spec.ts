@@ -44,6 +44,9 @@ describe('Claude Code-like UI reducer', () => {
     expect(chromeAction(state, 'ctrl+g')).toEqual({ type: 'open-overlay', overlay: { kind: 'help' } })
     expect(chromeAction(state, 'ctrl+p')).toEqual({ type: 'open-overlay', overlay: { kind: 'commands', query: '', selected: 0 } })
     expect(chromeAction(state, 'tab')).toEqual({ type: 'set-focus', focus: 'chat' })
+    expect(chromeAction(state, 'shift+tab')).toBeUndefined()
+    expect(chromeAction(state, 'ctrl+t')).toBeUndefined()
+    expect(chromeAction(state, 'shift+t')).toBeUndefined()
     const help = reduce(state, { type: 'open-overlay', overlay: { kind: 'help' } })
     expect(chromeAction(help, 'escape')).toEqual({ type: 'close-overlay' })
   })
@@ -98,14 +101,20 @@ describe('Claude Code-like UI reducer', () => {
     expect(idle.turnTokenBase).toBeUndefined()
   })
 
-  it('stores the visible next-turn queue', () => {
+  it('stores the visible next-turn queue and next-step steer rows', () => {
     expect(initialState(seed).queued).toEqual([])
+    expect(initialState(seed).steering).toEqual([])
     const queued = reduce(initialState(seed), {
       type: 'set-queued',
       queued: [{ id: 'm1', text: 'look at tests' }],
+      steering: [{ id: 's1', text: 'stop rewriting' }],
     })
     expect(queued.queued).toEqual([{ id: 'm1', text: 'look at tests' }])
-    expect(reduce(queued, { type: 'set-queued', queued: [] }).queued).toEqual([])
+    expect(queued.steering).toEqual([{ id: 's1', text: 'stop rewriting' }])
+    expect(reduce(queued, { type: 'set-queued', queued: [] }).steering).toEqual([{ id: 's1', text: 'stop rewriting' }])
+    const cleared = reduce(queued, { type: 'set-queued', queued: [], steering: [] })
+    expect(cleared.queued).toEqual([])
+    expect(cleared.steering).toEqual([])
   })
 })
 

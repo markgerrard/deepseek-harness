@@ -11,6 +11,7 @@ import { cardWrapWidth, insertTurnClocks, pinTranscriptToBottom, renderCard, ton
 import {
   connectProviderLines,
   formatQueuedLine,
+  formatSteerLine,
   helpLines,
   renderApprovalDialog,
   renderChoiceDialog,
@@ -201,17 +202,21 @@ export function App(props: AppProps): React.ReactElement {
   const home = controller.home()
 
   useInput((input, key) => {
-    const name = key.ctrl && input ? `ctrl+${input}`
-      : key.escape ? 'escape'
-        : key.return ? 'return'
-          : key.tab ? 'tab'
-            : key.backspace ? 'backspace'
-              : key.delete ? 'delete'
-                : key.upArrow ? 'up'
-                  : key.downArrow ? 'down'
-                    : key.leftArrow ? 'left'
-                      : key.rightArrow ? 'right'
-                        : input
+    const name = key.return && key.ctrl ? 'ctrl+enter'
+      : key.upArrow && key.ctrl ? 'ctrl+up'
+        : key.tab && key.shift ? 'shift+tab'
+          : key.shift && (input === 't' || input === 'T') ? 'shift+t'
+            : key.ctrl && input ? `ctrl+${input}`
+            : key.escape ? 'escape'
+              : key.return ? 'return'
+                : key.tab ? 'tab'
+                  : key.backspace ? 'backspace'
+                    : key.delete ? 'delete'
+                      : key.upArrow ? 'up'
+                        : key.downArrow ? 'down'
+                          : key.leftArrow ? 'left'
+                            : key.rightArrow ? 'right'
+                              : input
     void controller.handleKey(name).then((consumed) => {
       if (consumed) return
       if (state.overlay.kind === 'connect-key') {
@@ -228,6 +233,18 @@ export function App(props: AppProps): React.ReactElement {
         return
       }
       if (state.overlay.kind !== 'none' && state.overlay.kind !== 'commands') return
+      if (key.return && key.ctrl) {
+        void controller.submitSteer(state.input)
+        return
+      }
+      if (key.shift && (input === 't' || input === 'T')) {
+        void controller.submitSteer(state.input)
+        return
+      }
+      if (key.ctrl && (input === 't' || input === 'T')) {
+        void controller.submitSteer(state.input)
+        return
+      }
       if (key.return && !key.ctrl) {
         void controller.submit(state.input)
         return
@@ -288,7 +305,8 @@ export function App(props: AppProps): React.ReactElement {
       trailingClock = formatDoneLine(last.clock.ms, last.clock.verb)
     }
     const chromeLinePreview = workingLine ?? trailingClock
-    const transcriptHeight = layout.main.height - state.queued.length - (chromeLinePreview === undefined ? 0 : 1 + TRANSCRIPT_PROMPT_GAP)
+    const inboxCount = state.steering.length + state.queued.length
+    const transcriptHeight = layout.main.height - inboxCount - (chromeLinePreview === undefined ? 0 : 1 + TRANSCRIPT_PROMPT_GAP)
     const paintWidth = cardWrapWidth(mainWidth)
     const pin = pinTranscriptToBottom(cardRows, paintWidth, transcriptHeight)
     transcriptTaller = pin.taller
@@ -314,8 +332,9 @@ export function App(props: AppProps): React.ReactElement {
   const chromeLine = workingLine ?? trailingClock
   const chromeColor = workingLine === undefined ? COLORS.muted : COLORS.brand
   const queuedWidth = Math.max(1, mainWidth - 2)
+  const steerLines = state.steering.map((item, index) => formatSteerLine(index + 1, item.text, queuedWidth))
   const queuedLines = state.queued.map((item, index) => formatQueuedLine(index + 1, item.text, queuedWidth))
-  const mainHeight = Math.max(0, layout.main.height - queuedLines.length - (chromeLine === undefined ? 0 : 1 + TRANSCRIPT_PROMPT_GAP))
+  const mainHeight = Math.max(0, layout.main.height - steerLines.length - queuedLines.length - (chromeLine === undefined ? 0 : 1 + TRANSCRIPT_PROMPT_GAP))
 
   let overlay: React.ReactNode = null
   if (state.overlay.kind === 'help') {
@@ -391,6 +410,18 @@ export function App(props: AppProps): React.ReactElement {
       flexShrink: 0,
       justifyContent: overlay === null && transcriptTaller ? 'flex-end' : 'flex-start',
     }, overlay === null ? main : overlay),
+    ...steerLines.map((line, index) => React.createElement(
+      Box,
+      {
+        key: state.steering[index]?.id ?? `steer-${index}`,
+        height: 1,
+        width: mainWidth,
+        paddingX: 1,
+        flexShrink: 0,
+        flexGrow: 0,
+      },
+      React.createElement(Text, { color: COLORS.muted, wrap: 'truncate' }, line),
+    )),
     ...queuedLines.map((line, index) => React.createElement(
       Box,
       {

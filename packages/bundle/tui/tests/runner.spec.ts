@@ -55,7 +55,9 @@ async function bench(script: Script = {}): Promise<{
           agent.inbox.append('next-turn', message)
           idle = Promise.resolve().then(() => script.afterPrompt?.(session, message))
         },
-        steer: () => {},
+        steer: (message: UserMessage) => {
+          agent.inbox.append('next-step', message)
+        },
         inject: () => {},
         whenIdle: () => idle,
       } satisfies Partial<Agent>)

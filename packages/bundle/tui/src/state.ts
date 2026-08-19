@@ -63,7 +63,7 @@ export interface SessionRow {
   readonly createdAt: number
 }
 
-/** One next-turn follow-up waiting in `agent.inbox.nextTurn`. */
+/** One inbox prompt waiting in `nextTurn` or `nextStep`. */
 export interface QueuedPrompt {
   readonly id: string
   readonly text: string
@@ -122,6 +122,8 @@ export interface TuiState {
   readonly suggestion?: string
   /** Visible next-turn inbox, sourced from `agent.inbox.nextTurn`. */
   readonly queued: readonly QueuedPrompt[]
+  /** Visible next-step inbox, sourced from `agent.inbox.nextStep`. */
+  readonly steering: readonly QueuedPrompt[]
 }
 
 /** Pure UI actions. Controller-owned I/O is not represented here. */
@@ -149,7 +151,7 @@ export type TuiAction =
   | { readonly type: 'set-palette-length'; readonly paletteLength: number }
   | { readonly type: 'clear-input' }
   | { readonly type: 'set-suggestion'; readonly suggestion?: string }
-  | { readonly type: 'set-queued'; readonly queued: readonly QueuedPrompt[] }
+  | { readonly type: 'set-queued'; readonly queued: readonly QueuedPrompt[]; readonly steering?: readonly QueuedPrompt[] }
 
 /**
  * Initial Claude Code-like landing state.
@@ -182,6 +184,7 @@ export function initialState(seed: {
     busy: false,
     turnClocks: [],
     queued: [],
+    steering: [],
     paletteLength: 0,
     ...(seed.guidance === undefined ? {} : { guidance: seed.guidance }),
   }
@@ -391,7 +394,7 @@ export function reduce(state: TuiState, action: TuiAction): TuiState {
       return { ...state, suggestion: action.suggestion }
     }
     case 'set-queued':
-      return { ...state, queued: action.queued }
+      return { ...state, queued: action.queued, steering: action.steering ?? state.steering }
     default: {
       const _exhaustive: never = action
       return _exhaustive
@@ -408,6 +411,7 @@ export function reduce(state: TuiState, action: TuiAction): TuiState {
  */
 export function chromeAction(state: TuiState, key: string): TuiAction | undefined {
   if (matches(KEYS.quit, key)) return undefined
+  if (matches(KEYS.steer, key)) return undefined
   if (state.overlay.kind === 'quit') return undefined
   if (state.overlay.kind !== 'none') {
     if (matches(KEYS.cancel, key)) return { type: 'close-overlay' }

@@ -52,7 +52,9 @@ async function mount(stream?: (options: GenerateOptions) => AsyncIterable<Stream
         followup: (message: UserMessage) => {
           agent.inbox.append('next-turn', message)
         },
-        steer: () => {},
+        steer: (message: UserMessage) => {
+          agent.inbox.append('next-step', message)
+        },
         inject: () => {},
         whenIdle: () => Promise.resolve(),
       } satisfies Partial<Agent> & { status: AgentStatus })
@@ -447,6 +449,145 @@ describe('TUI next-turn message queue', () => {
     test.agent.cancel({ kind: 'user' })
     expect(test.controller.snapshot().queued).toEqual([])
     expect(test.agent.inbox.nextTurn).toHaveLength(0)
+    await test.ctx.fiber.dispose()
+  })
+})
+
+describe('TUI next-step steer', () => {
+  it('appends a steer row, not a queued next-turn row, when submitSteer runs while busy', async () => {
+    const test = await mount()
+    test.setStatus('running')
+    test.controller.dispatch({ type: 'set-input', input: 'stop rewriting', cursor: 14 })
+    await test.controller.submitSteer('stop rewriting')
+    const snap = test.controller.snapshot()
+    expect(snap.input).toBe('')
+    expect(snap.queued).toEqual([])
+    expect(snap.steering).toEqual([
+      { id: test.agent.inbox.nextStep[0]?.id, text: 'stop rewriting' },
+    ])
+    expect(test.agent.inbox.nextStep).toHaveLength(1)
+    expect(test.agent.inbox.nextTurn).toHaveLength(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('steers on Shift+T while busy and still followup/queues on Enter', async () => {
+    const test = await mount()
+    test.setStatus('running')
+    test.controller.dispatch({ type: 'set-input', input: 'use the other file', cursor: 18 })
+    expect(await test.controller.handleKey('shift+t')).toBe(true)
+    expect(test.controller.snapshot().input).toBe('')
+    expect(test.controller.snapshot().steering.map(item => item.text)).toEqual(['use the other file'])
+    expect(test.agent.inbox.nextStep).toHaveLength(1)
+
+    test.controller.dispatch({ type: 'set-input', input: 'also via ctrl+t', cursor: 16 })
+    expect(await test.controller.handleKey('ctrl+t')).toBe(true)
+    expect(test.controller.snapshot().steering.map(item => item.text)).toEqual([
+      'use the other file',
+      'also via ctrl+t',
+    ])
+
+    test.controller.dispatch({ type: 'set-input', input: 'look at tests', cursor: 13 })
+    expect(await test.controller.handleKey('enter')).toBe(true)
+    expect(test.controller.snapshot().queued.map(item => item.text)).toEqual(['look at tests'])
+    expect(test.agent.inbox.nextTurn).toHaveLength(1)
+    expect(test.agent.inbox.nextStep).toHaveLength(2)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('steers on Ctrl+T while busy and still followup/queues on Enter', async () => {
+    const test = await mount()
+    test.setStatus('running')
+    test.controller.dispatch({ type: 'set-input', input: 'use the other file', cursor: 18 })
+    expect(await test.controller.handleKey('ctrl+t')).toBe(true)
+    expect(test.controller.snapshot().input).toBe('')
+    expect(test.controller.snapshot().steering.map(item => item.text)).toEqual(['use the other file'])
+    expect(test.controller.snapshot().queued).toEqual([])
+    expect(test.agent.inbox.nextStep).toHaveLength(1)
+
+    test.controller.dispatch({ type: 'set-input', input: 'look at tests', cursor: 13 })
+    expect(await test.controller.handleKey('enter')).toBe(true)
+    expect(test.controller.snapshot().queued.map(item => item.text)).toEqual(['look at tests'])
+    expect(test.controller.snapshot().steering.map(item => item.text)).toEqual(['use the other file'])
+    expect(test.agent.inbox.nextTurn).toHaveLength(1)
+    expect(test.agent.inbox.nextStep).toHaveLength(1)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('drops the steer row when the inbox claims or discards it', async () => {
+    const test = await mount()
+    test.setStatus('running')
+    await test.controller.submitSteer('stop rewriting')
+    expect(test.controller.snapshot().steering).toHaveLength(1)
+
+    const claimed = test.agent.inbox.claim('next-step', 1)
+    expect(claimed).toHaveLength(1)
+    expect(test.controller.snapshot().steering).toEqual([])
+
+    await test.controller.submitSteer('try again')
+    expect(test.controller.snapshot().steering).toHaveLength(1)
+    const steered = test.agent.inbox.nextStep[0]
+    expect(steered).toBeDefined()
+    expect(steered !== undefined && test.agent.inbox.remove(steered.id)).toBe(true)
+    expect(test.controller.snapshot().steering).toEqual([])
+    expect(test.agent.inbox.nextStep).toHaveLength(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('restores next-turn first, then next-step, on Up when the editor is empty', async () => {
+    const test = await mount()
+    test.setStatus('running')
+    await test.controller.submitSteer('steer first')
+    await test.controller.submit('queued later')
+    expect(test.controller.snapshot().steering.map(item => item.text)).toEqual(['steer first'])
+    expect(test.controller.snapshot().queued.map(item => item.text)).toEqual(['queued later'])
+    expect(test.controller.snapshot().input).toBe('')
+
+    expect(await test.controller.handleKey('up')).toBe(true)
+    expect(test.controller.snapshot().input).toBe('queued later')
+    expect(test.controller.snapshot().queued).toEqual([])
+    expect(test.controller.snapshot().steering.map(item => item.text)).toEqual(['steer first'])
+    expect(test.agent.inbox.nextTurn).toHaveLength(0)
+    expect(test.agent.inbox.nextStep).toHaveLength(1)
+
+    test.controller.dispatch({ type: 'clear-input' })
+    expect(await test.controller.handleKey('up')).toBe(true)
+    expect(test.controller.snapshot().input).toBe('steer first')
+    expect(test.controller.snapshot().steering).toEqual([])
+    expect(test.agent.inbox.nextStep).toHaveLength(0)
+
+    test.controller.dispatch({ type: 'clear-input' })
+    await test.controller.submitSteer('only steer')
+    expect(await test.controller.handleKey('ctrl+up')).toBe(true)
+    expect(test.controller.snapshot().input).toBe('only steer')
+    expect(test.controller.snapshot().steering).toEqual([])
+    await test.ctx.fiber.dispose()
+  })
+
+  it('does not map Shift+Tab to sendMode; Enter always queues and Ctrl+Enter may still steer', async () => {
+    const test = await mount()
+    test.setStatus('running')
+    expect(test.controller.snapshot().focus).toBe('editor')
+    expect(test.controller.snapshot()).not.toHaveProperty('sendMode')
+
+    test.controller.dispatch({ type: 'set-input', input: 'stop rewriting', cursor: 14 })
+    expect(await test.controller.handleKey('shift+tab')).toBe(false)
+    expect(test.controller.snapshot().input).toBe('stop rewriting')
+    expect(test.controller.snapshot().steering).toEqual([])
+    expect(test.controller.snapshot().queued).toEqual([])
+    expect(test.controller.snapshot().focus).toBe('editor')
+
+    expect(await test.controller.handleKey('enter')).toBe(true)
+    expect(test.controller.snapshot().input).toBe('')
+    expect(test.controller.snapshot().queued.map(item => item.text)).toEqual(['stop rewriting'])
+    expect(test.controller.snapshot().steering).toEqual([])
+    expect(test.agent.inbox.nextTurn).toHaveLength(1)
+    expect(test.agent.inbox.nextStep).toHaveLength(0)
+
+    test.controller.dispatch({ type: 'set-input', input: 'use the other file', cursor: 18 })
+    expect(await test.controller.handleKey('ctrl+enter')).toBe(true)
+    expect(test.controller.snapshot().input).toBe('')
+    expect(test.controller.snapshot().steering.map(item => item.text)).toEqual(['use the other file'])
+    expect(test.agent.inbox.nextStep).toHaveLength(1)
     await test.ctx.fiber.dispose()
   })
 })

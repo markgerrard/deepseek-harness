@@ -76,7 +76,7 @@ describe('applyPromptKey readline shortcuts', () => {
   })
 
   it('does not steal reserved chrome keys', () => {
-    for (const key of ['ctrl+c', 'ctrl+n', 'ctrl+l', 'ctrl+p', 'ctrl+s', 'ctrl+g']) {
+    for (const key of ['ctrl+c', 'ctrl+n', 'ctrl+l', 'ctrl+p', 'ctrl+s', 'ctrl+g', 'ctrl+t']) {
       expect(applyPromptKey('hello', 5, key)).toBeUndefined()
     }
   })

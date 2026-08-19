@@ -26,6 +26,7 @@ export const KEYS = {
   sessions: { key: 'ctrl+s', help: 'ctrl+s', description: 'sessions' },
   newSession: { key: 'ctrl+n', help: 'ctrl+n', description: 'new session' },
   send: { key: 'return', aliases: ['enter'], help: 'enter', description: 'send' },
+  steer: { key: 'shift+t', aliases: ['ctrl+t', 'ctrl+enter', 'ctrl+T'], help: 'shift+t', description: 'steer this turn (next step)' },
   newline: { key: 'ctrl+j', help: 'ctrl+j', description: 'newline' },
   cancel: { key: 'escape', aliases: ['esc'], help: 'esc', description: 'cancel' },
   tab: { key: 'tab', help: 'tab', description: 'change focus' },

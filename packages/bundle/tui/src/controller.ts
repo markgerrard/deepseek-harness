@@ -44,6 +44,7 @@ import {
   type TuiAction,
   type TuiState,
 } from './state.ts'
+import { KEYS, matches } from './keys.ts'
 import {
   capSuggestion,
   conversationSnippet,
@@ -277,6 +278,10 @@ export class TuiController {
         return _exhaustive
       }
     }
+    if (matches(KEYS.steer, key)) {
+      if (this.state.overlay.kind === 'none') await this.submitSteer(this.state.input)
+      return true
+    }
     const chrome = chromeAction(this.state, key)
     if (chrome !== undefined) {
       this.dispatch(chrome)
@@ -292,11 +297,15 @@ export class TuiController {
         return true
       }
     }
-    if (key === 'up' && this.state.input === '' && this.state.overlay.kind === 'none') {
+    if ((key === 'up' || key === 'ctrl+up') && this.state.input === '' && this.state.overlay.kind === 'none') {
       if (this.takeBackLastQueued()) return true
     }
     if ((key === 'return' || key === 'enter') && this.state.overlay.kind !== 'none') {
       await this.confirmOverlay()
+      return true
+    }
+    if ((key === 'return' || key === 'enter') && this.state.overlay.kind === 'none') {
+      await this.submit(this.state.input)
       return true
     }
     return false
@@ -318,6 +327,29 @@ export class TuiController {
     if (agent === undefined) return
     if (this.state.screen !== 'chat') this.dispatch({ type: 'set-screen', screen: 'chat' })
     agent.followup(createUserMessage({
+      content: [{ type: 'text', text: routed.text }],
+      source: { kind: 'user' },
+    }))
+    this.refreshQueued()
+  }
+
+  /**
+   * Steer the editor line into the current turn (`agent.steer` / next-step).
+   * Works while busy; an idle agent starts a turn. Clears the editor.
+   * @param line - exact editor contents.
+   */
+  async submitSteer(line: string): Promise<void> {
+    const routed = routeLine(line)
+    this.dispatch({ type: 'clear-input' })
+    if (routed.kind === 'empty') return
+    if (routed.kind === 'command') {
+      await this.runCommand(routed.line, routed.name, routed.rawInput)
+      return
+    }
+    const agent = this.agent()
+    if (agent === undefined) return
+    if (this.state.screen !== 'chat') this.dispatch({ type: 'set-screen', screen: 'chat' })
+    agent.steer(createUserMessage({
       content: [{ type: 'text', text: routed.text }],
       source: { kind: 'user' },
     }))
@@ -524,7 +556,7 @@ export class TuiController {
     const existing = this.handle
     this.handle = undefined
     this.events = []
-    this.dispatch({ type: 'set-queued', queued: [] })
+    this.dispatch({ type: 'set-queued', queued: [], steering: [] })
     if (existing === undefined) return
     existing.agent.cancel({ kind: 'user' })
     await existing.dispose()
@@ -747,12 +779,12 @@ export class TuiController {
   }
 
   /**
-   * Mirror `agent.inbox.nextTurn` into visible queue chrome.
+   * Mirror `agent.inbox.nextTurn` and `agent.inbox.nextStep` into visible chrome.
    */
   private refreshQueued(): void {
     const agent = this.agent()
     if (agent === undefined) {
-      this.dispatch({ type: 'set-queued', queued: [] })
+      this.dispatch({ type: 'set-queued', queued: [], steering: [] })
       return
     }
     this.dispatch({
@@ -761,17 +793,22 @@ export class TuiController {
         id: message.id,
         text: textOf(message.content),
       })),
+      steering: agent.inbox.nextStep.map(message => ({
+        id: message.id,
+        text: textOf(message.content),
+      })),
     })
   }
 
   /**
-   * Claude Code-like take-back: pop the last next-turn item into the editor.
-   * @returns true when a queued prompt was restored.
+   * Claude Code-like take-back: pop last next-turn, else last next-step, into the editor.
+   * @returns true when a queued or steered prompt was restored.
    */
   private takeBackLastQueued(): boolean {
     const agent = this.agent()
     if (agent === undefined) return false
     const last = agent.inbox.nextTurn[agent.inbox.nextTurn.length - 1]
+      ?? agent.inbox.nextStep[agent.inbox.nextStep.length - 1]
     if (last === undefined) return false
     const text = textOf(last.content)
     if (!agent.inbox.remove(last.id)) return false
