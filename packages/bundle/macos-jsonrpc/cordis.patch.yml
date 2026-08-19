@@ -1,0 +1,16 @@
+# stdout is reserved for JSON-RPC; do not add a console logger or terminal UI.
+
+- id: hmr
+  disabled: true
+
+- insert:
+    - id: code-runtime
+      name: '@deepseek-ai/dsh-code-runtime-worker-thread'
+
+    - id: sdk-jsonrpc-server
+      name: '@deepseek-ai/dsh-sdk-jsonrpc-server'
+
+    - id: agent-presets
+      name: '@deepseek-ai/dsh-agent-presets'
+      config:
+        default: code

@@ -46,6 +46,13 @@ function stageInstallation(bundles: Record<string, { patch?: string; deps?: Reco
 }
 
 describe('resolveProfileDir', () => {
+  it('defines the macos profile template', () => {
+    expect(PROFILE_TEMPLATES.macos).toEqual([
+      '@deepseek-ai/dsh-base',
+      '@deepseek-ai/dsh-macos-jsonrpc',
+    ])
+  })
+
   it('joins the home and rejects traversal-shaped names', () => {
     const home = tmp()
     expect(resolveProfileDir('tui', home)).toBe(join(home, 'profiles', 'tui'))
