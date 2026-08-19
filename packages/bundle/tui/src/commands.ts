@@ -78,9 +78,15 @@ export function filterPalette(items: readonly PaletteItem[], query: string): Pal
 export function routeLine(line: string):
   { kind: 'empty' }
   | { kind: 'command'; name: string; rawInput: string; line: string }
+  | { kind: 'shell'; command: string }
   | { kind: 'prompt'; text: string } {
   const trimmed = line.trim()
   if (trimmed === '') return { kind: 'empty' }
+  if (trimmed.startsWith('!')) {
+    const command = trimmed.slice(1).trim()
+    if (command === '') return { kind: 'empty' }
+    return { kind: 'shell', command }
+  }
   const parsed = parseCommand(trimmed)
   if (parsed === undefined) return { kind: 'prompt', text: line }
   return { kind: 'command', name: parsed.name, rawInput: parsed.rawInput, line: trimmed }

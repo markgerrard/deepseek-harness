@@ -314,6 +314,8 @@ export function helpLines(): readonly string[] {
     '/cost   token occupancy',
     '/agents  list subagents',
     '/help   command list',
+    '!cmd    run a shell command',
+    '@path   complete a cwd path',
   ]
 }
 

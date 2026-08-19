@@ -189,3 +189,25 @@ describe('workflow expansion and agents overlay', () => {
     expect(reduce(opened, { type: 'move-overlay', delta: 1 }).overlay).toEqual({ kind: 'agents', selected: 1 })
   })
 })
+
+describe('shell cards and @path overlay', () => {
+  it('appends a local command card and clears it with the transcript', () => {
+    const added = reduce(initialState(seed), { type: 'append-local', text: '! ls\nexit 0' })
+    expect(added.localCards).toHaveLength(1)
+    expect(added.screen).toBe('chat')
+    const cleared = reduce(added, { type: 'clear-transcript', seq: 0 })
+    expect(cleared.localCards).toEqual([])
+  })
+
+  it('accepts an @path completion from the files overlay', () => {
+    const listed = reduce(initialState(seed), {
+      type: 'set-files',
+      files: [{ path: 'src/', dir: true }],
+    })
+    const typed = reduce(listed, { type: 'set-input', input: 'see @s', cursor: 6 })
+    const opened = reduce(typed, { type: 'open-overlay', overlay: { kind: 'files', selected: 0 } })
+    const accepted = reduce(opened, { type: 'accept-file' })
+    expect(accepted.input).toBe('see @src/')
+    expect(accepted.overlay).toEqual({ kind: 'files', selected: 0 })
+  })
+})

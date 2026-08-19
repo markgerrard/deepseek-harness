@@ -6,6 +6,7 @@
 
 import type { ConnectProviderRow } from './connect.ts'
 import { isPaletteOpen, routeLine } from './commands.ts'
+import { applyAtCompletion, type FileRow } from './files.ts'
 import { matches, KEYS } from './keys.ts'
 import { applyPromptKey } from './prompt.ts'
 import {
@@ -31,6 +32,7 @@ export type Overlay =
   | { readonly kind: 'help' }
   | { readonly kind: 'cost' }
   | { readonly kind: 'agents'; readonly selected: number }
+  | { readonly kind: 'files'; readonly selected: number }
   | { readonly kind: 'quit'; readonly selectedNope: boolean }
   | { readonly kind: 'connect-provider'; readonly selected: number }
   | {
@@ -94,6 +96,14 @@ export interface AgentRow {
   readonly status: 'running' | 'idle' | 'ready'
 }
 
+export type { FileRow }
+
+/** One local command / shell card kept off the session log. */
+export interface LocalCard {
+  readonly id: string
+  readonly text: string
+}
+
 /** Model row for the models dialog. */
 export interface ModelRow {
   readonly provider: string
@@ -116,6 +126,8 @@ export interface TuiState {
   readonly sessions: readonly SessionRow[]
   readonly models: readonly ModelRow[]
   readonly agents: readonly AgentRow[]
+  readonly files: readonly FileRow[]
+  readonly localCards: readonly LocalCard[]
   readonly connectProviders: readonly ConnectProviderRow[]
   readonly sessionId?: string
   readonly title?: string
@@ -171,6 +183,10 @@ export type TuiAction =
   | { readonly type: 'set-sessions'; readonly sessions: readonly SessionRow[] }
   | { readonly type: 'set-models'; readonly models: readonly ModelRow[] }
   | { readonly type: 'set-agents'; readonly agents: readonly AgentRow[] }
+  | { readonly type: 'set-files'; readonly files: readonly FileRow[] }
+  | { readonly type: 'append-local'; readonly text: string }
+  | { readonly type: 'clear-local' }
+  | { readonly type: 'accept-file' }
   | { readonly type: 'set-session'; readonly sessionId: string; readonly title?: string }
   | { readonly type: 'set-model'; readonly provider: string; readonly model: string }
   | { readonly type: 'set-tokens'; readonly usedTokens?: number; readonly contextWindow?: number }
@@ -213,6 +229,8 @@ export function initialState(seed: {
     sessions: [],
     models: [],
     agents: [],
+    files: [],
+    localCards: [],
     connectProviders: [],
     provider: seed.provider,
     model: seed.model,
@@ -282,7 +300,7 @@ export function resolveQuitKey(
 function isListOverlay(kind: Overlay['kind']): boolean {
   return kind === 'commands' || kind === 'models' || kind === 'sessions'
     || kind === 'connect-provider' || kind === 'approval' || kind === 'question'
-    || kind === 'agents'
+    || kind === 'agents' || kind === 'files'
 }
 
 /**
@@ -335,7 +353,8 @@ export function reduce(state: TuiState, action: TuiAction): TuiState {
         : overlay.kind === 'sessions' ? state.sessions.length
           : overlay.kind === 'connect-provider' ? state.connectProviders.length
             : overlay.kind === 'agents' ? state.agents.length
-              : overlay.kind === 'approval' ? 2
+              : overlay.kind === 'files' ? state.files.length
+                : overlay.kind === 'approval' ? 2
                 : overlay.kind === 'commands' ? state.paletteLength
                   : 0
       return { ...state, overlay: { ...overlay, selected: moveSelection(overlay.selected, length, action.delta) } }
@@ -376,6 +395,29 @@ export function reduce(state: TuiState, action: TuiAction): TuiState {
       return { ...state, models: action.models }
     case 'set-agents':
       return { ...state, agents: action.agents }
+    case 'set-files':
+      return { ...state, files: action.files }
+    case 'append-local':
+      return {
+        ...state,
+        localCards: [...state.localCards, { id: `local:${state.localCards.length}:${action.text.length}`, text: action.text }],
+        screen: state.screen === 'onboarding' ? 'onboarding' : 'chat',
+      }
+    case 'clear-local':
+      return { ...state, localCards: [], files: [] }
+    case 'accept-file': {
+      if (state.overlay.kind !== 'files') return state
+      const row = state.files[state.overlay.selected]
+      if (row === undefined) return state
+      const next = applyAtCompletion(state.input, state.cursor, row.path)
+      if (next === undefined) return state
+      return {
+        ...state,
+        input: next.input,
+        cursor: next.cursor,
+        overlay: row.dir ? { kind: 'files', selected: 0 } : { kind: 'none' },
+      }
+    }
     case 'set-session':
       return {
         ...state,
@@ -469,6 +511,8 @@ export function reduce(state: TuiState, action: TuiAction): TuiState {
         ...rest,
         screen: state.screen === 'onboarding' ? 'onboarding' : 'landing',
         turnClocks: [],
+        localCards: [],
+        files: [],
         expansion: { tools: new Set(), reasoning: new Set(), workflows: new Set() },
         overlay: { kind: 'none' },
         clearedSeq: action.seq,
@@ -495,13 +539,14 @@ export function chromeAction(state: TuiState, key: string): TuiAction | undefine
   if (state.overlay.kind !== 'none') {
     if (matches(KEYS.cancel, key)) return { type: 'close-overlay' }
     if (state.overlay.kind === 'connect-key' || state.overlay.kind === 'help' || state.overlay.kind === 'cost') return undefined
+    if (state.overlay.kind === 'files' && matches(KEYS.tab, key)) return { type: 'accept-file' }
     if ((key === 'up' || key === 'k') && isListOverlay(state.overlay.kind)) {
       return { type: 'move-overlay', delta: -1 }
     }
     if ((key === 'down' || key === 'j') && isListOverlay(state.overlay.kind)) {
       return { type: 'move-overlay', delta: 1 }
     }
-    if (state.overlay.kind === 'commands') return promptInputAction(state, key)
+    if (state.overlay.kind === 'commands' || state.overlay.kind === 'files') return promptInputAction(state, key)
     return undefined
   }
   if (matches(KEYS.cancel, key) && state.suggestion !== undefined && state.suggestion !== '') {

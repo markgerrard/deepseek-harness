@@ -235,7 +235,7 @@ export function App(props: AppProps): React.ReactElement {
         }
         return
       }
-      if (state.overlay.kind !== 'none' && state.overlay.kind !== 'commands') return
+      if (state.overlay.kind !== 'none' && state.overlay.kind !== 'commands' && state.overlay.kind !== 'files') return
       if (key.return && key.ctrl) {
         void controller.submitSteer(state.input)
         return
@@ -355,6 +355,13 @@ export function App(props: AppProps): React.ReactElement {
     overlay = coloredLines(renderOverlay(state.width, 'Cost', formatCostLines(state.usedTokens, state.contextWindow)))
   } else if (state.overlay.kind === 'agents') {
     overlay = coloredLines(renderOverlay(state.width, 'Agents', agentLines(state.agents), state.overlay.selected))
+  } else if (state.overlay.kind === 'files') {
+    overlay = coloredLines(renderOverlay(
+      state.width,
+      'Files',
+      state.files.length === 0 ? ['No matching paths.'] : state.files.map(file => file.path),
+      state.overlay.selected,
+    ))
   } else if (state.overlay.kind === 'quit') {
     overlay = coloredLines(renderQuitDialog(state.width, state.overlay.selectedNope))
   } else if (state.overlay.kind === 'commands') {

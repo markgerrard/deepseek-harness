@@ -87,6 +87,8 @@ describe('Claude Code-like chrome strings', () => {
     expect(helpLines().some(line => line.includes('/clear'))).toBe(true)
     expect(helpLines().some(line => line.includes('/cost'))).toBe(true)
     expect(helpLines().some(line => line.includes('/agents'))).toBe(true)
+    expect(helpLines().some(line => line.includes('!cmd'))).toBe(true)
+    expect(helpLines().some(line => line.includes('@path'))).toBe(true)
     expect(formatCostLines(undefined, 128000)).toEqual(['No token measurement yet.'])
     expect(formatCostLines(1280, 128000)).toEqual(['1280 / 128000 tokens', '1% of context'])
     expect(formatCostLines(42, undefined)).toEqual(['42 tokens'])

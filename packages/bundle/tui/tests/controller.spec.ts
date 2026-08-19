@@ -740,3 +740,32 @@ describe('TUI agents command', () => {
     await test.ctx.fiber.dispose()
   })
 })
+
+describe('TUI bang shell and at-path', () => {
+  it('runs ! through ctx.shell and keeps the result off the session log', async () => {
+    const test = await mount()
+    const run = vi.fn(async () => ({
+      exitCode: 0,
+      timedOut: false,
+      stdout: { text: 'ok' },
+      stderr: { text: '' },
+    }))
+    test.ctx.provide('shell', {
+      resolve: (request: { command: string }) => request,
+      run,
+    } as never)
+    await test.controller.submit('!echo ok')
+    expect(run).toHaveBeenCalled()
+    expect(test.controller.transcript().some(item => item.kind === 'command' && item.text.includes('ok'))).toBe(true)
+    expect(test.session.events.some(event => event.type === 'command/done')).toBe(false)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('explains the bash tool when ctx.shell is missing', async () => {
+    const test = await mount()
+    await test.controller.submit('!pwd')
+    const card = test.controller.transcript().find(item => item.kind === 'command')
+    expect(card?.text).toContain('bash tool')
+    await test.ctx.fiber.dispose()
+  })
+})

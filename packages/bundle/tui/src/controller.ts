@@ -7,7 +7,9 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { readdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
+import { resolve as resolvePath, sep as pathSep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentHandle, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
@@ -45,6 +47,7 @@ import {
   type TuiAction,
   type TuiState,
 } from './state.ts'
+import { parseAtToken, splitAtQuery, type FileRow } from './files.ts'
 import { isOnFirstLine, isOnLastLine } from './history.ts'
 import { KEYS, matches } from './keys.ts'
 import {
@@ -152,7 +155,15 @@ export class TuiController {
   transcript(): TranscriptItem[] {
     const cleared = this.state.clearedSeq
     const events = cleared === undefined ? this.events : this.events.filter(event => event.seq > cleared)
-    return projectTranscript(events, this.state.expansion)
+    const items = projectTranscript(events, this.state.expansion)
+    const lastSeq = events[events.length - 1]?.seq ?? 0
+    const extras: TranscriptItem[] = this.state.localCards.map((card, index) => ({
+      kind: 'command',
+      id: card.id,
+      seq: lastSeq + 1 + index,
+      text: card.text,
+    }))
+    return [...items, ...extras]
   }
 
   /**
@@ -196,6 +207,9 @@ export class TuiController {
       }
     }
     for (const listener of this.listeners) listener(this.state)
+    if (action.type === 'set-input' || action.type === 'accept-file' || action.type === 'recall-history') {
+      void this.refreshFiles()
+    }
   }
 
   /**
@@ -345,11 +359,15 @@ export class TuiController {
    */
   async submit(line: string): Promise<void> {
     const routed = routeLine(line)
-    if (routed.kind === 'prompt') this.dispatch({ type: 'push-history', text: routed.text })
+    if (routed.kind === 'prompt' || routed.kind === 'shell') this.dispatch({ type: 'push-history', text: line })
     this.dispatch({ type: 'clear-input' })
     if (routed.kind === 'empty') return
     if (routed.kind === 'command') {
       await this.runCommand(routed.line, routed.name, routed.rawInput)
+      return
+    }
+    if (routed.kind === 'shell') {
+      await this.runShell(routed.command)
       return
     }
     const agent = this.agent()
@@ -369,11 +387,15 @@ export class TuiController {
    */
   async submitSteer(line: string): Promise<void> {
     const routed = routeLine(line)
-    if (routed.kind === 'prompt') this.dispatch({ type: 'push-history', text: routed.text })
+    if (routed.kind === 'prompt' || routed.kind === 'shell') this.dispatch({ type: 'push-history', text: line })
     this.dispatch({ type: 'clear-input' })
     if (routed.kind === 'empty') return
     if (routed.kind === 'command') {
       await this.runCommand(routed.line, routed.name, routed.rawInput)
+      return
+    }
+    if (routed.kind === 'shell') {
+      await this.runShell(routed.command)
       return
     }
     const agent = this.agent()
@@ -471,6 +493,9 @@ export class TuiController {
       case 'agents':
         // Stub: steering a specific child is a later follow-up.
         this.dispatch({ type: 'close-overlay' })
+        return
+      case 'files':
+        this.dispatch({ type: 'accept-file' })
         return
       default: {
         const _exhaustive: never = overlay
@@ -612,6 +637,8 @@ export class TuiController {
     this.events = []
     this.dispatch({ type: 'set-queued', queued: [], steering: [] })
     this.dispatch({ type: 'set-agents', agents: [] })
+    this.dispatch({ type: 'set-files', files: [] })
+    this.dispatch({ type: 'clear-local' })
     this.dispatch({ type: 'clear-history' })
     if (existing === undefined) return
     existing.agent.cancel({ kind: 'user' })
@@ -845,6 +872,93 @@ export class TuiController {
         })
       },
     })
+  }
+
+
+  /**
+   * Run `!command` through `ctx.shell` when mounted; otherwise leave a command
+   * card pointing at the harness bash tool.
+   * @param command - shell text after `!`.
+   */
+  private async runShell(command: string): Promise<void> {
+    if (this.state.screen !== 'chat' && this.state.screen !== 'onboarding') {
+      this.dispatch({ type: 'set-screen', screen: 'chat' })
+    }
+    const shell = (this.ctx.get as (name: string) => {
+      resolve(request: { command: string; workdir?: string }): unknown
+      run(spec: unknown): Promise<{
+        exitCode: number | null
+        timedOut?: boolean
+        stdout?: { text?: string }
+        stderr?: { text?: string }
+      }>
+    } | undefined)('shell')
+    if (shell === undefined) {
+      this.dispatch({
+        type: 'append-local',
+        text: `! ${command}\nThe TUI ! runner needs ctx.shell. Ask the agent to run this with the bash tool.`,
+      })
+      return
+    }
+    try {
+      const spec = shell.resolve({ command, workdir: this.state.cwd })
+      const result = await shell.run(spec)
+      const out = [result.stdout?.text, result.stderr?.text]
+        .filter((part): part is string => typeof part === 'string' && part !== '')
+        .join('\n')
+        .trim()
+      const status = result.timedOut === true ? 'timed out' : `exit ${result.exitCode ?? 'signal'}`
+      this.dispatch({
+        type: 'append-local',
+        text: out === '' ? `! ${command}\n[${status}]` : `! ${command}\n${out}\n[${status}]`,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'shell failed'
+      this.dispatch({ type: 'append-local', text: `! ${command}\n${message}` })
+    }
+  }
+
+  /**
+   * List cwd-relative matches for the `@path` token under the caret.
+   */
+  private async refreshFiles(): Promise<void> {
+    const token = parseAtToken(this.state.input, this.state.cursor)
+    if (token === undefined) {
+      if (this.state.overlay.kind === 'files') this.dispatch({ type: 'close-overlay' })
+      if (this.state.files.length > 0) this.dispatch({ type: 'set-files', files: [] })
+      return
+    }
+    const { dir, base } = splitAtQuery(token.query)
+    const root = resolvePath(this.state.cwd)
+    const target = resolvePath(root, dir)
+    if (target !== root && !target.startsWith(`${root}${pathSep}`)) {
+      this.dispatch({ type: 'set-files', files: [] })
+      return
+    }
+    let files: FileRow[] = []
+    try {
+      const entries = await readdir(target, { withFileTypes: true })
+      const hideDot = !base.startsWith('.')
+      files = entries
+        .filter(entry => (!hideDot || !entry.name.startsWith('.')) && entry.name.startsWith(base))
+        .slice(0, 40)
+        .map(entry => {
+          const dirent = entry.isDirectory()
+          return { path: `${dir}${entry.name}${dirent ? '/' : ''}`, dir: dirent }
+        })
+        .sort((left, right) => Number(right.dir) - Number(left.dir) || left.path.localeCompare(right.path))
+    } catch {
+      files = []
+    }
+    this.dispatch({ type: 'set-files', files })
+    const exactFile = files.length === 1 && files[0]!.path === token.query && !files[0]!.dir
+    if (exactFile) {
+      if (this.state.overlay.kind === 'files') this.dispatch({ type: 'close-overlay' })
+      return
+    }
+    if (this.state.overlay.kind !== 'files') {
+      this.dispatch({ type: 'open-overlay', overlay: { kind: 'files', selected: 0 } })
+    }
   }
 
   /**
