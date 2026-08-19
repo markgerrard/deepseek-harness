@@ -167,7 +167,19 @@ describe('chromeAction prompt keys', () => {
     expect(chromeAction(typed('hello world', 11), 'alt+left')).toEqual({
       type: 'set-input', input: 'hello world', cursor: 6,
     })
+    expect(chromeAction(typed('hello world', 11), 'ctrl+left')).toEqual({
+      type: 'set-input', input: 'hello world', cursor: 6,
+    })
+    expect(chromeAction(typed('hello world', 11), 'alt+b')).toEqual({
+      type: 'set-input', input: 'hello world', cursor: 6,
+    })
     expect(chromeAction(typed('hello world', 0), 'alt+right')).toEqual({
+      type: 'set-input', input: 'hello world', cursor: 5,
+    })
+    expect(chromeAction(typed('hello world', 0), 'ctrl+right')).toEqual({
+      type: 'set-input', input: 'hello world', cursor: 5,
+    })
+    expect(chromeAction(typed('hello world', 0), 'alt+f')).toEqual({
       type: 'set-input', input: 'hello world', cursor: 5,
     })
     expect(chromeAction(typed('hello', 1), 'ctrl+d')).toEqual({ type: 'set-input', input: 'hllo', cursor: 1 })

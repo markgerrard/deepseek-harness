@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { KEYS, inkKeyName, matches } from '../src/keys.ts'
+import { KEYS, META_PREFIX_MS, inkKeyName, matches, wordJumpAfterEscape } from '../src/keys.ts'
 
 describe('inkKeyName', () => {
   it('maps Ink 5 shift+tab and page flags, not bare tab', () => {
@@ -62,6 +62,34 @@ describe('inkKeyName', () => {
     expect(inkKeyName(String.fromCharCode(27) + '[1;5C', {})).toBe('alt+right')
     expect(inkKeyName('[1;3D', {})).toBe('alt+left')
     expect(inkKeyName('[1;3C', {})).toBe('alt+right')
+    expect(inkKeyName('[1;5D', {})).toBe('alt+left')
+    expect(inkKeyName('[1;5C', {})).toBe('alt+right')
+    expect(inkKeyName('[1;7D', {})).toBe('alt+left')
+    expect(inkKeyName('[1;7C', {})).toBe('alt+right')
+    expect(inkKeyName('[1;9D', {})).toBe('alt+left')
+    expect(inkKeyName('[1;9C', {})).toBe('alt+right')
+    expect(inkKeyName('[3D', {})).toBe('alt+left')
+    expect(inkKeyName('[3C', {})).toBe('alt+right')
+    expect(inkKeyName('[5D', {})).toBe('alt+left')
+    expect(inkKeyName('[5C', {})).toBe('alt+right')
+    expect(inkKeyName(String.fromCharCode(27) + '[1;7D', {})).toBe('alt+left')
+    expect(inkKeyName(String.fromCharCode(27) + '[1;9C', {})).toBe('alt+right')
+    expect(inkKeyName(String.fromCharCode(27) + '[3D', {})).toBe('alt+left')
+    expect(inkKeyName(String.fromCharCode(27) + '[5C', {})).toBe('alt+right')
+    expect(inkKeyName('b', { ctrl: true })).toBe('ctrl+b')
+  })
+
+  it('maps a following b/f after Esc to readline meta word-jump names', () => {
+    expect(META_PREFIX_MS).toBe(400)
+    expect(wordJumpAfterEscape('b')).toBe('alt+b')
+    expect(wordJumpAfterEscape('B')).toBe('alt+b')
+    expect(wordJumpAfterEscape('alt+b')).toBe('alt+b')
+    expect(wordJumpAfterEscape('f')).toBe('alt+f')
+    expect(wordJumpAfterEscape('F')).toBe('alt+f')
+    expect(wordJumpAfterEscape('alt+f')).toBe('alt+f')
+    expect(wordJumpAfterEscape('left')).toBeUndefined()
+    expect(wordJumpAfterEscape('escape')).toBeUndefined()
+    expect(wordJumpAfterEscape('x')).toBeUndefined()
   })
 
   it('matches page aliases including shift+up / shift+down', () => {

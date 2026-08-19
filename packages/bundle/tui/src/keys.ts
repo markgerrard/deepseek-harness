@@ -90,26 +90,55 @@ export interface InkKeyFlags {
 }
 
 /**
- * xfce4-terminal Option/Ctrl+Left as CSI (Ink may leave this in `input` when
- * it does not set `leftArrow` + `meta`/`ctrl`).
- * @param input - raw or ESC-stripped CSI.
- * @returns true for Alt/Ctrl left-arrow sequences.
+ * Hold a lone Esc this long so a following `b` / `f` can be readline meta
+ * (Esc,b / Esc,f). Mac Option+Left often never delivers CSI `1;3D` into this
+ * xfce box; Ctrl+Left (`1;5D`) and Esc,b/f are the sequences that arrive.
  */
-function isWordJumpLeftSequence(input: string): boolean {
-  const esc = String.fromCharCode(27)
-  return input === `${esc}[1;3D` || input === `${esc}[1;5D`
-    || input === '[1;3D' || input === '[1;5D'
+export const META_PREFIX_MS = 400
+
+/**
+ * Strip a leading ESC so CSI matches both raw and Ink-stripped `input`.
+ * @param input - raw or ESC-stripped bytes.
+ * @returns the body after a single leading ESC, or `input` unchanged.
+ */
+function csiBody(input: string): string {
+  return input.charCodeAt(0) === 27 ? input.slice(1) : input
 }
 
 /**
- * xfce4-terminal Option/Ctrl+Right as CSI.
+ * xfce4-terminal Option/Ctrl/Meta+Left as CSI (Ink may leave this in `input`
+ * when it does not set `leftArrow` + `meta`/`ctrl`).
  * @param input - raw or ESC-stripped CSI.
- * @returns true for Alt/Ctrl right-arrow sequences.
+ * @returns true for Alt/Ctrl/Meta left-arrow sequences.
+ */
+function isWordJumpLeftSequence(input: string): boolean {
+  const body = csiBody(input)
+  return body === '[1;3D' || body === '[1;5D' || body === '[1;7D' || body === '[1;9D'
+    || body === '[3D' || body === '[5D'
+}
+
+/**
+ * xfce4-terminal Option/Ctrl/Meta+Right as CSI.
+ * @param input - raw or ESC-stripped CSI.
+ * @returns true for Alt/Ctrl/Meta right-arrow sequences.
  */
 function isWordJumpRightSequence(input: string): boolean {
-  const esc = String.fromCharCode(27)
-  return input === `${esc}[1;3C` || input === `${esc}[1;5C`
-    || input === '[1;3C' || input === '[1;5C'
+  const body = csiBody(input)
+  return body === '[1;3C' || body === '[1;5C' || body === '[1;7C' || body === '[1;9C'
+    || body === '[3C' || body === '[5C'
+}
+
+/**
+ * Readline meta-b / meta-f after a held Esc. Ink delivers Alt+b as one
+ * `meta`+`b` event when the bytes arrive together; a typed Esc then b is two
+ * events, and treating the first as cancel would wipe the prompt.
+ * @param name - `inkKeyName` of the key after Esc.
+ * @returns the word-jump name, or undefined when Esc should flush as cancel.
+ */
+export function wordJumpAfterEscape(name: string): 'alt+b' | 'alt+f' | undefined {
+  if (name === 'b' || name === 'B' || name === 'alt+b') return 'alt+b'
+  if (name === 'f' || name === 'F' || name === 'alt+f') return 'alt+f'
+  return undefined
 }
 
 
@@ -121,8 +150,12 @@ function isWordJumpRightSequence(input: string): boolean {
  * the CSI prefix of up/down/left/right, and treating that as cancel closed overlays.
  * Option/Alt/Ctrl+Left/Right are mapped before bare arrows: Ink 5 has no `alt`
  * flag (use `meta`), and named arrows clear `input`, so modifier flags are the
- * path when xfce4-terminal sends CSI `1;3D` / `1;5D`. Raw CSI is also accepted
- * when Ink leaves the sequence in `input`.
+ * path when xfce4-terminal sends CSI `1;3D` / `1;5D`. Ink 5 parse-keypress does
+ * set `meta` for `1;3D` and `ctrl` for `1;5D` when those bytes arrive as one
+ * chunk. Raw CSI is also accepted when Ink leaves the sequence in `input`.
+ * This box's xfwm4 does not steal Alt+Left (workspace switch is Ctrl+Alt+Left);
+ * Mac Option+Left still often never reaches the pty, so Ctrl+Left and Esc,b/f
+ * are the bindings that work here.
  *
  * Ink 5 parse-keypress names `\x7f` (what xfce4-terminal sends for Backspace)
  * `delete`, and useInput then clears the input because `delete` is

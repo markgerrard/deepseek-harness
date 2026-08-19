@@ -362,7 +362,7 @@ export function helpLines(): readonly string[] {
     'up      take back last queued / history',
     'ctrl+r  reverse search history',
     'ctrl+j  newline',
-    'alt+left/right  word jump',
+    'ctrl+left/right  or  esc b/f  word jump',
     'esc     cancel / close',
     'esc esc rewind last prompt',
     'tab     change focus',

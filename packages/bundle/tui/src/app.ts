@@ -4,7 +4,7 @@
  * @module @deepseek-ai/dsh-tui/app
  */
 
-import React, { useEffect, useLayoutEffect, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Box, Text, useInput, useStdout } from 'ink'
 import type { TuiController } from './controller.ts'
 import { formatAttachChip } from './attach.ts'
@@ -29,7 +29,7 @@ import {
 } from './chrome.ts'
 import { connectProviderById, formatModelPickerLines } from './connect.ts'
 import { layoutAreas } from './layout.ts'
-import { inkKeyName } from './keys.ts'
+import { inkKeyName, META_PREFIX_MS, wordJumpAfterEscape, type InkKeyFlags } from './keys.ts'
 import { insertAtCursor, promptPaint, setHardwareCursorVisible } from './prompt.ts'
 import { formatDoneLine, formatStatusLine, formatWorkingLine, type StatusModel } from './status.ts'
 import { promptPlaceholder } from './suggestion.ts'
@@ -232,8 +232,13 @@ export function App(props: AppProps): React.ReactElement {
   const status = { ...statusOf(state), compact }
   const home = controller.home()
 
-  useInput((input, key) => {
-    const name = inkKeyName(input, key)
+  const escapeHeld = useRef(false)
+  const escapeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => {
+    if (escapeTimer.current !== undefined) clearTimeout(escapeTimer.current)
+  }, [])
+
+  const deliverKey = (name: string, input: string, key: InkKeyFlags): void => {
     // Prompt keys (left/right/backspace/delete) go through handleKey / chromeAction
     // only. Never insert a backspace/DEL byte, and never use a stale React
     // snapshot that still has cursor === input.length.
@@ -276,6 +281,44 @@ export function App(props: AppProps): React.ReactElement {
         controller.dispatch({ type: 'set-input', input: edit.input, cursor: edit.cursor })
       }
     })
+  }
+
+  const clearEscapeHold = (): void => {
+    escapeHeld.current = false
+    if (escapeTimer.current !== undefined) {
+      clearTimeout(escapeTimer.current)
+      escapeTimer.current = undefined
+    }
+  }
+
+  useInput((input, key) => {
+    const name = inkKeyName(input, key)
+    if (escapeHeld.current) {
+      const jump = wordJumpAfterEscape(name)
+      clearEscapeHold()
+      if (jump !== undefined) {
+        void controller.handleKey(jump)
+        return
+      }
+      void controller.handleKey('escape').then(() => { deliverKey(name, input, key) })
+      return
+    }
+    if (name === 'escape') {
+      const overlay = controller.snapshot().overlay.kind
+      if (overlay !== 'none' && overlay !== 'commands' && overlay !== 'files') {
+        void controller.handleKey('escape')
+        return
+      }
+      escapeHeld.current = true
+      escapeTimer.current = setTimeout(() => {
+        escapeTimer.current = undefined
+        if (!escapeHeld.current) return
+        escapeHeld.current = false
+        void controller.handleKey('escape')
+      }, META_PREFIX_MS)
+      return
+    }
+    deliverKey(name, input, key)
   })
 
   const mainWidth = layout.main.width
