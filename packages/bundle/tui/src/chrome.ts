@@ -308,6 +308,7 @@ export function helpLines(): readonly string[] {
     'up      take back last queued / history',
     'ctrl+r  reverse search history',
     'ctrl+j  newline',
+    'alt+left/right  word jump',
     'esc     cancel / close',
     'esc esc rewind last prompt',
     'tab     change focus',
@@ -399,7 +400,9 @@ export function formatAgentsLine(total: number, running: number): string {
  * @param agents - listed children.
  * @returns display lines.
  */
-export function agentLines(agents: readonly { readonly name: string; readonly mode: string; readonly status: string }[]): readonly string[] {
+export function agentLines(
+  agents: readonly { readonly name: string; readonly mode: string; readonly status: string }[],
+): readonly string[] {
   if (agents.length === 0) return ['No subagents.']
   return agents.map(agent => `${agent.name}  ${agent.mode}  ${agent.status}`)
 }

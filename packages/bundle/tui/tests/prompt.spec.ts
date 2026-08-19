@@ -29,6 +29,20 @@ describe('applyPromptKey readline shortcuts', () => {
     expect(applyPromptKey('hello', 3, 'right')).toEqual({ input: 'hello', cursor: 4 })
   })
 
+  it('jumps whitespace-delimited words with alt/ctrl+left/right and alt+b/f', () => {
+    expect(applyPromptKey('hello world', 11, 'alt+left')).toEqual({ input: 'hello world', cursor: 6 })
+    expect(applyPromptKey('hello world', 6, 'alt+left')).toEqual({ input: 'hello world', cursor: 0 })
+    expect(applyPromptKey('hello world', 0, 'alt+left')).toEqual({ input: 'hello world', cursor: 0 })
+    expect(applyPromptKey('hello world', 3, 'ctrl+left')).toEqual({ input: 'hello world', cursor: 0 })
+    expect(applyPromptKey('hello world', 11, 'alt+b')).toEqual({ input: 'hello world', cursor: 6 })
+    expect(applyPromptKey('hello world', 0, 'alt+right')).toEqual({ input: 'hello world', cursor: 5 })
+    expect(applyPromptKey('hello world', 5, 'alt+right')).toEqual({ input: 'hello world', cursor: 11 })
+    expect(applyPromptKey('hello world', 11, 'alt+right')).toEqual({ input: 'hello world', cursor: 11 })
+    expect(applyPromptKey('hello world', 3, 'ctrl+right')).toEqual({ input: 'hello world', cursor: 5 })
+    expect(applyPromptKey('hello world', 0, 'alt+f')).toEqual({ input: 'hello world', cursor: 5 })
+    expect(applyPromptKey('hello world', 3, 'left')).toEqual({ input: 'hello world', cursor: 2 })
+  })
+
   it('kills from the cursor to the end with ctrl+k', () => {
     expect(applyPromptKey('hello', 2, 'ctrl+k')).toEqual({ input: 'he', cursor: 2, kill: 'llo' })
     expect(applyPromptKey('hello', 5, 'ctrl+k')).toEqual({ input: 'hello', cursor: 5 })
@@ -149,6 +163,12 @@ describe('chromeAction prompt keys', () => {
     })
     expect(chromeAction(typed('hello', 5), 'ctrl+u')).toEqual({
       type: 'set-input', input: '', cursor: 0, kill: 'hello',
+    })
+    expect(chromeAction(typed('hello world', 11), 'alt+left')).toEqual({
+      type: 'set-input', input: 'hello world', cursor: 6,
+    })
+    expect(chromeAction(typed('hello world', 0), 'alt+right')).toEqual({
+      type: 'set-input', input: 'hello world', cursor: 5,
     })
     expect(chromeAction(typed('hello', 1), 'ctrl+d')).toEqual({ type: 'set-input', input: 'hllo', cursor: 1 })
     expect(chromeAction(typed('hello', 2), 'ctrl+h')).toEqual({ type: 'set-input', input: 'hllo', cursor: 1 })

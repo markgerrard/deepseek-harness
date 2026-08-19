@@ -43,6 +43,27 @@ describe('inkKeyName', () => {
     expect(matches(KEYS.pageDown, 'down')).toBe(false)
   })
 
+  it('maps Option/Alt/Ctrl+Left/Right to word-jump names, not bare left/right', () => {
+    expect(inkKeyName('', { leftArrow: true, meta: true })).toBe('alt+left')
+    expect(inkKeyName('', { rightArrow: true, meta: true })).toBe('alt+right')
+    expect(inkKeyName('', { leftArrow: true, ctrl: true })).toBe('alt+left')
+    expect(inkKeyName('', { rightArrow: true, ctrl: true })).toBe('alt+right')
+    expect(inkKeyName('', { leftArrow: true, meta: true, escape: true })).toBe('alt+left')
+    expect(inkKeyName('', { leftArrow: true })).toBe('left')
+    expect(inkKeyName('', { rightArrow: true })).toBe('right')
+    expect(inkKeyName('', { escape: true, downArrow: true })).toBe('down')
+    expect(inkKeyName('b', { meta: true })).toBe('alt+b')
+    expect(inkKeyName('f', { meta: true })).toBe('alt+f')
+    expect(inkKeyName(String.fromCharCode(27) + 'b', {})).toBe('alt+b')
+    expect(inkKeyName(String.fromCharCode(27) + 'f', {})).toBe('alt+f')
+    expect(inkKeyName(String.fromCharCode(27) + '[1;3D', {})).toBe('alt+left')
+    expect(inkKeyName(String.fromCharCode(27) + '[1;3C', {})).toBe('alt+right')
+    expect(inkKeyName(String.fromCharCode(27) + '[1;5D', {})).toBe('alt+left')
+    expect(inkKeyName(String.fromCharCode(27) + '[1;5C', {})).toBe('alt+right')
+    expect(inkKeyName('[1;3D', {})).toBe('alt+left')
+    expect(inkKeyName('[1;3C', {})).toBe('alt+right')
+  })
+
   it('matches page aliases including shift+up / shift+down', () => {
     expect(matches(KEYS.pageUp, 'pageup')).toBe(true)
     expect(matches(KEYS.pageUp, 'shift+up')).toBe(true)

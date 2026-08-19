@@ -103,6 +103,19 @@ function previousWordStart(input: string, cursor: number): number {
 }
 
 /**
+ * End index of the whitespace-delimited word after `cursor`.
+ * @param input - editor contents.
+ * @param cursor - caret index.
+ * @returns the word end, or `input.length`.
+ */
+function nextWordEnd(input: string, cursor: number): number {
+  let i = clampCursor(cursor, input.length)
+  while (i < input.length && /\s/.test(input.charAt(i))) i += 1
+  while (i < input.length && !/\s/.test(input.charAt(i))) i += 1
+  return i
+}
+
+/**
  * Apply one readline-style (or insert/backspace) key to the prompt buffer.
  * Reserved chrome keys (`ctrl+c`, `ctrl+n`, `ctrl+l`, `ctrl+p`, `ctrl+s`,
  * `ctrl+g`, `ctrl+t`) are not handled here.
@@ -130,6 +143,14 @@ export function applyPromptKey(
     case 'ctrl+f':
     case 'right':
       return { input, cursor: Math.min(input.length, at + 1) }
+    case 'alt+left':
+    case 'ctrl+left':
+    case 'alt+b':
+      return { input, cursor: previousWordStart(input, at) }
+    case 'alt+right':
+    case 'ctrl+right':
+    case 'alt+f':
+      return { input, cursor: nextWordEnd(input, at) }
     case 'ctrl+k': {
       if (at >= input.length) return { input, cursor: at }
       return { input: input.slice(0, at), cursor: at, kill: input.slice(at) }

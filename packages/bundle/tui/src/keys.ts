@@ -90,11 +90,39 @@ export interface InkKeyFlags {
 }
 
 /**
+ * xfce4-terminal Option/Ctrl+Left as CSI (Ink may leave this in `input` when
+ * it does not set `leftArrow` + `meta`/`ctrl`).
+ * @param input - raw or ESC-stripped CSI.
+ * @returns true for Alt/Ctrl left-arrow sequences.
+ */
+function isWordJumpLeftSequence(input: string): boolean {
+  const esc = String.fromCharCode(27)
+  return input === `${esc}[1;3D` || input === `${esc}[1;5D`
+    || input === '[1;3D' || input === '[1;5D'
+}
+
+/**
+ * xfce4-terminal Option/Ctrl+Right as CSI.
+ * @param input - raw or ESC-stripped CSI.
+ * @returns true for Alt/Ctrl right-arrow sequences.
+ */
+function isWordJumpRightSequence(input: string): boolean {
+  const esc = String.fromCharCode(27)
+  return input === `${esc}[1;3C` || input === `${esc}[1;5C`
+    || input === '[1;3C' || input === '[1;5C'
+}
+
+
+/**
  * Map an Ink `useInput` event onto the KEYS vocabulary.
  * Shift+Tab is `key.tab && key.shift` (not bare tab). PageUp/PageDown use
  * Ink 5 `key.pageUp` / `key.pageDown`, plus shift+up/down aliases tmux will not steal.
  * Arrow flags are resolved before `escape`: xfce4-terminal / Ink set `escape` on
  * the CSI prefix of up/down/left/right, and treating that as cancel closed overlays.
+ * Option/Alt/Ctrl+Left/Right are mapped before bare arrows: Ink 5 has no `alt`
+ * flag (use `meta`), and named arrows clear `input`, so modifier flags are the
+ * path when xfce4-terminal sends CSI `1;3D` / `1;5D`. Raw CSI is also accepted
+ * when Ink leaves the sequence in `input`.
  *
  * Ink 5 parse-keypress names `\x7f` (what xfce4-terminal sends for Backspace)
  * `delete`, and useInput then clears the input because `delete` is
@@ -113,10 +141,18 @@ export function inkKeyName(input: string, key: InkKeyFlags): string {
   if (key.pageDown === true || key.pagedown === true) return 'pagedown'
   if (key.upArrow === true && key.shift === true) return 'shift+up'
   if (key.downArrow === true && key.shift === true) return 'shift+down'
+  if (key.leftArrow === true && (key.meta === true || key.ctrl === true)) return 'alt+left'
+  if (key.rightArrow === true && (key.meta === true || key.ctrl === true)) return 'alt+right'
+  if (isWordJumpLeftSequence(input)) return 'alt+left'
+  if (isWordJumpRightSequence(input)) return 'alt+right'
   if (key.upArrow === true) return 'up'
   if (key.downArrow === true) return 'down'
   if (key.leftArrow === true) return 'left'
   if (key.rightArrow === true) return 'right'
+  if (key.meta === true && (input === 'b' || input === 'B')) return 'alt+b'
+  if (key.meta === true && (input === 'f' || input === 'F')) return 'alt+f'
+  if (input === String.fromCharCode(27) + 'b' || input === String.fromCharCode(27) + 'B') return 'alt+b'
+  if (input === String.fromCharCode(27) + 'f' || input === String.fromCharCode(27) + 'F') return 'alt+f'
   if (key.ctrl === true && input !== '' && input !== undefined) return `ctrl+${input}`
   if (key.escape === true) return 'escape'
   if (key.return === true) return 'return'
