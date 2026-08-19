@@ -17,6 +17,21 @@ describe('inkKeyName', () => {
     expect(inkKeyName(String.fromCharCode(27) + '[6~', {})).toBe('pagedown')
   })
 
+  it('maps Ink 5 Backspace reports to backspace, CSI [3~ to delete', () => {
+    expect(inkKeyName('', { backspace: true })).toBe('backspace')
+    expect(inkKeyName('', { delete: true })).toBe('backspace')
+    expect(inkKeyName('\x7f', {})).toBe('backspace')
+    expect(inkKeyName('\x7f', { delete: true })).toBe('backspace')
+    expect(inkKeyName('\b', {})).toBe('backspace')
+    expect(inkKeyName('\b', { backspace: true })).toBe('backspace')
+    expect(inkKeyName(String.fromCharCode(27) + '[3~', {})).toBe('delete')
+    expect(inkKeyName(String.fromCharCode(27) + '[3~', { delete: true })).toBe('delete')
+    expect(inkKeyName(String.fromCharCode(27) + '[3;2~', {})).toBe('delete')
+    expect(inkKeyName('h', { ctrl: true })).toBe('ctrl+h')
+    expect(inkKeyName('d', { ctrl: true })).toBe('ctrl+d')
+    expect(inkKeyName('k', { ctrl: true })).toBe('ctrl+k')
+  })
+
   it('matches page aliases including shift+up / shift+down', () => {
     expect(matches(KEYS.pageUp, 'pageup')).toBe(true)
     expect(matches(KEYS.pageUp, 'shift+up')).toBe(true)

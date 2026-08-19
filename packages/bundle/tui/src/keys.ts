@@ -93,6 +93,11 @@ export interface InkKeyFlags {
  * Map an Ink `useInput` event onto the KEYS vocabulary.
  * Shift+Tab is `key.tab && key.shift` (not bare tab). PageUp/PageDown use
  * Ink 5 `key.pageUp` / `key.pageDown`, plus shift+up/down aliases tmux will not steal.
+ *
+ * Ink 5 parse-keypress names `\x7f` (what xfce4-terminal sends for Backspace)
+ * `delete`, and useInput then clears the input because `delete` is
+ * non-alphanumeric. Real Forward Delete is CSI `[3~`. Treat the former as
+ * backspace and only the CSI as delete so the editor does not swap them.
  * @param input - raw input string from Ink.
  * @param key - Ink key flags.
  * @returns a KEYS name or the raw input.
@@ -111,8 +116,10 @@ export function inkKeyName(input: string, key: InkKeyFlags): string {
   if (key.escape === true) return 'escape'
   if (key.return === true) return 'return'
   if (key.tab === true) return 'tab'
+  if (input === String.fromCharCode(27) + '[3~' || input === String.fromCharCode(27) + '[3;2~') return 'delete'
   if (key.backspace === true) return 'backspace'
-  if (key.delete === true) return 'delete'
+  if (input === '\x7f' || input === '\b') return 'backspace'
+  if (key.delete === true) return 'backspace'
   if (key.upArrow === true) return 'up'
   if (key.downArrow === true) return 'down'
   if (key.leftArrow === true) return 'left'

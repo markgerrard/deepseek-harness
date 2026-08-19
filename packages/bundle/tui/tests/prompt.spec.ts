@@ -58,17 +58,28 @@ describe('applyPromptKey readline shortcuts', () => {
     expect(applyPromptKey('hello', 2, 'ctrl+y', '')).toEqual({ input: 'hello', cursor: 2 })
   })
 
-  it('deletes the character at the cursor with ctrl+d and does not quit when empty', () => {
+  it('deletes the character AFTER the cursor with ctrl+d / delete', () => {
     expect(applyPromptKey('hello', 1, 'ctrl+d')).toEqual({ input: 'hllo', cursor: 1 })
     expect(applyPromptKey('hello', 5, 'ctrl+d')).toEqual({ input: 'hello', cursor: 5 })
     expect(applyPromptKey('', 0, 'ctrl+d')).toEqual({ input: '', cursor: 0 })
-    expect(applyPromptKey('hello', 1, 'delete')).toEqual({ input: 'hllo', cursor: 1 })
+    expect(applyPromptKey('hello', 3, 'delete')).toEqual({ input: 'helo', cursor: 3 })
+    expect(applyPromptKey('hello', 5, 'delete')).toEqual({ input: 'hello', cursor: 5 })
+    expect(applyPromptKey('ab\ncd', 3, 'delete')).toEqual({ input: 'ab\nd', cursor: 3 })
   })
 
-  it('backspaces with ctrl+h', () => {
+  it('backspaces the character BEFORE the cursor with ctrl+h / backspace', () => {
     expect(applyPromptKey('hello', 2, 'ctrl+h')).toEqual({ input: 'hllo', cursor: 1 })
     expect(applyPromptKey('hello', 0, 'ctrl+h')).toEqual({ input: 'hello', cursor: 0 })
-    expect(applyPromptKey('hello', 2, 'backspace')).toEqual({ input: 'hllo', cursor: 1 })
+    expect(applyPromptKey('hello', 5, 'backspace')).toEqual({ input: 'hell', cursor: 4 })
+    expect(applyPromptKey('hello', 0, 'backspace')).toEqual({ input: 'hello', cursor: 0 })
+    expect(applyPromptKey('ab\ncd', 3, 'backspace')).toEqual({ input: 'abcd', cursor: 2 })
+  })
+
+  it('distinguishes backspace vs delete at a mid-line cursor', () => {
+    expect(applyPromptKey('helloworld', 5, 'backspace')).toEqual({ input: 'hellworld', cursor: 4 })
+    expect(applyPromptKey('helloworld', 5, 'delete')).toEqual({ input: 'helloorld', cursor: 5 })
+    expect(applyPromptKey('hello', 3, 'backspace')).toEqual({ input: 'helo', cursor: 2 })
+    expect(applyPromptKey('hello', 3, 'delete')).toEqual({ input: 'helo', cursor: 3 })
   })
 
   it('inserts a newline at the cursor with ctrl+j', () => {
@@ -122,6 +133,12 @@ describe('chromeAction prompt keys', () => {
     expect(chromeAction(typed('hello', 1), 'ctrl+d')).toEqual({ type: 'set-input', input: 'hllo', cursor: 1 })
     expect(chromeAction(typed('hello', 2), 'ctrl+h')).toEqual({ type: 'set-input', input: 'hllo', cursor: 1 })
     expect(chromeAction(typed('', 0), 'ctrl+d')).toEqual({ type: 'set-input', input: '', cursor: 0 })
+    expect(chromeAction(typed('helloworld', 5), 'backspace')).toEqual({
+      type: 'set-input', input: 'hellworld', cursor: 4,
+    })
+    expect(chromeAction(typed('helloworld', 5), 'delete')).toEqual({
+      type: 'set-input', input: 'helloorld', cursor: 5,
+    })
   })
 
   it('leaves reserved chrome keys and dialogs alone', () => {
