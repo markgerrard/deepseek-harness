@@ -51,6 +51,15 @@ describe('Claude Code-like UI reducer', () => {
     expect(scrolled.transcriptStart).toBe(8)
     expect(reduce(scrolled, { type: 'pin-transcript' }).transcriptPinned).toBe(true)
     expect(reduce(scrolled, { type: 'scroll-transcript', delta: 99, contentHeight: 20, viewportHeight: 8 }).transcriptPinned).toBe(true)
+    const attached = reduce(state, {
+      type: 'add-attachment',
+      attachment: {
+        name: 'photo.png', mediaType: 'image/png', attachmentId: 'att-1',
+        bytes: 12, width: 1, height: 1,
+      },
+    })
+    expect(attached.attachments).toHaveLength(1)
+    expect(reduce(attached, { type: 'clear-attachments' }).attachments).toEqual([])
     expect(chromeAction(state, 'ctrl+t')).toBeUndefined()
     expect(chromeAction(state, 'shift+t')).toBeUndefined()
     const help = reduce(state, { type: 'open-overlay', overlay: { kind: 'help' } })

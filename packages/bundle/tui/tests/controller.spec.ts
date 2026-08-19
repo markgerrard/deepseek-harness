@@ -1,5 +1,8 @@
 /** Controller wires busy to agent/status, not the last session event. */
 
+import { writeFile, mkdir } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { Inbox, agentEvents } from '@deepseek-ai/dsh-agent'
@@ -901,6 +904,67 @@ describe('TUI Esc Esc rewind', () => {
     expect(await test.controller.handleKey('escape')).toBe(true)
     expect(test.controller.snapshot().input).toBe('keep me')
     vi.useRealTimers()
+    await test.ctx.fiber.dispose()
+  })
+})
+
+describe('TUI /attach', () => {
+  const png = Buffer.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+    0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+    0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
+    0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+    0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
+    0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+  ])
+
+  it('saves a local PNG through ctx.attachments and sends it on the next prompt', async () => {
+    const test = await mount()
+    const dir = join(tmpdir(), `dsh-tui-attach-${Date.now()}`)
+    await mkdir(dir, { recursive: true })
+    const file = join(dir, 'photo.png')
+    await writeFile(file, png)
+    const saveImage = vi.fn(async () => ({
+      attachmentId: 'att-1',
+      mediaType: 'image/png',
+      bytes: png.length,
+      width: 1,
+      height: 1,
+      name: 'photo.png',
+    }))
+    test.ctx.provide('attachments', { saveImage } as never)
+    test.controller.dispatch({ type: 'resize', width: 80, height: 24 })
+    // cwd is /tmp; write under /tmp so resolve stays inside cwd
+    const rel = file.startsWith('/tmp/') ? file.slice('/tmp/'.length) : file
+    await test.controller.submit(`/attach ${rel}`)
+    expect(saveImage).toHaveBeenCalled()
+    expect(test.controller.snapshot().attachments).toEqual([
+      {
+        name: 'photo.png', mediaType: 'image/png', attachmentId: 'att-1',
+        bytes: png.length, width: 1, height: 1,
+      },
+    ])
+    const followup = vi.spyOn(test.agent, 'followup')
+    await test.controller.submit('what is this')
+    expect(test.controller.snapshot().attachments).toEqual([])
+    const message = followup.mock.calls[0]?.[0] as { content: readonly { type: string }[] }
+    expect(message.content.some(block => block.type === 'image')).toBe(true)
+    expect(message.content.some(block => block.type === 'text')).toBe(true)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('inserts an @ mention when the file is not an image or the store is missing', async () => {
+    const test = await mount()
+    const dir = join(tmpdir(), `dsh-tui-attach-txt-${Date.now()}`)
+    await mkdir(dir, { recursive: true })
+    const file = join(dir, 'notes.txt')
+    await writeFile(file, 'hello')
+    const rel = file.startsWith('/tmp/') ? file.slice('/tmp/'.length) : file
+    await test.controller.submit(`/attach ${rel}`)
+    expect(test.controller.snapshot().input).toContain(`@${rel}`)
+    expect(test.controller.snapshot().attachments).toEqual([])
+    await test.controller.submit('/attach')
+    expect(test.controller.snapshot().notice?.text).toContain('/attach')
     await test.ctx.fiber.dispose()
   })
 })

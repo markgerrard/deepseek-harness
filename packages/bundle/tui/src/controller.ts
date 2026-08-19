@@ -7,7 +7,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { readdir } from 'node:fs/promises'
+import { readFile, readdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { resolve as resolvePath, sep as pathSep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -26,6 +26,7 @@ import type {} from '@deepseek-ai/dsh-user-approval'
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-user-questions'
 import type { AskUserQuestionAnswer } from '@deepseek-ai/dsh-user-questions'
+import { attachDisplayName, detectImageMediaType } from './attach.ts'
 import { CHROME_COMMANDS, filterPalette, mergePalette, routeLine } from './commands.ts'
 import {
   CONNECT_PROVIDERS,
@@ -388,7 +389,7 @@ export class TuiController {
     if (routed.kind === 'prompt' || routed.kind === 'shell') this.dispatch({ type: 'push-history', text: line })
     this.dispatch({ type: 'clear-input' })
     this.dispatch({ type: 'pin-transcript' })
-    if (routed.kind === 'empty') return
+    if (routed.kind === 'empty' && this.state.attachments.length === 0) return
     if (routed.kind === 'command') {
       await this.runCommand(routed.line, routed.name, routed.rawInput)
       return
@@ -400,8 +401,9 @@ export class TuiController {
     const agent = this.agent()
     if (agent === undefined) return
     if (this.state.screen !== 'chat') this.dispatch({ type: 'set-screen', screen: 'chat' })
+    const text = routed.kind === 'prompt' ? routed.text : ''
     agent.followup(createUserMessage({
-      content: [{ type: 'text', text: routed.text }],
+      content: this.userContent(text),
       source: { kind: 'user' },
     }))
     this.refreshQueued()
@@ -430,7 +432,7 @@ export class TuiController {
     if (agent === undefined) return
     if (this.state.screen !== 'chat') this.dispatch({ type: 'set-screen', screen: 'chat' })
     agent.steer(createUserMessage({
-      content: [{ type: 'text', text: routed.text }],
+      content: this.userContent(routed.text),
       source: { kind: 'user' },
     }))
     this.refreshQueued()
@@ -670,6 +672,7 @@ export class TuiController {
     this.dispatch({ type: 'set-files', files: [] })
     this.dispatch({ type: 'clear-local' })
     this.dispatch({ type: 'clear-history' })
+    this.dispatch({ type: 'clear-attachments' })
     if (existing === undefined) return
     existing.agent.cancel({ kind: 'user' })
     await existing.dispose()
@@ -716,6 +719,9 @@ export class TuiController {
       case 'agents':
         await this.refreshAgents()
         this.dispatch({ type: 'open-overlay', overlay: { kind: 'agents', selected: 0 } })
+        return
+      case 'attach':
+        await this.attachPath(_rawInput.trim())
         return
       case 'quit':
         this.dispatch({ type: 'open-overlay', overlay: { kind: 'quit', selectedNope: true } })
@@ -1023,6 +1029,118 @@ export class TuiController {
     } catch {
       this.dispatch({ type: 'set-agents', agents: [] })
     }
+  }
+
+  /**
+   * Build user-message content from pending `/attach` images plus optional text.
+   * Consumes the pending list so a send only includes them once.
+   * @param text - prompt text; omitted when empty and images are present.
+   * @returns content blocks for `createUserMessage`.
+   */
+  private userContent(text: string): Array<
+    { type: 'text'; text: string }
+    | { type: 'image'; attachment: {
+      attachmentId: string
+      mediaType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
+      bytes: number
+      width: number
+      height: number
+      name?: string
+    } }
+  > {
+    const pending = this.state.attachments
+    if (pending.length > 0) this.dispatch({ type: 'clear-attachments' })
+    const images = pending.map(item => ({
+      type: 'image' as const,
+      attachment: {
+        attachmentId: item.attachmentId,
+        mediaType: item.mediaType,
+        bytes: item.bytes,
+        width: item.width,
+        height: item.height,
+        ...(item.name === '' ? {} : { name: item.name }),
+      },
+    }))
+    if (text === '') return images.length === 0 ? [{ type: 'text', text: '' }] : images
+    return [...images, { type: 'text', text }]
+  }
+
+  /**
+   * `/attach <path>`: save a local raster through `ctx.attachments`, or insert
+   * an `@path` mention when the file is not an image or the store is missing.
+   * @param raw - user-typed path (cwd-relative or absolute under cwd).
+   */
+  private async attachPath(raw: string): Promise<void> {
+    if (raw === '') {
+      this.dispatch({ type: 'set-notice', notice: { type: 'info', text: 'Usage: /attach <path>' } })
+      return
+    }
+    const root = resolvePath(this.state.cwd)
+    const target = resolvePath(root, raw)
+    if (target !== root && !target.startsWith(`${root}${pathSep}`)) {
+      this.dispatch({ type: 'set-notice', notice: { type: 'error', text: 'Path escapes the working directory.' } })
+      return
+    }
+    let data: Uint8Array
+    try {
+      data = new Uint8Array(await readFile(target))
+    } catch {
+      this.dispatch({ type: 'set-notice', notice: { type: 'error', text: `Cannot read ${attachDisplayName(raw)}.` } })
+      return
+    }
+    const mediaType = detectImageMediaType(data)
+    const attachments = (this.ctx.get as (name: string) => {
+      saveImage(input: { data: Uint8Array; mediaType: string; name?: string }): Promise<{
+        attachmentId: string
+        mediaType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
+        bytes: number
+        width: number
+        height: number
+        name?: string
+      }>
+    } | undefined)('attachments')
+    if (mediaType === undefined || attachments === undefined) {
+      this.insertMention(raw)
+      this.dispatch({
+        type: 'set-notice',
+        notice: {
+          type: 'info',
+          text: attachments === undefined
+            ? `No attachment store; inserted @${attachDisplayName(raw)}.`
+            : `${attachDisplayName(raw)} is not a PNG/JPEG/WebP/GIF; inserted @ mention.`,
+        },
+      })
+      return
+    }
+    try {
+      const ref = await attachments.saveImage({ data, mediaType, name: attachDisplayName(raw) })
+      this.dispatch({
+        type: 'add-attachment',
+        attachment: {
+          name: ref.name ?? attachDisplayName(raw),
+          mediaType: ref.mediaType,
+          attachmentId: ref.attachmentId,
+          bytes: ref.bytes,
+          width: ref.width,
+          height: ref.height,
+        },
+      })
+      this.dispatch({ type: 'set-notice', notice: { type: 'success', text: `image attached  ${ref.name ?? attachDisplayName(raw)}` } })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not attach the image.'
+      this.dispatch({ type: 'set-notice', notice: { type: 'error', text: message } })
+    }
+  }
+
+  /**
+   * Insert `@path` at the end of the editor as an attachment mention.
+   * @param path - user-typed path.
+   */
+  private insertMention(path: string): void {
+    const mention = `@${path.trim()}`
+    const prefix = this.state.input === '' || this.state.input.endsWith(' ') ? '' : ' '
+    const next = `${this.state.input}${prefix}${mention} `
+    this.dispatch({ type: 'set-input', input: next, cursor: next.length })
   }
 
   /** Start the double-Esc rewind window. */

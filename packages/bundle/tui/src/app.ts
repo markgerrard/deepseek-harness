@@ -7,6 +7,7 @@
 import React, { useEffect, useState } from 'react'
 import { Box, Text, useInput, useStdout } from 'ink'
 import type { TuiController } from './controller.ts'
+import { formatAttachChip } from './attach.ts'
 import { cardWrapWidth, clipTranscript, insertTurnClocks, renderCard, toneColor } from './cards.ts'
 import {
   connectProviderLines,
@@ -319,7 +320,7 @@ export function App(props: AppProps): React.ReactElement {
     }
     const chromeLinePreview = workingLine ?? trailingClock
     const runningPreview = state.agents.filter(agent => agent.status === 'running').length
-    const inboxCount = state.steering.length + state.queued.length + (runningPreview > 0 ? 1 : 0)
+    const inboxCount = state.steering.length + state.queued.length + state.attachments.length + (runningPreview > 0 ? 1 : 0)
     const transcriptHeight = layout.main.height - inboxCount - (chromeLinePreview === undefined ? 0 : 1 + TRANSCRIPT_PROMPT_GAP)
     const paintWidth = cardWrapWidth(mainWidth)
     const pin = clipTranscript(cardRows, paintWidth, transcriptHeight, {
@@ -355,7 +356,8 @@ export function App(props: AppProps): React.ReactElement {
   const agentsLine = runningAgents > 0 ? formatAgentsLine(state.agents.length, runningAgents) : undefined
   const steerLines = state.steering.map((item, index) => formatSteerLine(index + 1, item.text, queuedWidth))
   const queuedLines = state.queued.map((item, index) => formatQueuedLine(index + 1, item.text, queuedWidth))
-  const inboxChrome = (agentsLine === undefined ? 0 : 1) + steerLines.length + queuedLines.length
+  const attachLines = state.attachments.map(item => formatAttachChip(item.name, queuedWidth))
+  const inboxChrome = (agentsLine === undefined ? 0 : 1) + steerLines.length + queuedLines.length + attachLines.length
   const mainHeight = Math.max(0, layout.main.height - inboxChrome - (chromeLine === undefined ? 0 : 1 + TRANSCRIPT_PROMPT_GAP))
 
   let overlay: React.ReactNode = null
@@ -464,6 +466,18 @@ export function App(props: AppProps): React.ReactElement {
       Box,
       {
         key: state.queued[index]?.id ?? `queued-${index}`,
+        height: 1,
+        width: mainWidth,
+        paddingX: 1,
+        flexShrink: 0,
+        flexGrow: 0,
+      },
+      React.createElement(Text, { color: COLORS.muted, wrap: 'truncate' }, line),
+    )),
+    ...attachLines.map((line, index) => React.createElement(
+      Box,
+      {
+        key: state.attachments[index]?.attachmentId ?? `attach-${index}`,
         height: 1,
         width: mainWidth,
         paddingX: 1,

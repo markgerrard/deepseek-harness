@@ -4,6 +4,7 @@
  * @module @deepseek-ai/dsh-tui/state
  */
 
+import type { PendingAttachment } from './attach.ts'
 import type { ConnectProviderRow } from './connect.ts'
 import { isPaletteOpen, routeLine } from './commands.ts'
 import { applyAtCompletion, type FileRow } from './files.ts'
@@ -171,6 +172,8 @@ export interface TuiState {
   readonly transcriptPinned: boolean
   /** Top visual line when {@link TuiState.transcriptPinned} is false. */
   readonly transcriptStart: number
+  /** Images queued by `/attach` for the next submitted prompt. */
+  readonly attachments: readonly PendingAttachment[]
 }
 
 /** Pure UI actions. Controller-owned I/O is not represented here. */
@@ -212,6 +215,8 @@ export type TuiAction =
   | { readonly type: 'set-permission-mode'; readonly permissionMode?: string }
   | { readonly type: 'scroll-transcript'; readonly delta: number; readonly contentHeight: number; readonly viewportHeight: number }
   | { readonly type: 'pin-transcript' }
+  | { readonly type: 'add-attachment'; readonly attachment: PendingAttachment }
+  | { readonly type: 'clear-attachments' }
 
 /**
  * Initial Claude Code-like landing state.
@@ -252,6 +257,7 @@ export function initialState(seed: {
     paletteLength: 0,
     transcriptPinned: true,
     transcriptStart: 0,
+    attachments: [],
     ...(seed.guidance === undefined ? {} : { guidance: seed.guidance }),
   }
 }
@@ -529,6 +535,7 @@ export function reduce(state: TuiState, action: TuiAction): TuiState {
         clearedSeq: action.seq,
         transcriptPinned: true,
         transcriptStart: 0,
+        attachments: [],
       }
     }
     case 'set-permission-mode': {
@@ -549,6 +556,10 @@ export function reduce(state: TuiState, action: TuiAction): TuiState {
     }
     case 'pin-transcript':
       return { ...state, transcriptPinned: true, transcriptStart: 0 }
+    case 'add-attachment':
+      return { ...state, attachments: [...state.attachments, action.attachment] }
+    case 'clear-attachments':
+      return { ...state, attachments: [] }
     default: {
       const _exhaustive: never = action
       return _exhaustive

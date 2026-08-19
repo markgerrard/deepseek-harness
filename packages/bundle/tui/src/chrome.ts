@@ -317,6 +317,7 @@ export function helpLines(): readonly string[] {
     '/compact  compact session history',
     '/cost   token occupancy',
     '/agents  list subagents',
+    '/attach  attach a local image path',
     '/help   command list',
     '!cmd    run a shell command',
     '@path   complete a cwd path',

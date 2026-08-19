@@ -33,6 +33,7 @@ export const CHROME_COMMANDS: readonly PaletteItem[] = [
   { id: 'chrome:compact', name: 'compact', description: 'Compact the session history', group: 'chrome', line: '/compact' },
   { id: 'chrome:cost', name: 'cost', description: 'Show token occupancy', group: 'chrome', line: '/cost' },
   { id: 'chrome:agents', name: 'agents', description: 'List workflow / swarm subagents', group: 'chrome', line: '/agents' },
+  { id: 'chrome:attach', name: 'attach', description: 'Attach a local image by file path', group: 'chrome', line: '/attach' },
   { id: 'chrome:quit', name: 'quit', description: 'Quit the TUI', group: 'chrome', line: '/quit' },
 ]
 

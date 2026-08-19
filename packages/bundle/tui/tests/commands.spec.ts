@@ -14,6 +14,7 @@ describe('Claude Code-like command palette', () => {
     expect(merged.some(item => item.name === 'compact' && item.id === 'chrome:compact')).toBe(true)
     expect(merged.some(item => item.name === 'cost')).toBe(true)
     expect(merged.some(item => item.name === 'agents')).toBe(true)
+    expect(merged.some(item => item.name === 'attach' && item.id === 'chrome:attach')).toBe(true)
   })
 
   it('filters by slash-stripped name or description', () => {
