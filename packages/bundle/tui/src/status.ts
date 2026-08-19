@@ -187,8 +187,8 @@ export function formatStatusLine(status: StatusModel, width: number, home?: stri
           : ICONS.spinner
     return truncate(`${mark} ${status.notice.text}`, width)
   }
-  const mode = status.permissionMode
-  const left = mode === undefined || mode === '' ? '? for shortcuts' : `? for shortcuts  ${mode}`
+  const mode = status.permissionMode === undefined || status.permissionMode === '' ? 'default' : status.permissionMode
+  const left = `? for shortcuts  ${mode}`
   const right = `${formatModelLine(status)}  ${prettyPath(status.cwd, home)}`
   const pad = Math.max(1, width - left.length - right.length)
   if (left.length + 1 + right.length > width) {

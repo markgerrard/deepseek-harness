@@ -68,6 +68,7 @@ import {
   displayPermissionMode,
   foldPermissionPreset,
   foldPlanActive,
+  nextLocalPermissionMode,
   nextPermissionAction,
   type PermissionAction,
   type PermissionFacts,
@@ -1221,8 +1222,10 @@ export class TuiController {
     const facts = this.permissionFacts()
     const next = nextPermissionAction(facts)
     if (next === undefined) {
-      this.refreshPermission()
-      return false
+      const label = nextLocalPermissionMode(this.state.permissionMode)
+      this.dispatch({ type: 'set-permission-mode', permissionMode: label })
+      this.dispatch({ type: 'set-notice', notice: { type: 'info', text: `permission: ${label}` } })
+      return true
     }
     await this.applyPermissionAction(facts, next)
     this.refreshPermission()
@@ -1233,11 +1236,19 @@ export class TuiController {
     return true
   }
 
+
   /**
    * Re-read the footer permission label from live DSH services / the session log.
    */
   refreshPermission(): void {
     const facts = this.permissionFacts()
+    const unmounted = !facts.hasPlan && facts.presets.length === 0 && facts.preset === undefined
+    if (unmounted) {
+      if (this.state.permissionMode === undefined || this.state.permissionMode === '') {
+        this.dispatch({ type: 'set-permission-mode', permissionMode: 'default' })
+      }
+      return
+    }
     this.dispatch({ type: 'set-permission-mode', permissionMode: displayPermissionMode(facts) })
   }
 

@@ -839,6 +839,19 @@ describe('TUI permission mode', () => {
     expect(String(execute.mock.calls[0]?.[1])).toBe('/permission danger-full-access')
     await test.ctx.fiber.dispose()
   })
+
+  it('cycles a local default / accept edits / plan fallback when nothing is mounted', async () => {
+    const test = await mount()
+    expect(test.controller.snapshot().permissionMode).toBe('default')
+    expect(await test.controller.handleKey('shift+tab')).toBe(true)
+    expect(test.controller.snapshot().permissionMode).toBe('accept edits')
+    expect(test.controller.snapshot().notice?.text).toContain('accept edits')
+    expect(await test.controller.handleKey('shift+tab')).toBe(true)
+    expect(test.controller.snapshot().permissionMode).toBe('plan')
+    expect(await test.controller.handleKey('shift+tab')).toBe(true)
+    expect(test.controller.snapshot().permissionMode).toBe('default')
+    await test.ctx.fiber.dispose()
+  })
 })
 
 describe('TUI transcript scrollback', () => {

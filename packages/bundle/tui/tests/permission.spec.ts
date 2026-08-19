@@ -6,6 +6,7 @@ import {
   foldPermissionPreset,
   foldPlanActive,
   labelPermissionPreset,
+  nextLocalPermissionMode,
   nextPermissionAction,
   permissionActionId,
   permissionCycle,
@@ -27,7 +28,7 @@ describe('permission mode labels', () => {
     expect(displayPermissionMode(both)).toBe('default')
     expect(displayPermissionMode({ ...both, planActive: true })).toBe('plan')
     expect(displayPermissionMode({ ...both, preset: 'danger-full-access' })).toBe('accept edits')
-    expect(displayPermissionMode({ planActive: false, hasPlan: false, presets: [] })).toBeUndefined()
+    expect(displayPermissionMode({ planActive: false, hasPlan: false, presets: [] })).toBe('default')
   })
 })
 
@@ -74,6 +75,15 @@ describe('Shift+Tab cycle', () => {
     const facts = { ...both, preset: 'custom' }
     expect(nextPermissionAction(facts)).toEqual({ kind: 'preset', name: 'workspace-write' })
     expect(nextPermissionAction({ planActive: false, hasPlan: false, presets: [] })).toBeUndefined()
+  })
+})
+
+describe('local Shift+Tab fallback', () => {
+  it('cycles a local default / accept edits / plan fallback', () => {
+    expect(nextLocalPermissionMode(undefined)).toBe('accept edits')
+    expect(nextLocalPermissionMode('default')).toBe('accept edits')
+    expect(nextLocalPermissionMode('accept edits')).toBe('plan')
+    expect(nextLocalPermissionMode('plan')).toBe('default')
   })
 })
 

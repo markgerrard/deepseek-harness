@@ -255,6 +255,7 @@ export function initialState(seed: {
     steering: [],
     history: [],
     paletteLength: 0,
+    permissionMode: 'default',
     transcriptPinned: true,
     transcriptStart: 0,
     attachments: [],

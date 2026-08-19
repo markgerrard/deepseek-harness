@@ -26,15 +26,28 @@ export interface PermissionFacts {
 /** Shipped DSH preset table when the service is missing but `/permission` is registered. */
 export const DEFAULT_PERMISSION_PRESETS = ['workspace-write', 'danger-full-access'] as const
 
+/** Local Shift+Tab cycle used when plan / permission seams are not mounted. */
+export const LOCAL_PERMISSION_MODES = ['default', 'accept edits', 'plan'] as const
+
+/**
+ * Next local footer label when DSH plan / permission seams are missing.
+ * @param current - footer label, or undefined before the first paint.
+ * @returns the next Claude Code-like mode.
+ */
+export function nextLocalPermissionMode(current: string | undefined): string {
+  const found = LOCAL_PERMISSION_MODES.findIndex(mode => mode === current)
+  const index = found < 0 ? 0 : found
+  return LOCAL_PERMISSION_MODES[(index + 1) % LOCAL_PERMISSION_MODES.length] ?? 'accept edits'
+}
+
 /**
  * Claude Code-like footer label for the current DSH mode.
  * `workspace-write` → `default`, `danger-full-access` → `accept edits`.
- * Other preset names stay honest (hyphens become spaces).
+ * Always returns a label so Shift+Tab is visible even with nothing mounted.
  * @param facts - plan + preset facts.
- * @returns a short footer label, or undefined when nothing is mounted.
+ * @returns a short footer label.
  */
-export function displayPermissionMode(facts: PermissionFacts): string | undefined {
-  if (!facts.hasPlan && facts.presets.length === 0 && facts.preset === undefined) return undefined
+export function displayPermissionMode(facts: PermissionFacts): string {
   if (facts.planActive) return 'plan'
   return labelPermissionPreset(facts.preset)
 }

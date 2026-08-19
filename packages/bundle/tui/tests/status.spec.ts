@@ -65,7 +65,7 @@ describe('Claude Code-like status helpers', () => {
     expect(line).toContain('? for shortcuts  accept edits')
     expect(formatStatusLine({
       provider: 'p', model: 'm', cwd: '/tmp', busy: false, compact: true,
-    }, 80)).toContain('? for shortcuts')
+    }, 80)).toContain('? for shortcuts  default')
     expect(formatStatusLine({
       provider: 'p', model: 'm', cwd: '/tmp', busy: false, compact: true,
     }, 80)).not.toContain('accept edits')
