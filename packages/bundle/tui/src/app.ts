@@ -11,6 +11,7 @@ import { cardWrapWidth, insertTurnClocks, pinTranscriptToBottom, renderCard, ton
 import {
   connectProviderLines,
   formatQueuedLine,
+  formatCostLines,
   formatSteerLine,
   helpLines,
   renderApprovalDialog,
@@ -339,6 +340,8 @@ export function App(props: AppProps): React.ReactElement {
   let overlay: React.ReactNode = null
   if (state.overlay.kind === 'help') {
     overlay = coloredLines(renderOverlay(state.width, 'Shortcuts', helpLines()))
+  } else if (state.overlay.kind === 'cost') {
+    overlay = coloredLines(renderOverlay(state.width, 'Cost', formatCostLines(state.usedTokens, state.contextWindow)))
   } else if (state.overlay.kind === 'quit') {
     overlay = coloredLines(renderQuitDialog(state.width, state.overlay.selectedNope))
   } else if (state.overlay.kind === 'commands') {

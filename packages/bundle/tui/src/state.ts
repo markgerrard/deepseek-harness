@@ -29,6 +29,7 @@ export type Overlay =
   | { readonly kind: 'models'; readonly selected: number }
   | { readonly kind: 'sessions'; readonly selected: number }
   | { readonly kind: 'help' }
+  | { readonly kind: 'cost' }
   | { readonly kind: 'quit'; readonly selectedNope: boolean }
   | { readonly kind: 'connect-provider'; readonly selected: number }
   | {
@@ -140,6 +141,8 @@ export interface TuiState {
   readonly historyDraft?: string
   /** Ctrl+R search needle, kept while cycling matches. */
   readonly historyQuery?: string
+  /** Hide session events at or below this seq from the visual transcript. */
+  readonly clearedSeq?: number
 }
 
 /** Pure UI actions. Controller-owned I/O is not represented here. */
@@ -172,6 +175,7 @@ export type TuiAction =
   | { readonly type: 'recall-history'; readonly delta: number }
   | { readonly type: 'search-history' }
   | { readonly type: 'clear-history' }
+  | { readonly type: 'clear-transcript'; readonly seq: number }
 
 /**
  * Initial Claude Code-like landing state.
@@ -308,7 +312,7 @@ export function reduce(state: TuiState, action: TuiAction): TuiState {
       return { ...state, overlay: { kind: 'none' } }
     case 'move-overlay': {
       const overlay = state.overlay
-      if (overlay.kind === 'none' || overlay.kind === 'help' || overlay.kind === 'quit' || overlay.kind === 'connect-key') {
+      if (overlay.kind === 'none' || overlay.kind === 'help' || overlay.kind === 'cost' || overlay.kind === 'quit' || overlay.kind === 'connect-key') {
         return state
       }
       if (overlay.kind === 'question') {
@@ -438,8 +442,19 @@ export function reduce(state: TuiState, action: TuiAction): TuiState {
       return recalled === undefined ? state : applyRecall(state, recalled)
     }
     case 'clear-history': {
-      const { historyIndex: _i, historyDraft: _d, historyQuery: _q, ...rest } = state
+      const { historyIndex: _i, historyDraft: _d, historyQuery: _q, clearedSeq: _c, ...rest } = state
       return { ...rest, history: [] }
+    }
+    case 'clear-transcript': {
+      const { suggestion: _s, lastTurnMs: _l, ...rest } = state
+      return {
+        ...rest,
+        screen: state.screen === 'onboarding' ? 'onboarding' : 'landing',
+        turnClocks: [],
+        expansion: { tools: new Set(), reasoning: new Set() },
+        overlay: { kind: 'none' },
+        clearedSeq: action.seq,
+      }
     }
     default: {
       const _exhaustive: never = action
@@ -461,7 +476,7 @@ export function chromeAction(state: TuiState, key: string): TuiAction | undefine
   if (state.overlay.kind === 'quit') return undefined
   if (state.overlay.kind !== 'none') {
     if (matches(KEYS.cancel, key)) return { type: 'close-overlay' }
-    if (state.overlay.kind === 'connect-key' || state.overlay.kind === 'help') return undefined
+    if (state.overlay.kind === 'connect-key' || state.overlay.kind === 'help' || state.overlay.kind === 'cost') return undefined
     if ((key === 'up' || key === 'k') && isListOverlay(state.overlay.kind)) {
       return { type: 'move-overlay', delta: -1 }
     }

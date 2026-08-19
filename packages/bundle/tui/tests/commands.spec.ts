@@ -9,7 +9,10 @@ describe('Claude Code-like command palette', () => {
     ])
     expect(merged[0]?.name).toBe('help')
     expect(merged.filter(item => item.name === 'help')).toHaveLength(1)
-    expect(merged.some(item => item.id === 'dsh:compact')).toBe(true)
+    expect(merged.some(item => item.id === 'dsh:compact')).toBe(false)
+    expect(merged.some(item => item.name === 'clear')).toBe(true)
+    expect(merged.some(item => item.name === 'compact' && item.id === 'chrome:compact')).toBe(true)
+    expect(merged.some(item => item.name === 'cost')).toBe(true)
   })
 
   it('filters by slash-stripped name or description', () => {

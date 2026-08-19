@@ -153,3 +153,16 @@ describe('suggested next prompt', () => {
     expect(busy.busy).toBe(true)
   })
 })
+
+describe('visual clear and cost overlay', () => {
+  it('folds a local transcript clear back to landing without wiping history', () => {
+    const chatting = reduce(initialState(seed), { type: 'set-screen', screen: 'chat' })
+    const clocked = reduce(chatting, { type: 'set-busy', busy: true, at: 1 })
+    const idle = reduce(clocked, { type: 'set-busy', busy: false, at: 2000 })
+    const cleared = reduce(idle, { type: 'clear-transcript', seq: 9 })
+    expect(cleared.screen).toBe('landing')
+    expect(cleared.clearedSeq).toBe(9)
+    expect(cleared.turnClocks).toEqual([])
+    expect(cleared.history).toEqual(idle.history)
+  })
+})

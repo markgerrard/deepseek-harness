@@ -149,7 +149,9 @@ export class TuiController {
    * @returns transcript items for the current expansion sets.
    */
   transcript(): TranscriptItem[] {
-    return projectTranscript(this.events, this.state.expansion)
+    const cleared = this.state.clearedSeq
+    const events = cleared === undefined ? this.events : this.events.filter(event => event.seq > cleared)
+    return projectTranscript(events, this.state.expansion)
   }
 
   /**
@@ -402,6 +404,7 @@ export class TuiController {
     switch (overlay.kind) {
       case 'none':
       case 'help':
+      case 'cost':
         this.dispatch({ type: 'close-overlay' })
         return
       case 'quit':
@@ -618,6 +621,15 @@ export class TuiController {
         return
       case 'interrupt':
         this.agent()?.cancel({ kind: 'user' })
+        return
+      case 'clear': {
+        const last = this.events[this.events.length - 1]
+        this.dispatch({ type: 'clear-transcript', seq: last?.seq ?? 0 })
+        return
+      }
+      case 'cost':
+        this.refreshTokens()
+        this.dispatch({ type: 'open-overlay', overlay: { kind: 'cost' } })
         return
       case 'quit':
         this.dispatch({ type: 'open-overlay', overlay: { kind: 'quit', selectedNope: true } })

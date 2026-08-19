@@ -675,3 +675,46 @@ describe('TUI Ctrl+C', () => {
     await test.ctx.fiber.dispose()
   })
 })
+
+describe('TUI slash chrome commands', () => {
+  it('clears the visual transcript without dropping the session log', async () => {
+    const test = await mount()
+    completeTurn(test, 'Hello', 'Ready to work.')
+    expect(test.controller.transcript().some(item => item.kind === 'user')).toBe(true)
+    const seq = test.session.events[test.session.events.length - 1]?.seq ?? 0
+    await test.controller.submit('/clear')
+    expect(test.controller.snapshot().screen).toBe('landing')
+    expect(test.controller.snapshot().clearedSeq).toBe(seq)
+    expect(test.controller.transcript()).toEqual([])
+    expect(test.session.events.length).toBeGreaterThan(0)
+    await test.ctx.fiber.dispose()
+  })
+
+  it('opens a cost overlay from token facts', async () => {
+    const test = await mount()
+    test.controller.dispatch({ type: 'set-tokens', usedTokens: 1280, contextWindow: 128000 })
+    await test.controller.submit('/cost')
+    expect(test.controller.snapshot().overlay).toEqual({ kind: 'cost' })
+    await test.ctx.fiber.dispose()
+  })
+})
+
+describe('TUI compact command', () => {
+  it('dispatches /compact through ctx.commands', async () => {
+    const test = await mount()
+    const execute = vi.fn(async () => ({
+      commandId: 'cmd-1',
+      result: { kind: 'success', text: 'Compacted 3 history items (~10 tokens).' },
+    }))
+    test.ctx.provide('commands', {
+      list: () => [],
+      execute,
+      find: () => undefined,
+      register: () => () => {},
+    } as never)
+    await test.controller.submit('/compact')
+    expect(execute).toHaveBeenCalled()
+    expect(String(execute.mock.calls[0]?.[1])).toBe('/compact')
+    await test.ctx.fiber.dispose()
+  })
+})

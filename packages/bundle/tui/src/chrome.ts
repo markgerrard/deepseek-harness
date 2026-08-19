@@ -309,6 +309,9 @@ export function helpLines(): readonly string[] {
     'tab     change focus',
     'space   expand tool / reasoning (chat focus)',
     '/connect  paste a provider API key',
+    '/clear  new visual transcript',
+    '/compact  compact session history',
+    '/cost   token occupancy',
     '/help   command list',
   ]
 }
@@ -356,4 +359,19 @@ function formatInboxLine(label: string, index: number, text: string, width: numb
 export function sessionLines(sessions: readonly SessionRow[]): readonly string[] {
   if (sessions.length === 0) return ['No stored sessions yet.']
   return sessions.map(session => session.title)
+}
+
+/**
+ * Token-occupancy overlay body from `tokenMeter` facts.
+ * @param used - measured tokens, when known.
+ * @param window - model context window, when known.
+ * @returns overlay lines (never secrets).
+ */
+export function formatCostLines(used: number | undefined, window: number | undefined): readonly string[] {
+  if (used === undefined) return ['No token measurement yet.']
+  if (window !== undefined && window > 0) {
+    const pct = Math.min(100, Math.round((used / window) * 100))
+    return [`${used} / ${window} tokens`, `${pct}% of context`]
+  }
+  return [`${used} tokens`]
 }

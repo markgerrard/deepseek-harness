@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   formatNumberedOption,
   formatQueuedLine,
+  formatCostLines,
   formatSteerLine,
   helpLines,
   renderApprovalDialog,
@@ -81,6 +82,11 @@ describe('Claude Code-like chrome strings', () => {
     expect(helpLines().every(line => !line.includes('ctrl+enter'))).toBe(true)
     expect(helpLines().some(line => line.includes('take back last queued'))).toBe(true)
     expect(helpLines().some(line => line.includes('reverse search history'))).toBe(true)
+    expect(helpLines().some(line => line.includes('/clear'))).toBe(true)
+    expect(helpLines().some(line => line.includes('/cost'))).toBe(true)
+    expect(formatCostLines(undefined, 128000)).toEqual(['No token measurement yet.'])
+    expect(formatCostLines(1280, 128000)).toEqual(['1280 / 128000 tokens', '1% of context'])
+    expect(formatCostLines(42, undefined)).toEqual(['42 tokens'])
     expect(formatQueuedLine(1, 'look at tests', 40)).toBe('queued 1  look at tests')
     expect(formatQueuedLine(2, 'a very long follow-up prompt', 18)).toBe('queued 2  a very …')
     expect(formatSteerLine(1, 'stop rewriting', 40)).toBe('steer 1  stop rewriting')
