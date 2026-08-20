@@ -52,6 +52,7 @@ EOF
 # previous chrome stays on screen. Kill it first.
 pkill -f '/DsBot.app/Contents/MacOS/DsBot' 2>/dev/null || true
 pkill -f 'apps/macos/.build/.*/DsBot$' 2>/dev/null || true
+pkill -f 'apps/cli/lib/bin.js --profile macos' 2>/dev/null || true
 sleep 0.4
 open "$APP"
 echo "opened $APP (DSH_REPO=$ROOT)"

@@ -58,39 +58,31 @@ private final class HarnessClientCore: @unchecked Sendable {
 
       let stdinPipe = Pipe()
       let stdoutPipe = Pipe()
-      let stderrPipe = Pipe()
-
       proc.standardInput = stdinPipe
       proc.standardOutput = stdoutPipe
-      proc.standardError = stderrPipe
+      // Pipe stderr to a file. A pipe we do not read will stall the child.
+      let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+        .appendingPathComponent("DsBot", isDirectory: true)
+      if let dir {
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let log = dir.appendingPathComponent("dsh.stderr.log")
+        if !FileManager.default.fileExists(atPath: log.path) {
+          FileManager.default.createFile(atPath: log.path, contents: nil)
+        }
+        if let err = try? FileHandle(forWritingTo: log) {
+          _ = try? err.seekToEnd()
+          proc.standardError = err
+          self.stderrHandle = err
+        }
+      }
 
       self.process = proc
       self.stdinHandle = stdinPipe.fileHandleForWriting
-      self.stderrHandle = stderrPipe.fileHandleForReading
-      // Drain stderr or the child blocks once the pipe buffer fills.
-      stderrPipe.fileHandleForReading.readabilityHandler = { handle in
-        let data = handle.availableData
-        guard !data.isEmpty else { return }
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-          .appendingPathComponent("DsBot", isDirectory: true)
-        if let dir {
-          try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-          let log = dir.appendingPathComponent("dsh.stderr.log")
-          if let handle = try? FileHandle(forWritingTo: log) {
-            defer { try? handle.close() }
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: data)
-          } else {
-            try? data.write(to: log)
-          }
-        }
-      }
 
       do {
         try proc.run()
       } catch {
         isStarted = false
-        stderrPipe.fileHandleForReading.readabilityHandler = nil
         throw error
       }
 

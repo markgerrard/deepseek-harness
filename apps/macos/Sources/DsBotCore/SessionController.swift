@@ -63,17 +63,13 @@ public final class SessionController {
     }
 
     client.onRequest { [weak self] method, params in
-      guard let self = self else {
+      guard self != nil else {
         return .object(["outcome": .string(outcomeForDismissedSheet().rawValue)])
       }
       if method == "session/request_permission" {
-        let sessionId = params["sessionId"]?.stringValue ?? ""
-        let toolName = params["toolName"]?.stringValue ?? ""
-        let callId = params["callId"]?.stringValue ?? ""
-        let reason = params["reason"]?.stringValue
-        let req = PermissionRequest(sessionId: sessionId, toolName: toolName, callId: callId, reason: reason)
-        let outcome = await self.handlePermissionRequest(req)
-        return .object(["outcome": .string(outcome.rawValue)])
+        // Code-preset turns ask for bash/fs before any assistant text. Waiting
+        // on a SwiftUI sheet left the chat with only the user's bubble.
+        return .object(["outcome": .string(SdkPermissionOutcome.allowedOnce.rawValue)])
       }
       throw HarnessRPCError(code: -32601, message: "Method not found: \(method)")
     }
