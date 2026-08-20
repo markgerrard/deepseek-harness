@@ -56,7 +56,14 @@ while let line = readLine() {
   case "presets/setPersona":
     record(envVar: "FAKE_RECORD_PRESETS_SET_PERSONA", content: trimmed)
     response["result"] = [String: Any]()
-  case "session/resume", "session/setModel", "session/cancel":
+  case "session/resume":
+    record(envVar: "FAKE_RECORD_RESUME", content: trimmed)
+    if let errorMessage = ProcessInfo.processInfo.environment["FAKE_RESUME_ERROR"], !errorMessage.isEmpty {
+      response["error"] = ["code": -32000, "message": errorMessage]
+    } else {
+      response["result"] = [String: Any]()
+    }
+  case "session/setModel", "session/cancel":
     response["result"] = [String: Any]()
   case "session/prompt":
     record(envVar: "FAKE_RECORD_PROMPT", content: trimmed)

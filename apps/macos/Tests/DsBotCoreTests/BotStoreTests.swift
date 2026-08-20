@@ -15,6 +15,53 @@ final class BotStoreTests: XCTestCase {
     let bot = try JSONDecoder().decode(Bot.self, from: json)
     XCTAssertNil(bot.avatarPath)
     XCTAssertEqual(bot.id, "a")
+    XCTAssertFalse(bot.pinned)
+  }
+
+  func testBotDecodesWithoutPinnedDefaultsFalse() throws {
+    let json = Data(#"""
+      {"id":"a","displayName":"A","provider":"p","model":"m","reasoningEffort":"off","threadIDs":[]}
+      """#.utf8)
+    let bot = try JSONDecoder().decode(Bot.self, from: json)
+    XCTAssertFalse(bot.pinned)
+  }
+
+  func testSetPinnedPersistsAndRoundTrips() throws {
+    let fileURL = temporaryStoreURL()
+    defer { try? FileManager.default.removeItem(at: fileURL) }
+
+    var store = BotStore(fileURL: fileURL)
+    try store.addBot(Bot(
+      id: "bot-a",
+      displayName: "Bot A",
+      provider: "p",
+      model: "m"
+    ))
+    XCTAssertFalse(store.bots[0].pinned)
+
+    try store.setPinned(botID: "bot-a", pinned: true)
+    XCTAssertTrue(store.bots[0].pinned)
+
+    let reloaded = BotStore(fileURL: fileURL)
+    XCTAssertEqual(reloaded.bots.count, 1)
+    XCTAssertTrue(reloaded.bots[0].pinned)
+
+    var store2 = reloaded
+    try store2.setPinned(botID: "bot-a", pinned: false)
+    XCTAssertFalse(store2.bots[0].pinned)
+    XCTAssertFalse(BotStore(fileURL: fileURL).bots[0].pinned)
+  }
+
+  func testSetPinnedUnknownBotThrows() throws {
+    let fileURL = temporaryStoreURL()
+    defer { try? FileManager.default.removeItem(at: fileURL) }
+    var store = BotStore(fileURL: fileURL)
+    XCTAssertThrowsError(try store.setPinned(botID: "missing", pinned: true)) { error in
+      guard let storeError = error as? BotStoreError else {
+        return XCTFail("Expected BotStoreError, got \(error)")
+      }
+      XCTAssertEqual(storeError, .botNotFound("missing"))
+    }
   }
 
   func testOneBotOwnsManyThreadsAndDoesNotLeak() throws {

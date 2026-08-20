@@ -3,7 +3,7 @@ import SwiftUI
 import DsBotCore
 
 final class DsBotAppDelegate: NSObject, NSApplicationDelegate {
-  var runtime: RuntimeProcess?
+  var client: HarnessClient?
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     // `swift run` starts a unix executable, not a bundled .app. Without a
@@ -20,7 +20,7 @@ final class DsBotAppDelegate: NSObject, NSApplicationDelegate {
   func applicationWillTerminate(_ notification: Notification) {
     let sem = DispatchSemaphore(value: 0)
     Task {
-      try? await runtime?.stop()
+      try? await client?.shutdown()
       sem.signal()
     }
     _ = sem.wait(timeout: .now() + 4)
@@ -31,7 +31,6 @@ final class DsBotAppDelegate: NSObject, NSApplicationDelegate {
 struct DsBotApp: App {
   @NSApplicationDelegateAdaptor(DsBotAppDelegate.self) private var appDelegate
   @State private var controller: SessionController
-  private let runtime: RuntimeProcess?
   private let workspace: URL
 
   init() {
@@ -54,20 +53,14 @@ struct DsBotApp: App {
       node: node,
       environment: LaunchCredentials.childEnvironment()
     )
-    let runtime = RuntimeProcess(launch: launch)
-    let client: HarnessClient
-    do {
-      client = try runtime.start()
-      self.runtime = runtime
-    } catch {
-      self.runtime = nil
-      client = HarnessClient(
-        command: launch.command,
-        arguments: launch.arguments,
-        cwd: launch.cwd,
-        environment: launch.environment
-      )
-    }
+    // Do not spawn the runtime here. SwiftUI may run App.init more than once,
+    // and a Process started before the run loop never delivered stdout frames.
+    let client = HarnessClient(
+      command: launch.command,
+      arguments: launch.arguments,
+      cwd: launch.cwd,
+      environment: launch.environment
+    )
     _controller = State(initialValue: SessionController(client: client, store: store))
   }
 
@@ -76,11 +69,12 @@ struct DsBotApp: App {
       RootView(controller: controller)
         .preferredColorScheme(.dark)
         .onAppear {
-          appDelegate.runtime = runtime
+          appDelegate.client = controller.client
           NSApp.activate(ignoringOtherApps: true)
         }
         .task {
           do {
+            try controller.client.start()
             try await controller.initialize(
               cwd: workspace.path,
               provider: "cline-pass",

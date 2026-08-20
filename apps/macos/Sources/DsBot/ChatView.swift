@@ -17,16 +17,10 @@ public struct ChatView: View {
         HStack(spacing: 10) {
           if let bot = controller.selectedBot {
             BotAvatarView(bot: bot, size: 32)
-            VStack(alignment: .leading, spacing: 1) {
-              Text(bot.displayName)
-                .font(.headline)
-              Text(controller.selectedThread?.title ?? "")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            }
+            Text(bot.displayName)
+              .font(.headline)
           } else {
-            Text(controller.selectedThread?.title ?? "Chat")
+            Text("Chat")
               .font(.headline)
           }
           Spacer()
@@ -58,6 +52,24 @@ public struct ChatView: View {
               ForEach(controller.currentTranscript) { item in
                 transcriptItemView(item)
                   .id(item.id)
+              }
+              if isSending {
+                HStack(alignment: .top, spacing: 8) {
+                  if let bot = controller.selectedBot {
+                    BotAvatarView(bot: bot, size: 28)
+                      .padding(.top, 4)
+                  }
+                  HStack(spacing: 8) {
+                    ProgressView().controlSize(.mini)
+                    Text("Waiting for reply…")
+                      .font(.callout)
+                      .foregroundStyle(.secondary)
+                  }
+                  .padding(.horizontal, 14)
+                  .padding(.vertical, 10)
+                  Spacer(minLength: 60)
+                }
+                .id("waiting-for-reply")
               }
             }
             .padding(16)
@@ -108,7 +120,7 @@ public struct ChatView: View {
           Text("No conversation selected")
             .font(.title2)
             .foregroundStyle(.secondary)
-          Text("Pick a bot, then a thread in the sidebar.")
+          Text("Pick a bot in the sidebar.")
             .font(.subheadline)
             .foregroundStyle(.secondary)
         }

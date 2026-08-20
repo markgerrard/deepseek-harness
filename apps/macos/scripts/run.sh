@@ -54,5 +54,16 @@ pkill -f '/DsBot.app/Contents/MacOS/DsBot' 2>/dev/null || true
 pkill -f 'apps/macos/.build/.*/DsBot$' 2>/dev/null || true
 pkill -f 'apps/cli/lib/bin.js --profile macos' 2>/dev/null || true
 sleep 0.4
-open "$APP"
-echo "opened $APP (DSH_REPO=$ROOT)"
+
+# `open` of the .app goes through LaunchServices. That process does not inherit
+# Terminal's Files-and-Folders grant for /Volumes/Workspace, so the child node
+# stalls in open() walking package.json and never answers initialize.
+# Launch the executable from this shell so the harness can read the repo.
+STAGE="${HOME}/Library/Application Support/DsBot/DsBot.app"
+rm -rf "$STAGE"
+ditto "$APP" "$STAGE"
+xattr -cr "$STAGE" 2>/dev/null || true
+export DSH_REPO="$ROOT"
+export DSH_TELEMETRY_DISABLED=1
+nohup "$STAGE/Contents/MacOS/DsBot" >/tmp/dsbot.stdout 2>/tmp/dsbot.stderr &
+echo "launched $STAGE (pid $!, DSH_REPO=$ROOT)"

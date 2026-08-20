@@ -13,6 +13,74 @@ final class HarnessClientTests: XCTestCase {
     throw NSError(domain: "DsBotCoreTests", code: 1, userInfo: [NSLocalizedDescriptionKey: "FakeSdkRuntime product not found"])
   }
 
+  func testInitializeReadsFromRealMacosProfile() async throws {
+    let repo = RuntimeLaunch.findRepoRoot()
+      ?? URL(fileURLWithPath: "/Volumes/Workspace/repos/dsbot")
+    let bin = repo.appendingPathComponent("apps/cli/lib/bin.js")
+    try XCTSkipUnless(FileManager.default.isReadableFile(atPath: bin.path), "macos CLI not built")
+    try XCTSkipUnless(LaunchCredentials.clineApiKey() != nil, "CLINE_API_KEY not available")
+
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent("dsh-home-\(UUID().uuidString)")
+    let ws = FileManager.default.temporaryDirectory.appendingPathComponent("dsh-ws-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: ws, withIntermediateDirectories: true)
+    defer {
+      try? FileManager.default.removeItem(at: home)
+      try? FileManager.default.removeItem(at: ws)
+    }
+
+    var env = LaunchCredentials.childEnvironment()
+    env["DSH_HOME"] = home.path
+    let node = FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/node")
+      ? "/opt/homebrew/bin/node" : "node"
+    let client = HarnessClient(
+      command: node,
+      arguments: [bin.path, "--profile", "macos"],
+      cwd: ws,
+      environment: env
+    )
+    try client.start()
+    let started = Date()
+    try await client.initialize(
+      cwd: ws.path,
+      provider: "cline-pass",
+      model: "cline-pass/deepseek-v4-flash",
+      approvals: true
+    )
+    XCTAssertLessThan(Date().timeIntervalSince(started), 15)
+    try await client.shutdown()
+  }
+
+  func testInitializeWithAppWorkspaceAndUserHome() async throws {
+    let repo = RuntimeLaunch.findRepoRoot()
+      ?? URL(fileURLWithPath: "/Volumes/Workspace/repos/dsbot")
+    let bin = repo.appendingPathComponent("apps/cli/lib/bin.js")
+    try XCTSkipUnless(FileManager.default.isReadableFile(atPath: bin.path), "macos CLI not built")
+    try XCTSkipUnless(LaunchCredentials.clineApiKey() != nil, "CLINE_API_KEY not available")
+
+    let ws = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent("DsBot/workspace", isDirectory: true)
+    try FileManager.default.createDirectory(at: ws, withIntermediateDirectories: true)
+
+    let env = LaunchCredentials.childEnvironment()
+    let node = FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/node")
+      ? "/opt/homebrew/bin/node" : "node"
+    let client = HarnessClient(
+      command: node,
+      arguments: [bin.path, "--profile", "macos"],
+      cwd: ws,
+      environment: env
+    )
+    try client.start()
+    try await client.initialize(
+      cwd: ws.path,
+      provider: "cline-pass",
+      model: "cline-pass/deepseek-v4-flash",
+      approvals: true
+    )
+    try await client.shutdown()
+  }
+
   func testListPresetsTalksToFakeRuntime() async throws {
     let runtime = try bundledFakeRuntimeURL()
     let client = HarnessClient(command: runtime.path, arguments: [], cwd: nil)

@@ -62,6 +62,11 @@ final class SessionControllerTests: XCTestCase {
     XCTAssertEqual(storedBot?.provider, "mock")
     XCTAssertEqual(storedBot?.model, "m")
     XCTAssertEqual(storedBot?.reasoningEffort, "high")
+    XCTAssertFalse(bot.pinned)
+    XCTAssertFalse(storedBot?.pinned ?? true)
+    XCTAssertEqual(controller.threads(forBot: bot.id).count, 1)
+    XCTAssertEqual(controller.selectedBotId, bot.id)
+    XCTAssertEqual(controller.selectedThreadId, controller.threads(forBot: bot.id).first?.id)
 
     try await process.stop()
 
@@ -113,6 +118,86 @@ final class SessionControllerTests: XCTestCase {
 
     let owningBot = controller.store.bot(forThread: threadA.id)
     XCTAssertEqual(owningBot?.id, botA.id)
+
+    try await process.stop()
+  }
+
+  @MainActor
+  func testCreateBotIsUnpinnedAndEnsureChatIsIdempotent() async throws {
+    let runtime = try bundledFakeRuntimeURL()
+    let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    let process = RuntimeProcess(launch: RuntimeLaunch(command: runtime.path, arguments: [], cwd: tempDir))
+    let client = try process.start()
+    let storeFile = tempDir.appendingPathComponent("bots.json")
+    let controller = SessionController(client: client, store: BotStore(fileURL: storeFile))
+    try await controller.initialize(cwd: tempDir.path, provider: "mock", model: "m", approvals: true)
+
+    let bot = try await controller.createBot(
+      displayName: "Solo Bot",
+      job: "Job",
+      provider: "mock",
+      model: "m"
+    )
+    XCTAssertFalse(bot.pinned)
+    XCTAssertEqual(controller.threads(forBot: bot.id).count, 1)
+
+    let first = try controller.ensureChat(forBot: bot.id)
+    let second = try controller.ensureChat(forBot: bot.id)
+    XCTAssertEqual(first.id, second.id)
+    XCTAssertEqual(controller.threads(forBot: bot.id).count, 1)
+
+    try controller.pinBot(id: bot.id)
+    XCTAssertTrue(controller.bots.first(where: { $0.id == bot.id })?.pinned == true)
+    XCTAssertTrue(BotStore(fileURL: storeFile).bots.first?.pinned == true)
+
+    try controller.unpinBot(id: bot.id)
+    XCTAssertFalse(controller.bots.first(where: { $0.id == bot.id })?.pinned == true)
+    XCTAssertFalse(BotStore(fileURL: storeFile).bots.first?.pinned == true)
+
+    try await process.stop()
+  }
+
+  @MainActor
+  func testSelectBotOpensTheOneChat() async throws {
+    let runtime = try bundledFakeRuntimeURL()
+    let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    let process = RuntimeProcess(launch: RuntimeLaunch(command: runtime.path, arguments: [], cwd: tempDir))
+    let client = try process.start()
+    let controller = SessionController(
+      client: client,
+      store: BotStore(fileURL: tempDir.appendingPathComponent("bots.json"))
+    )
+    try await controller.initialize(cwd: tempDir.path, provider: "mock", model: "m", approvals: true)
+
+    let botA = try await controller.createBot(
+      displayName: "Bot A",
+      job: "A",
+      provider: "mock",
+      model: "m"
+    )
+    let botB = try await controller.createBot(
+      displayName: "Bot B",
+      job: "B",
+      provider: "mock",
+      model: "m"
+    )
+    let chatA = try controller.ensureChat(forBot: botA.id)
+    let chatB = try controller.ensureChat(forBot: botB.id)
+    XCTAssertNotEqual(chatA.id, chatB.id)
+
+    controller.selectBot(id: botA.id)
+    XCTAssertEqual(controller.selectedBotId, botA.id)
+    XCTAssertEqual(controller.selectedThreadId, chatA.id)
+
+    controller.selectBot(id: botB.id)
+    XCTAssertEqual(controller.selectedBotId, botB.id)
+    XCTAssertEqual(controller.selectedThreadId, chatB.id)
 
     try await process.stop()
   }
@@ -254,6 +339,87 @@ final class SessionControllerTests: XCTestCase {
     XCTAssertEqual(SessionController.wireReasoningEffort("max"), "max")
   }
 
+  func testNeedsResumeDetectsPersistedLogCollision() {
+    XCTAssertTrue(SessionController.needsResume("session \"abc\" already exists in this backend"))
+    XCTAssertTrue(SessionController.needsResume("session already has a persisted log on disk; load/resume it instead of creating"))
+    XCTAssertFalse(SessionController.needsResume("CLINE_API_KEY is missing"))
+  }
+
+  @MainActor
+  func testSendPromptResumesBeforePrompt() async throws {
+    let runtime = try bundledFakeRuntimeURL()
+    let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    let resumeRecord = tempDir.appendingPathComponent("resume.txt")
+    let promptRecord = tempDir.appendingPathComponent("prompt.txt")
+    let launch = RuntimeLaunch(
+      command: runtime.path,
+      arguments: [],
+      cwd: tempDir,
+      environment: [
+        "FAKE_RECORD_RESUME": resumeRecord.path,
+        "FAKE_RECORD_PROMPT": promptRecord.path,
+      ]
+    )
+    let process = RuntimeProcess(launch: launch)
+    let client = try process.start()
+    let controller = SessionController(client: client, store: BotStore(fileURL: tempDir.appendingPathComponent("bots.json")))
+    try await controller.initialize(cwd: tempDir.path, provider: "mock", model: "m", approvals: true)
+    let bot = try await controller.createBot(
+      displayName: "Resume Bot",
+      job: "j",
+      provider: "cline-pass",
+      model: "cline-pass/deepseek-v4-flash",
+      thinking: "off"
+    )
+    let thread = try controller.ensureChat(forBot: bot.id)
+    _ = try await controller.sendPrompt(threadId: thread.id, text: "hi")
+    try await process.stop()
+
+    let resumeText = try String(contentsOf: resumeRecord, encoding: .utf8)
+    let resumeMethods = rpcMethods(in: resumeText)
+    XCTAssertEqual(resumeMethods, ["session/resume"], "resume log: \(resumeText)")
+    XCTAssertFalse(resumeText.contains("reasoningEffort"), "resume log: \(resumeText)")
+    let promptText = try String(contentsOf: promptRecord, encoding: .utf8)
+    let promptMethods = rpcMethods(in: promptText)
+    XCTAssertEqual(promptMethods, ["session/prompt"], "prompt log: \(promptText)")
+  }
+
+  @MainActor
+  func testSendPromptStillPromptsWhenResumeMisses() async throws {
+    let runtime = try bundledFakeRuntimeURL()
+    let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    let promptRecord = tempDir.appendingPathComponent("prompt.txt")
+    let launch = RuntimeLaunch(
+      command: runtime.path,
+      arguments: [],
+      cwd: tempDir,
+      environment: [
+        "FAKE_RESUME_ERROR": "session not found",
+        "FAKE_RECORD_PROMPT": promptRecord.path,
+      ]
+    )
+    let process = RuntimeProcess(launch: launch)
+    let client = try process.start()
+    let controller = SessionController(client: client, store: BotStore(fileURL: tempDir.appendingPathComponent("bots.json")))
+    try await controller.initialize(cwd: tempDir.path, provider: "mock", model: "m", approvals: true)
+    let bot = try await controller.createBot(
+      displayName: "Miss Bot",
+      job: "j",
+      provider: "mock",
+      model: "m"
+    )
+    let thread = try controller.ensureChat(forBot: bot.id)
+    _ = try await controller.sendPrompt(threadId: thread.id, text: "hello")
+    try await process.stop()
+    XCTAssertTrue(FileManager.default.fileExists(atPath: promptRecord.path))
+  }
+
   @MainActor
   func testPromptOmitsReasoningEffortWhenThinkingOff() async throws {
     let params = try await promptParams(thinking: "off", initialPrompt: "hello")
@@ -374,5 +540,13 @@ final class SessionControllerTests: XCTestCase {
     let line = text.split(whereSeparator: \.isNewline).map(String.init).last(where: { !$0.isEmpty }) ?? ""
     let obj = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
     return obj?["params"] as? [String: Any] ?? [:]
+  }
+
+  private func rpcMethods(in text: String) -> [String] {
+    text.split(whereSeparator: \.isNewline).compactMap { line in
+      let data = Data(line.utf8)
+      let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+      return obj?["method"] as? String
+    }
   }
 }

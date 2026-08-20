@@ -50,6 +50,34 @@ public enum JSONValue: Codable, Equatable, Sendable {
       try container.encode(value)
     }
   }
+
+  /// Best-effort conversion from `JSONSerialization` values. Bool is `NSNumber`
+  /// on this path, so it must be distinguished from 0/1.
+  public init(any value: Any) {
+    switch value {
+    case is NSNull:
+      self = .null
+    case let b as Bool:
+      self = .bool(b)
+    case let n as NSNumber:
+      if CFGetTypeID(n) == CFBooleanGetTypeID() {
+        self = .bool(n.boolValue)
+      } else {
+        self = .number(n.doubleValue)
+      }
+    case let s as String:
+      self = .string(s)
+    case let arr as [Any]:
+      self = .array(arr.map { JSONValue(any: $0) })
+    case let dict as [String: Any]:
+      var out: [String: JSONValue] = [:]
+      out.reserveCapacity(dict.count)
+      for (k, v) in dict { out[k] = JSONValue(any: v) }
+      self = .object(out)
+    default:
+      self = .string(String(describing: value))
+    }
+  }
 }
 
 public struct PresetListItem: Codable, Equatable, Sendable {

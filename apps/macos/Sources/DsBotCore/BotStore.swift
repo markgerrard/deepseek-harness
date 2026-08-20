@@ -7,8 +7,14 @@ public struct Bot: Codable, Equatable, Identifiable, Sendable {
   public var model: String
   public var reasoningEffort: String
   public var threadIDs: [String]
+  /// User-pinned bots show as blobs at the top of the sidebar. Default false; old JSON omits it.
+  public var pinned: Bool
   /// Absolute file path to a PNG, JPEG, or looping GIF. Nil uses a generated blob.
   public var avatarPath: String?
+
+  enum CodingKeys: String, CodingKey {
+    case id, displayName, provider, model, reasoningEffort, threadIDs, pinned, avatarPath
+  }
 
   public init(
     id: String,
@@ -17,6 +23,7 @@ public struct Bot: Codable, Equatable, Identifiable, Sendable {
     model: String,
     reasoningEffort: String = "off",
     threadIDs: [String] = [],
+    pinned: Bool = false,
     avatarPath: String? = nil
   ) {
     self.id = id
@@ -25,7 +32,20 @@ public struct Bot: Codable, Equatable, Identifiable, Sendable {
     self.model = model
     self.reasoningEffort = reasoningEffort
     self.threadIDs = threadIDs
+    self.pinned = pinned
     self.avatarPath = avatarPath
+  }
+
+  public init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    id = try c.decode(String.self, forKey: .id)
+    displayName = try c.decode(String.self, forKey: .displayName)
+    provider = try c.decode(String.self, forKey: .provider)
+    model = try c.decode(String.self, forKey: .model)
+    reasoningEffort = try c.decode(String.self, forKey: .reasoningEffort)
+    threadIDs = try c.decodeIfPresent([String].self, forKey: .threadIDs) ?? []
+    pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
+    avatarPath = try c.decodeIfPresent(String.self, forKey: .avatarPath)
   }
 }
 
@@ -96,6 +116,14 @@ public struct BotStore: Sendable {
       throw BotStoreError.duplicateBot(bot.id)
     }
     bots.append(bot)
+    try persist()
+  }
+
+  public mutating func setPinned(botID: String, pinned: Bool) throws {
+    guard let index = bots.firstIndex(where: { $0.id == botID }) else {
+      throw BotStoreError.botNotFound(botID)
+    }
+    bots[index].pinned = pinned
     try persist()
   }
 

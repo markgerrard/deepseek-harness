@@ -31,6 +31,29 @@ final class ProtocolTypesTests: XCTestCase {
     XCTAssertEqual(decoded, reDecoded)
   }
 
+  func testJSONValueFromAnyKeepsBoolDistinctFromNumber() {
+    let value = JSONValue(any: [
+      "ok": true,
+      "n": 1,
+      "event": [
+        "type": "assistant/message",
+        "seq": 57,
+        "data": ["message": ["content": [["type": "text", "text": "hi"]]]],
+      ],
+    ] as [String: Any])
+    guard case .object(let obj) = value else {
+      return XCTFail("expected object")
+    }
+    XCTAssertEqual(obj["ok"], .bool(true))
+    XCTAssertEqual(obj["n"], .number(1))
+    XCTAssertEqual(obj["event"]?["type"]?.stringValue, "assistant/message")
+    XCTAssertEqual(obj["event"]?["seq"]?.intValue, 57)
+    XCTAssertEqual(
+      obj["event"]?["data"]?["message"]?["content"]?[0]?["text"]?.stringValue,
+      "hi"
+    )
+  }
+
   func testSessionEventNotificationDecoding() throws {
     let jsonString = """
     {

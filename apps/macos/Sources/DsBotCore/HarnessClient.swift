@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 private final class HarnessClientCore: @unchecked Sendable {
@@ -9,11 +10,15 @@ private final class HarnessClientCore: @unchecked Sendable {
   private let lock = NSLock()
   private var process: Process?
   private var stdinHandle: FileHandle?
+  private var stdoutHandle: FileHandle?
+  private var stdoutPipe: Pipe?
+  private var stdinPipe: Pipe?
   private var nextId: Int = 1
   private var pendingContinuations: [Int: CheckedContinuation<Data, Error>] = [:]
   private var isStarted = false
   private var isShutdown = false
-  private var readTask: Task<Void, Never>?
+  private var lineBuffer = Data()
+  private var readerThread: Foundation.Thread?
   private var stderrHandle: FileHandle?
   private var requestHandler: (@Sendable (String, JSONValue) async throws -> JSONValue)?
 
@@ -40,9 +45,9 @@ private final class HarnessClientCore: @unchecked Sendable {
   }
 
   func start() throws {
-    let (proc, stdoutHandle): (Process, FileHandle) = try lock.withLock {
+    let thread: Foundation.Thread? = try lock.withLock {
       if isStarted {
-        throw HarnessRPCError(code: -32000, message: "Client is already started")
+        return nil as Foundation.Thread?
       }
       isStarted = true
 
@@ -76,8 +81,12 @@ private final class HarnessClientCore: @unchecked Sendable {
         }
       }
 
+      let readHandle = stdoutPipe.fileHandleForReading
       self.process = proc
+      self.stdinPipe = stdinPipe
+      self.stdoutPipe = stdoutPipe
       self.stdinHandle = stdinPipe.fileHandleForWriting
+      self.stdoutHandle = readHandle
 
       do {
         try proc.run()
@@ -86,19 +95,45 @@ private final class HarnessClientCore: @unchecked Sendable {
         throw error
       }
 
-      return (proc, stdoutPipe.fileHandleForReading)
-    }
-
-    _ = proc
-    self.readTask = Task { [weak self] in
-      do {
-        for try await line in stdoutHandle.bytes.lines {
-          self?.handleLine(line)
+      // Blocking read on a private thread. FileHandle.bytes.lines,
+      // readabilityHandler (App.init has no RunLoop), and DispatchSource on the
+      // FileHandle fd all left Node JSON-RPC frames sitting in the pipe.
+      let fd = readHandle.fileDescriptor
+      let thread = Foundation.Thread { [weak self] in
+        var buf = [UInt8](repeating: 0, count: 64 * 1024)
+        while true {
+          let n = read(fd, &buf, buf.count)
+          if n > 0 {
+            self?.consumeStdout(Data(buf[0..<n]))
+          } else {
+            self?.handleTermination()
+            return
+          }
         }
-      } catch {
-        // Stream ended or failed
       }
-      self?.handleTermination()
+      thread.name = "dsbot.rpc.stdout"
+      thread.qualityOfService = .userInitiated
+      self.readerThread = thread
+      return thread
+    }
+    thread?.start()
+  }
+
+  private func consumeStdout(_ data: Data) {
+    var lines: [String] = []
+    lock.lock()
+    lineBuffer.append(data)
+    while let range = lineBuffer.range(of: Data([0x0A])) {
+      let lineData = lineBuffer.subdata(in: lineBuffer.startIndex..<range.lowerBound)
+      lineBuffer.removeSubrange(lineBuffer.startIndex..<range.upperBound)
+      if let line = String(data: lineData, encoding: .utf8) {
+        lines.append(line)
+      }
+    }
+    lock.unlock()
+    for line in lines {
+      Self.appendRpcLog(prefix: "S", line: line)
+      handleLine(line)
     }
   }
 
@@ -130,6 +165,7 @@ private final class HarnessClientCore: @unchecked Sendable {
 
       do {
         try stdin.write(contentsOf: data)
+        Self.appendRpcLog(prefix: "C", line: String(data: data, encoding: .utf8) ?? "")
       } catch {
         lock.withLock {
           _ = pendingContinuations.removeValue(forKey: id)
@@ -234,14 +270,49 @@ private final class HarnessClientCore: @unchecked Sendable {
 
     // 3. Server->Client Notification (has method, no id)
     if let method = json["method"] as? String {
-      if method == "session.event" {
-        if let params = json["params"] as? [String: Any],
-           let paramsData = try? JSONSerialization.data(withJSONObject: params),
-           let notification = try? JSONDecoder().decode(SessionEventNotification.self, from: paramsData) {
-          eventContinuation?.yield(notification)
-        }
+      if method == "session.event", let notification = Self.parseSessionEvent(json["params"]) {
+        eventContinuation?.yield(notification)
       }
     }
+  }
+
+  private static func parseSessionEvent(_ params: Any?) -> SessionEventNotification? {
+    guard let params = params as? [String: Any],
+          let sessionId = params["sessionId"] as? String else {
+      return nil
+    }
+    let eventValue = JSONValue(any: params["event"] ?? [String: Any]())
+    let event: [String: JSONValue]
+    if case .object(let obj) = eventValue {
+      event = obj
+    } else {
+      return nil
+    }
+    return SessionEventNotification(sessionId: sessionId, event: event)
+  }
+
+  private static let rpcLogLock = NSLock()
+
+  static func appendRpcLog(prefix: String, line: String) {
+    let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+      .appendingPathComponent("DsBot", isDirectory: true)
+    guard let dir else { return }
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let url = dir.appendingPathComponent("dsh.rpc.log")
+    let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return }
+    let clipped = trimmed.count > 4000 ? String(trimmed.prefix(4000)) + "…" : trimmed
+    let stamp = ISO8601DateFormatter().string(from: Date())
+    let row = "\(stamp) \(prefix) \(clipped)\n"
+    rpcLogLock.lock()
+    defer { rpcLogLock.unlock() }
+    if !FileManager.default.fileExists(atPath: url.path) {
+      FileManager.default.createFile(atPath: url.path, contents: nil)
+    }
+    guard let handle = try? FileHandle(forWritingTo: url) else { return }
+    defer { try? handle.close() }
+    _ = try? handle.seekToEnd()
+    try? handle.write(contentsOf: Data(row.utf8))
   }
 
   private func sendResponseResult(id: JSONValue, result: JSONValue) {
@@ -253,6 +324,7 @@ private final class HarnessClientCore: @unchecked Sendable {
       guard isStarted, !isShutdown, let sin = stdinHandle else { return }
       try? sin.write(contentsOf: lineData)
     }
+    Self.appendRpcLog(prefix: "C", line: String(data: data, encoding: .utf8) ?? "")
   }
 
   private func sendResponseError(id: JSONValue, code: Int, message: String) {
@@ -292,6 +364,10 @@ private final class HarnessClientCore: @unchecked Sendable {
 
     let proc = lock.withLock { () -> Process? in
       isShutdown = true
+      readerThread?.cancel()
+      stdoutHandle?.readabilityHandler = nil
+      try? stdoutHandle?.close()
+      stdoutHandle = nil
       try? stdinHandle?.close()
       stdinHandle = nil
       stderrHandle?.readabilityHandler = nil
@@ -303,7 +379,6 @@ private final class HarnessClientCore: @unchecked Sendable {
     if let proc = proc {
       proc.waitUntilExit()
     }
-    readTask?.cancel()
     handleTermination()
   }
 }

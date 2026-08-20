@@ -58,8 +58,8 @@ public final class SessionController {
     self.client = client
     self.store = store
     self.selectedBotId = store.bots.first?.id
-    if let botId = self.selectedBotId {
-      self.selectedThreadId = store.threads(forBot: botId).first?.id
+    if let botId = self.selectedBotId, let chat = try? self.ensureChat(forBot: botId) {
+      self.selectedThreadId = chat.id
     }
 
     client.onRequest { [weak self] method, params in
@@ -127,12 +127,55 @@ public final class SessionController {
 
   public func selectBot(id: String) {
     selectedBotId = id
-    let ths = store.threads(forBot: id)
-    if let currentThread = selectedThreadId, ths.contains(where: { $0.id == currentThread }) {
-      // keep current thread if it belongs to selected bot
+    if let chat = try? ensureChat(forBot: id) {
+      selectedThreadId = chat.id
     } else {
-      selectedThreadId = ths.first?.id
+      selectedThreadId = store.threads(forBot: id).first?.id
     }
+  }
+
+  public var pinnedBots: [Bot] {
+    bots.filter(\.pinned)
+  }
+
+  public var unpinnedBots: [Bot] {
+    bots.filter { !$0.pinned }
+  }
+
+  /// One bot, one chat. Reuses the first stored session; never creates a second.
+  @discardableResult
+  public func ensureChat(forBot botId: String) throws -> Thread {
+    if let existing = store.threads(forBot: botId).first {
+      return existing
+    }
+    guard let bot = bots.first(where: { $0.id == botId }) else {
+      throw SessionControllerError.botNotFound(botId)
+    }
+    let thread = Thread(id: UUID().uuidString, botID: bot.id, title: bot.displayName)
+    try store.addThread(thread)
+    return thread
+  }
+
+  public func pinBot(id: String) throws {
+    try store.setPinned(botID: id, pinned: true)
+  }
+
+  public func unpinBot(id: String) throws {
+    try store.setPinned(botID: id, pinned: false)
+  }
+
+  public func lastMessagePreview(forBot botId: String) -> String? {
+    guard let thread = store.threads(forBot: botId).first else { return nil }
+    for item in transcript(for: thread.id).reversed() {
+      switch item {
+      case .user(_, _, let text), .assistant(_, _, let text, _):
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { return trimmed }
+      default:
+        continue
+      }
+    }
+    return nil
   }
 
   public func selectThread(id: String) {
@@ -202,6 +245,7 @@ public final class SessionController {
       model: model,
       reasoningEffort: thinking,
       threadIDs: [],
+      pinned: false,
       avatarPath: avatarPath
     )
     try store.addBot(bot)
@@ -215,30 +259,19 @@ public final class SessionController {
     initialPrompt: String,
     title: String? = nil
   ) async throws -> Thread {
-    let sessionId = UUID().uuidString
+    _ = title
+    let thread = try ensureChat(forBot: bot.id)
+    selectThread(id: thread.id)
     let trimmed = initialPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-    let threadTitle = title ?? (trimmed.isEmpty ? "New Thread" : String(trimmed.prefix(50)))
-    let thread = Thread(id: sessionId, botID: bot.id, title: threadTitle)
-    try store.addThread(thread)
-    selectThread(id: sessionId)
-
     if !trimmed.isEmpty {
-      appendLocalUserMessage(initialPrompt, sessionId: sessionId)
+      appendLocalUserMessage(initialPrompt, sessionId: thread.id)
       do {
-        _ = try await client.prompt(
-          sessionId: sessionId,
-          text: initialPrompt,
-          agentPreset: bot.id,
-          provider: bot.provider,
-          model: bot.model,
-          reasoningEffort: Self.wireReasoningEffort(bot.reasoningEffort)
-        )
+        _ = try await deliverPrompt(bot: bot, sessionId: thread.id, text: initialPrompt)
       } catch {
-        handlePromptError(error, sessionId: sessionId)
+        handlePromptError(error, sessionId: thread.id)
         throw error
       }
     }
-
     return thread
   }
 
@@ -249,28 +282,88 @@ public final class SessionController {
     }
     appendLocalUserMessage(text, sessionId: threadId)
     do {
-      let msgId = try await client.prompt(
-        sessionId: threadId,
-        text: text,
-        agentPreset: bot.id,
-        provider: bot.provider,
-        model: bot.model,
-        reasoningEffort: Self.wireReasoningEffort(bot.reasoningEffort)
-      )
-      return msgId
+      return try await deliverPrompt(bot: bot, sessionId: threadId, text: text)
     } catch {
       handlePromptError(error, sessionId: threadId)
       throw error
     }
   }
 
-  public func initialize(cwd: String, provider: String, model: String, approvals: Bool = true) async throws {
+  /// Rehydrate a persisted log before prompting. `session/prompt` on an unknown
+  /// id *creates*; a log that already exists on disk rejects that create.
+  private func deliverPrompt(bot: Bot, sessionId: String, text: String) async throws -> String {
+    await resumeIfPossible(bot: bot, sessionId: sessionId)
     do {
-      try await client.initialize(cwd: cwd, provider: provider, model: model, approvals: approvals)
+      return try await client.prompt(
+        sessionId: sessionId,
+        text: text,
+        agentPreset: bot.id,
+        provider: bot.provider,
+        model: bot.model,
+        reasoningEffort: Self.wireReasoningEffort(bot.reasoningEffort)
+      )
     } catch {
-      initializationError = (error as? HarnessRPCError)?.message ?? error.localizedDescription
+      let msg = (error as? HarnessRPCError)?.message ?? error.localizedDescription
+      if Self.needsResume(msg) {
+        try await client.resume(
+          sessionId: sessionId,
+          provider: bot.provider,
+          model: bot.model,
+          reasoningEffort: Self.wireReasoningEffort(bot.reasoningEffort)
+        )
+        return try await client.prompt(
+          sessionId: sessionId,
+          text: text,
+          agentPreset: bot.id,
+          provider: bot.provider,
+          model: bot.model,
+          reasoningEffort: Self.wireReasoningEffort(bot.reasoningEffort)
+        )
+      }
       throw error
     }
+  }
+
+  private func resumeIfPossible(bot: Bot, sessionId: String) async {
+    do {
+      try await client.resume(
+        sessionId: sessionId,
+        provider: bot.provider,
+        model: bot.model,
+        reasoningEffort: Self.wireReasoningEffort(bot.reasoningEffort)
+      )
+    } catch {
+      // No persisted log yet — session/prompt will lazy-create.
+    }
+  }
+
+  nonisolated static func needsResume(_ message: String) -> Bool {
+    let m = message.lowercased()
+    return m.contains("already exists")
+      || m.contains("persisted log")
+      || m.contains("load/resume")
+  }
+
+  public func initialize(cwd: String, provider: String, model: String, approvals: Bool = true) async throws {
+    var lastMessage = "initialize failed"
+    for attempt in 0..<8 {
+      do {
+        try await client.initialize(cwd: cwd, provider: provider, model: model, approvals: approvals)
+        initializationError = nil
+        return
+      } catch {
+        lastMessage = (error as? HarnessRPCError)?.message ?? error.localizedDescription
+        let adapterRace = lastMessage.contains("no adapter registered")
+        if adapterRace && attempt < 7 {
+          try await Task.sleep(nanoseconds: 250_000_000)
+          continue
+        }
+        initializationError = lastMessage
+        throw error
+      }
+    }
+    initializationError = lastMessage
+    throw HarnessRPCError(code: -32000, message: lastMessage)
   }
 
   private func handlePromptError(_ error: Error, sessionId: String) {
