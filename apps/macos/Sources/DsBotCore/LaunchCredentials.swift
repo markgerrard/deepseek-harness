@@ -35,11 +35,27 @@ public enum LaunchCredentials: Sendable {
   ) -> [String: String] {
     var env = base
     env["DSH_TELEMETRY_DISABLED"] = "1"
+    if env["HOME"] == nil || env["HOME"]?.isEmpty == true {
+      env["HOME"] = home.path
+    }
+    env["PATH"] = mergedPath(env["PATH"])
     if env["CLINE_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true {
       if let key = clineApiKey(environment: base, home: home) {
         env["CLINE_API_KEY"] = key
       }
     }
     return env
+  }
+
+  /// `open` of a bundled .app often has no shell PATH. Node and dsh still need Homebrew.
+  public static func mergedPath(_ existing: String?) -> String {
+    let extras = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
+    var parts: [String] = []
+    for item in extras + (existing ?? "").split(separator: ":").map(String.init) {
+      if !item.isEmpty && !parts.contains(item) {
+        parts.append(item)
+      }
+    }
+    return parts.joined(separator: ":")
   }
 }

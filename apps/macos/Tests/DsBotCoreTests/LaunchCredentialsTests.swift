@@ -44,6 +44,14 @@ final class LaunchCredentialsTests: XCTestCase {
     let env = LaunchCredentials.childEnvironment(base: ["PATH": "/usr/bin"], home: home)
     XCTAssertEqual(env["DSH_TELEMETRY_DISABLED"], "1")
     XCTAssertEqual(env["CLINE_API_KEY"], "sk_child")
-    XCTAssertEqual(env["PATH"], "/usr/bin")
+    XCTAssertTrue(env["PATH"]?.contains("/opt/homebrew/bin") == true)
+    XCTAssertTrue(env["PATH"]?.contains("/usr/bin") == true)
+    XCTAssertEqual(env["HOME"], home.path)
+  }
+
+  func testMergedPathFillsMissingShellPath() {
+    let path = LaunchCredentials.mergedPath(nil)
+    XCTAssertTrue(path.contains("/opt/homebrew/bin"))
+    XCTAssertTrue(path.contains("/usr/bin"))
   }
 }

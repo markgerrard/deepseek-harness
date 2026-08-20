@@ -2,7 +2,7 @@ import SwiftUI
 import DsBotCore
 
 public struct ChatView: View {
-  var controller: SessionController
+  @Bindable var controller: SessionController
   @State private var promptText = ""
   @State private var isSending = false
   @FocusState private var promptFocused: Bool

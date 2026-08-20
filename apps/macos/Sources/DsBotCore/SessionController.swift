@@ -227,6 +227,7 @@ public final class SessionController {
     selectThread(id: sessionId)
 
     if !trimmed.isEmpty {
+      appendLocalUserMessage(initialPrompt, sessionId: sessionId)
       do {
         _ = try await client.prompt(
           sessionId: sessionId,
@@ -250,6 +251,7 @@ public final class SessionController {
     guard let bot = store.bot(forThread: threadId) else {
       throw SessionControllerError.threadNotFound(threadId)
     }
+    appendLocalUserMessage(text, sessionId: threadId)
     do {
       let msgId = try await client.prompt(
         sessionId: threadId,
@@ -281,6 +283,21 @@ public final class SessionController {
     threadErrors[sessionId] = msg
   }
 
+  private func appendLocalUserMessage(_ text: String, sessionId: String) {
+    let nextSeq = (eventsBySession[sessionId]?.map(\.seq).max() ?? 0) + 1
+    appendEvent(
+      SessionEventDTO(
+        type: "user/message",
+        seq: nextSeq,
+        data: .object([
+          "source": .object(["kind": .string("user")]),
+          "content": .array([.object(["type": .string("text"), "text": .string(text)])]),
+        ])
+      ),
+      forSessionId: sessionId
+    )
+  }
+
   public func appendEvent(_ event: SessionEventDTO, forSessionId sessionId: String) {
     var list = eventsBySession[sessionId] ?? []
     list.append(event)
@@ -297,6 +314,14 @@ public final class SessionController {
     let type = eventDict["type"]?.stringValue ?? ""
     let seq = eventDict["seq"]?.intValue ?? 0
     let data = eventDict["data"] ?? .null
+    if type == "user/message",
+       eventDict["data"]?["source"]?["kind"]?.stringValue == "user" {
+      let incoming = textOf(data["content"] ?? .null)
+      let existing = (eventsBySession[sessionId] ?? []).reversed().first { $0.type == "user/message" }
+      if let existing, textOf(existing.data["content"] ?? .null) == incoming {
+        return
+      }
+    }
     let dto = SessionEventDTO(type: type, seq: seq, data: data)
     appendEvent(dto, forSessionId: sessionId)
   }

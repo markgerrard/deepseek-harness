@@ -14,6 +14,7 @@ private final class HarnessClientCore: @unchecked Sendable {
   private var isStarted = false
   private var isShutdown = false
   private var readTask: Task<Void, Never>?
+  private var stderrHandle: FileHandle?
   private var requestHandler: (@Sendable (String, JSONValue) async throws -> JSONValue)?
 
   let events: AsyncStream<SessionEventNotification>
@@ -65,11 +66,31 @@ private final class HarnessClientCore: @unchecked Sendable {
 
       self.process = proc
       self.stdinHandle = stdinPipe.fileHandleForWriting
+      self.stderrHandle = stderrPipe.fileHandleForReading
+      // Drain stderr or the child blocks once the pipe buffer fills.
+      stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+        let data = handle.availableData
+        guard !data.isEmpty else { return }
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+          .appendingPathComponent("DsBot", isDirectory: true)
+        if let dir {
+          try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+          let log = dir.appendingPathComponent("dsh.stderr.log")
+          if let handle = try? FileHandle(forWritingTo: log) {
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: data)
+          } else {
+            try? data.write(to: log)
+          }
+        }
+      }
 
       do {
         try proc.run()
       } catch {
         isStarted = false
+        stderrPipe.fileHandleForReading.readabilityHandler = nil
         throw error
       }
 
@@ -281,6 +302,9 @@ private final class HarnessClientCore: @unchecked Sendable {
       isShutdown = true
       try? stdinHandle?.close()
       stdinHandle = nil
+      stderrHandle?.readabilityHandler = nil
+      try? stderrHandle?.close()
+      stderrHandle = nil
       return process
     }
 

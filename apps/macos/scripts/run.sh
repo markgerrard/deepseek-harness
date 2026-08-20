@@ -39,10 +39,19 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <dict>
     <key>DSH_REPO</key>
     <string>${ROOT}</string>
+    <key>HOME</key>
+    <string>${HOME}</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
   </dict>
 </dict>
 </plist>
 EOF
 
+# `open` on an already-running DsBot only activates the old process, so the
+# previous chrome stays on screen. Kill it first.
+pkill -f '/DsBot.app/Contents/MacOS/DsBot' 2>/dev/null || true
+pkill -f 'apps/macos/.build/.*/DsBot$' 2>/dev/null || true
+sleep 0.4
 open "$APP"
 echo "opened $APP (DSH_REPO=$ROOT)"
