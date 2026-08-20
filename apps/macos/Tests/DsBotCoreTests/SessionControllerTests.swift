@@ -306,7 +306,7 @@ final class SessionControllerTests: XCTestCase {
 
     let items = controller.currentTranscript
     XCTAssertEqual(items.count, 3)
-    guard case .user(_, let seq1, let text1) = items[0] else {
+    guard case .user(_, let seq1, let text1, _) = items[0] else {
       return XCTFail("Expected user item")
     }
     XCTAssertEqual(seq1, 1)

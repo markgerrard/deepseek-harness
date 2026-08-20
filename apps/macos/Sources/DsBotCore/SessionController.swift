@@ -42,6 +42,7 @@ public enum SessionControllerError: Error, LocalizedError, Equatable, Sendable {
 public final class SessionController {
   public let client: HarnessClient
   public var store: BotStore
+  public let transcripts: TranscriptStore?
   public var selectedBotId: String?
   public var selectedThreadId: String?
 
@@ -54,9 +55,11 @@ public final class SessionController {
   @ObservationIgnored private var pendingApprovalContinuation: CheckedContinuation<SdkPermissionOutcome, Never>?
   @ObservationIgnored nonisolated(unsafe) private var eventListeningTask: Task<Void, Never>?
 
-  public init(client: HarnessClient, store: BotStore) {
+  public init(client: HarnessClient, store: BotStore, transcripts: TranscriptStore? = nil) {
     self.client = client
     self.store = store
+    self.transcripts = transcripts
+    self.hydratePersistedTranscripts()
     self.selectedBotId = store.bots.first?.id
     if let botId = self.selectedBotId, let chat = try? self.ensureChat(forBot: botId) {
       self.selectedThreadId = chat.id
@@ -129,6 +132,7 @@ public final class SessionController {
     selectedBotId = id
     if let chat = try? ensureChat(forBot: id) {
       selectedThreadId = chat.id
+      hydrateIfNeeded(sessionId: chat.id)
     } else {
       selectedThreadId = store.threads(forBot: id).first?.id
     }
@@ -168,7 +172,12 @@ public final class SessionController {
     guard let thread = store.threads(forBot: botId).first else { return nil }
     for item in transcript(for: thread.id).reversed() {
       switch item {
-      case .user(_, _, let text), .assistant(_, _, let text, _):
+      case .user(_, _, let text, let files):
+        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          return text
+        }
+        if let name = files.first?.originalName { return name }
+      case .assistant(_, _, let text, _):
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty { return trimmed }
       default:
@@ -244,6 +253,7 @@ public final class SessionController {
       provider: provider,
       model: model,
       reasoningEffort: thinking,
+      job: job,
       threadIDs: [],
       pinned: false,
       avatarPath: avatarPath
@@ -251,6 +261,49 @@ public final class SessionController {
     try store.addBot(bot)
     selectBot(id: slug)
     return bot
+  }
+
+  public func updateBot(
+    id: String,
+    displayName: String,
+    job: String,
+    provider: String,
+    model: String,
+    thinking: String
+  ) async throws {
+    guard bots.contains(where: { $0.id == id }) else {
+      throw SessionControllerError.botNotFound(id)
+    }
+    let suffix = " Your working directory is {{cwd}}. You are powered by the {{model}} model."
+    try await client.setPersona(id: id, text: job + suffix)
+    try store.updateBot(
+      id: id,
+      displayName: displayName,
+      job: job,
+      provider: provider,
+      model: model,
+      reasoningEffort: thinking
+    )
+    if let sessionId = store.threads(forBot: id).first?.id {
+      try? await client.setModel(
+        sessionId: sessionId,
+        provider: provider,
+        model: model,
+        reasoningEffort: Self.wireReasoningEffort(thinking)
+      )
+    }
+  }
+
+  public func deleteBot(id: String) throws {
+    try store.removeBot(id: id)
+    if selectedBotId == id {
+      selectedBotId = store.bots.first?.id
+      if let botId = selectedBotId, let chat = try? ensureChat(forBot: botId) {
+        selectedThreadId = chat.id
+      } else {
+        selectedThreadId = nil
+      }
+    }
   }
 
   @discardableResult
@@ -276,17 +329,29 @@ public final class SessionController {
   }
 
   @discardableResult
-  public func sendPrompt(threadId: String, text: String) async throws -> String {
+  public func sendPrompt(
+    threadId: String,
+    text: String,
+    attachments: [ChatAttachment] = []
+  ) async throws -> String {
     guard let bot = store.bot(forThread: threadId) else {
       throw SessionControllerError.threadNotFound(threadId)
     }
-    appendLocalUserMessage(text, sessionId: threadId)
+    let wireText = text + AttachmentStore.promptSuffix(for: attachments)
+    appendLocalUserMessage(text, attachments: attachments, sessionId: threadId)
     do {
-      return try await deliverPrompt(bot: bot, sessionId: threadId, text: text)
+      return try await deliverPrompt(bot: bot, sessionId: threadId, text: wireText)
     } catch {
       handlePromptError(error, sessionId: threadId)
       throw error
     }
+  }
+
+  public func ingestAttachments(from urls: [URL]) throws -> [ChatAttachment] {
+    guard let workspace = transcripts?.workspace else {
+      throw AttachmentStoreError.noWorkspace
+    }
+    return try AttachmentStore.ingest(urls: urls, workspace: workspace)
   }
 
   /// Rehydrate a persisted log before prompting. `session/prompt` on an unknown
@@ -372,17 +437,21 @@ public final class SessionController {
     threadErrors[sessionId] = msg
   }
 
-  private func appendLocalUserMessage(_ text: String, sessionId: String) {
+  private func appendLocalUserMessage(
+    _ text: String,
+    attachments: [ChatAttachment] = [],
+    sessionId: String
+  ) {
     let nextSeq = (eventsBySession[sessionId]?.map(\.seq).max() ?? 0) + 1
+    var data: [String: JSONValue] = [
+      "source": .object(["kind": .string("user")]),
+      "content": .array([.object(["type": .string("text"), "text": .string(text)])]),
+    ]
+    if !attachments.isEmpty {
+      data["attachments"] = .array(attachments.map(\.jsonValue))
+    }
     appendEvent(
-      SessionEventDTO(
-        type: "user/message",
-        seq: nextSeq,
-        data: .object([
-          "source": .object(["kind": .string("user")]),
-          "content": .array([.object(["type": .string("text"), "text": .string(text)])]),
-        ])
-      ),
+      SessionEventDTO(type: "user/message", seq: nextSeq, data: .object(data)),
       forSessionId: sessionId
     )
   }
@@ -391,10 +460,35 @@ public final class SessionController {
     var list = eventsBySession[sessionId] ?? []
     list.append(event)
     eventsBySession[sessionId] = list
+    persistTranscript(sessionId)
   }
 
   public func setEvents(_ events: [SessionEventDTO], forSessionId sessionId: String) {
     eventsBySession[sessionId] = events
+    persistTranscript(sessionId)
+  }
+
+  private func hydratePersistedTranscripts() {
+    guard transcripts != nil else { return }
+    for bot in store.bots {
+      for thread in store.threads(forBot: bot.id) {
+        hydrateIfNeeded(sessionId: thread.id)
+      }
+    }
+  }
+
+  private func hydrateIfNeeded(sessionId: String) {
+    if eventsBySession[sessionId] != nil { return }
+    guard let transcripts else { return }
+    let events = transcripts.loadOrImport(sessionId: sessionId)
+    if !events.isEmpty {
+      eventsBySession[sessionId] = events
+    }
+  }
+
+  private func persistTranscript(_ sessionId: String) {
+    guard let transcripts else { return }
+    try? transcripts.save(sessionId: sessionId, events: eventsBySession[sessionId] ?? [])
   }
 
   public func processEventNotification(_ notification: SessionEventNotification) {

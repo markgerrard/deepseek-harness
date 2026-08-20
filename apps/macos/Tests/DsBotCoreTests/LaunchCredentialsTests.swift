@@ -54,4 +54,31 @@ final class LaunchCredentialsTests: XCTestCase {
     XCTAssertTrue(path.contains("/opt/homebrew/bin"))
     XCTAssertTrue(path.contains("/usr/bin"))
   }
+
+  func testSaveCredentialMapPreservesOtherKeysAndMode() throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: home.appendingPathComponent(".dsh"), withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: home) }
+    try LaunchCredentials.saveCredentialMap(
+      ["OPENCODE_API_KEY": "oc_keep", "CLINE_API_KEY": "sk_old"],
+      home: home
+    )
+    var map = LaunchCredentials.loadCredentialMap(home: home)
+    map["CLINE_API_KEY"] = "sk_new"
+    try LaunchCredentials.saveCredentialMap(map, home: home)
+    let reloaded = LaunchCredentials.loadCredentialMap(home: home)
+    XCTAssertEqual(reloaded["CLINE_API_KEY"], "sk_new")
+    XCTAssertEqual(reloaded["OPENCODE_API_KEY"], "oc_keep")
+    let attrs = try FileManager.default.attributesOfItem(
+      atPath: LaunchCredentials.credentialsFile(home: home).path
+    )
+    let mode = (attrs[.posixPermissions] as? NSNumber)?.intValue
+    XCTAssertEqual(mode, 0o600)
+  }
+
+  func testMaskedSecretHidesMiddle() {
+    XCTAssertEqual(LaunchCredentials.maskedSecret("sk_2819b2c515e14a872f"), "sk_2…872f")
+    XCTAssertNil(LaunchCredentials.maskedSecret(""))
+    XCTAssertEqual(LaunchCredentials.maskedSecret("short"), "••••")
+  }
 }

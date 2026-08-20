@@ -40,7 +40,7 @@ public struct WorkflowMember: Codable, Equatable, Sendable {
 }
 
 public enum TranscriptItem: Equatable, Sendable, Identifiable {
-  case user(id: String, seq: Int, text: String)
+  case user(id: String, seq: Int, text: String, attachments: [ChatAttachment] = [])
   case assistant(id: String, seq: Int, text: String, streaming: Bool)
   case reasoning(id: String, seq: Int, text: String, streaming: Bool, expanded: Bool)
   case tool(
@@ -67,7 +67,7 @@ public enum TranscriptItem: Equatable, Sendable, Identifiable {
 
   public var id: String {
     switch self {
-    case .user(let id, _, _): return id
+    case .user(let id, _, _, _): return id
     case .assistant(let id, _, _, _): return id
     case .reasoning(let id, _, _, _, _): return id
     case .tool(let id, _, _, _, _, _, _, _, _): return id
@@ -78,7 +78,7 @@ public enum TranscriptItem: Equatable, Sendable, Identifiable {
 
   public var seq: Int {
     switch self {
-    case .user(_, let seq, _): return seq
+    case .user(_, let seq, _, _): return seq
     case .assistant(_, let seq, _, _): return seq
     case .reasoning(_, let seq, _, _, _): return seq
     case .tool(_, let seq, _, _, _, _, _, _, _): return seq
@@ -256,8 +256,9 @@ public func projectTranscript(
     case "user/message":
       guard event.data["source"]?["kind"]?.stringValue == "user" else { break }
       let text = textOf(event.data["content"] ?? .null).trimmingCharacters(in: .whitespacesAndNewlines)
-      guard !text.isEmpty else { break }
-      items.append(.user(id: "user:\(event.seq)", seq: event.seq, text: text))
+      let attachments = ChatAttachment.list(from: event.data["attachments"])
+      guard !text.isEmpty || !attachments.isEmpty else { break }
+      items.append(.user(id: "user:\(event.seq)", seq: event.seq, text: text, attachments: attachments))
 
     case "assistant/chunk":
       let turn = event.data["turn"]?.intValue ?? 0

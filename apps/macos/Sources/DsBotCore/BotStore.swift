@@ -6,6 +6,8 @@ public struct Bot: Codable, Equatable, Identifiable, Sendable {
   public var provider: String
   public var model: String
   public var reasoningEffort: String
+  /// Job / persona text shown in Settings. Empty on bots created before this field.
+  public var job: String
   public var threadIDs: [String]
   /// User-pinned bots show as blobs at the top of the sidebar. Default false; old JSON omits it.
   public var pinned: Bool
@@ -13,7 +15,7 @@ public struct Bot: Codable, Equatable, Identifiable, Sendable {
   public var avatarPath: String?
 
   enum CodingKeys: String, CodingKey {
-    case id, displayName, provider, model, reasoningEffort, threadIDs, pinned, avatarPath
+    case id, displayName, provider, model, reasoningEffort, job, threadIDs, pinned, avatarPath
   }
 
   public init(
@@ -22,6 +24,7 @@ public struct Bot: Codable, Equatable, Identifiable, Sendable {
     provider: String,
     model: String,
     reasoningEffort: String = "off",
+    job: String = "",
     threadIDs: [String] = [],
     pinned: Bool = false,
     avatarPath: String? = nil
@@ -31,6 +34,7 @@ public struct Bot: Codable, Equatable, Identifiable, Sendable {
     self.provider = provider
     self.model = model
     self.reasoningEffort = reasoningEffort
+    self.job = job
     self.threadIDs = threadIDs
     self.pinned = pinned
     self.avatarPath = avatarPath
@@ -43,6 +47,7 @@ public struct Bot: Codable, Equatable, Identifiable, Sendable {
     provider = try c.decode(String.self, forKey: .provider)
     model = try c.decode(String.self, forKey: .model)
     reasoningEffort = try c.decode(String.self, forKey: .reasoningEffort)
+    job = try c.decodeIfPresent(String.self, forKey: .job) ?? ""
     threadIDs = try c.decodeIfPresent([String].self, forKey: .threadIDs) ?? []
     pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
     avatarPath = try c.decodeIfPresent(String.self, forKey: .avatarPath)
@@ -124,6 +129,34 @@ public struct BotStore: Sendable {
       throw BotStoreError.botNotFound(botID)
     }
     bots[index].pinned = pinned
+    try persist()
+  }
+
+  public mutating func updateBot(
+    id: String,
+    displayName: String,
+    job: String,
+    provider: String,
+    model: String,
+    reasoningEffort: String
+  ) throws {
+    guard let index = bots.firstIndex(where: { $0.id == id }) else {
+      throw BotStoreError.botNotFound(id)
+    }
+    bots[index].displayName = displayName
+    bots[index].job = job
+    bots[index].provider = provider
+    bots[index].model = model
+    bots[index].reasoningEffort = reasoningEffort
+    try persist()
+  }
+
+  public mutating func removeBot(id: String) throws {
+    guard bots.contains(where: { $0.id == id }) else {
+      throw BotStoreError.botNotFound(id)
+    }
+    bots.removeAll { $0.id == id }
+    storedThreads.removeAll { $0.botID == id }
     try persist()
   }
 

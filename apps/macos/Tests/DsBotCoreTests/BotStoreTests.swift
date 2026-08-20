@@ -16,6 +16,7 @@ final class BotStoreTests: XCTestCase {
     XCTAssertNil(bot.avatarPath)
     XCTAssertEqual(bot.id, "a")
     XCTAssertFalse(bot.pinned)
+    XCTAssertEqual(bot.job, "")
   }
 
   func testBotDecodesWithoutPinnedDefaultsFalse() throws {
@@ -213,5 +214,39 @@ final class BotStoreTests: XCTestCase {
 
     let store = BotStore(fileURL: fileURL)
     XCTAssertNil(store.bot(forThread: "unknown-session"))
+  }
+
+  func testUpdateBotPersistsJobAndKeepsPin() throws {
+    let fileURL = temporaryStoreURL()
+    defer { try? FileManager.default.removeItem(at: fileURL) }
+    var store = BotStore(fileURL: fileURL)
+    try store.addBot(Bot(id: "bot-a", displayName: "A", provider: "p", model: "m", job: "old"))
+    try store.setPinned(botID: "bot-a", pinned: true)
+    try store.updateBot(
+      id: "bot-a",
+      displayName: "Alpha",
+      job: "new job",
+      provider: "cline-pass",
+      model: "cline-pass/deepseek-v4-pro",
+      reasoningEffort: "high"
+    )
+    XCTAssertEqual(store.bots[0].displayName, "Alpha")
+    XCTAssertEqual(store.bots[0].job, "new job")
+    XCTAssertEqual(store.bots[0].model, "cline-pass/deepseek-v4-pro")
+    XCTAssertTrue(store.bots[0].pinned)
+    let reloaded = BotStore(fileURL: fileURL)
+    XCTAssertEqual(reloaded.bots[0].job, "new job")
+    XCTAssertTrue(reloaded.bots[0].pinned)
+  }
+
+  func testRemoveBotDropsItsThreads() throws {
+    let fileURL = temporaryStoreURL()
+    defer { try? FileManager.default.removeItem(at: fileURL) }
+    var store = BotStore(fileURL: fileURL)
+    try store.addBot(Bot(id: "bot-a", displayName: "A", provider: "p", model: "m"))
+    try store.addThread(Thread(id: "s1", botID: "bot-a", title: "A"))
+    try store.removeBot(id: "bot-a")
+    XCTAssertTrue(store.bots.isEmpty)
+    XCTAssertTrue(store.threads(forBot: "bot-a").isEmpty)
   }
 }

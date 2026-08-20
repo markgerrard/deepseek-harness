@@ -3,25 +3,28 @@ import DsBotCore
 
 public struct CreateBotSheet: View {
   var controller: SessionController
+  var editingBot: Bot?
   @Binding var isPresented: Bool
 
   @State private var displayName = ""
   @State private var job = ""
-  @State private var provider = "cline-pass"
   @State private var model = "cline-pass/deepseek-v4-flash"
   @State private var thinking = "off"
   @State private var template = "code"
   @State private var isSubmitting = false
   @State private var errorMessage: String?
 
-  public init(controller: SessionController, isPresented: Binding<Bool>) {
+  public init(controller: SessionController, editingBot: Bot? = nil, isPresented: Binding<Bool>) {
     self.controller = controller
+    self.editingBot = editingBot
     self._isPresented = isPresented
   }
 
+  private var isEditing: Bool { editingBot != nil }
+
   public var body: some View {
     VStack(alignment: .leading, spacing: 16) {
-      Text("Create Bot")
+      Text(isEditing ? "Settings" : "Create Bot")
         .font(.title2)
         .fontWeight(.bold)
 
@@ -47,7 +50,6 @@ public struct CreateBotSheet: View {
             .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.3)))
         }
 
-        TextField("Provider:", text: $provider, prompt: Text("cline-pass"))
         Picker("Model:", selection: $model) {
           Text("DeepSeek V4 Flash").tag("cline-pass/deepseek-v4-flash")
           Text("DeepSeek V4 Pro").tag("cline-pass/deepseek-v4-pro")
@@ -59,7 +61,9 @@ public struct CreateBotSheet: View {
           Text("Max").tag("max")
         }
 
-        TextField("Template Preset:", text: $template, prompt: Text("code"))
+        if !isEditing {
+          TextField("Template Preset:", text: $template, prompt: Text("code"))
+        }
       }
 
       HStack {
@@ -70,19 +74,30 @@ public struct CreateBotSheet: View {
 
         Spacer()
 
-        Button("Create") {
+        Button(isEditing ? "Save" : "Create") {
           Task {
             isSubmitting = true
             errorMessage = nil
             do {
-              try await controller.createBot(
-                displayName: displayName,
-                job: job,
-                provider: provider,
-                model: model,
-                thinking: thinking,
-                template: template.isEmpty ? "code" : template
-              )
+              if let editingBot {
+                try await controller.updateBot(
+                  id: editingBot.id,
+                  displayName: displayName,
+                  job: job,
+                  provider: editingBot.provider,
+                  model: model,
+                  thinking: thinking
+                )
+              } else {
+                try await controller.createBot(
+                  displayName: displayName,
+                  job: job,
+                  provider: "cline-pass",
+                  model: model,
+                  thinking: thinking,
+                  template: template.isEmpty ? "code" : template
+                )
+              }
               isPresented = false
             } catch {
               errorMessage = error.localizedDescription
@@ -97,5 +112,13 @@ public struct CreateBotSheet: View {
     }
     .padding(20)
     .frame(minWidth: 440, maxWidth: 520)
+    .onAppear {
+      if let editingBot {
+        displayName = editingBot.displayName
+        job = editingBot.job
+        model = editingBot.model
+        thinking = editingBot.reasoningEffort
+      }
+    }
   }
 }

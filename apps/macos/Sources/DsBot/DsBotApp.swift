@@ -40,6 +40,10 @@ struct DsBotApp: App {
     try? FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
     let storeURL = dsBotDir.appendingPathComponent("bots.json")
     let store = BotStore(fileURL: storeURL)
+    let transcripts = TranscriptStore(
+      directory: dsBotDir.appendingPathComponent("transcripts", isDirectory: true),
+      workspace: workspace
+    )
     self.workspace = workspace
     let repo = RuntimeLaunch.findRepoRoot()
       ?? ProcessInfo.processInfo.environment["DSH_REPO"].flatMap { URL(fileURLWithPath: $0) }
@@ -61,7 +65,7 @@ struct DsBotApp: App {
       cwd: launch.cwd,
       environment: launch.environment
     )
-    _controller = State(initialValue: SessionController(client: client, store: store))
+    _controller = State(initialValue: SessionController(client: client, store: store, transcripts: transcripts))
   }
 
   var body: some Scene {

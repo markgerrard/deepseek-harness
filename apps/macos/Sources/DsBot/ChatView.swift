@@ -1,10 +1,15 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import DsBotCore
 
 public struct ChatView: View {
   @Bindable var controller: SessionController
   @State private var promptText = ""
   @State private var isSending = false
+  @State private var pendingAttachments: [ChatAttachment] = []
+  @State private var isPickingFiles = false
+  @State private var attachError: String?
+  @State private var plusHovered = false
   @FocusState private var promptFocused: Bool
 
   public init(controller: SessionController) {
@@ -85,9 +90,65 @@ public struct ChatView: View {
 
         Divider()
 
+        if let attachError {
+          Text(attachError)
+            .font(.caption)
+            .foregroundStyle(.red)
+            .padding(.horizontal, 16)
+            .padding(.top, 6)
+        }
+
+        if !pendingAttachments.isEmpty {
+          ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+              ForEach(pendingAttachments) { file in
+                HStack(spacing: 6) {
+                  Image(systemName: "doc")
+                    .font(.caption)
+                  Text(file.originalName)
+                    .font(.caption)
+                    .lineLimit(1)
+                  Button {
+                    pendingAttachments.removeAll { $0.id == file.id }
+                  } label: {
+                    Image(systemName: "xmark.circle.fill")
+                      .font(.caption)
+                      .foregroundStyle(.secondary)
+                  }
+                  .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color.white.opacity(0.10))
+                .clipShape(Capsule())
+              }
+            }
+            .padding(.horizontal, 16)
+          }
+          .padding(.top, 8)
+        }
+
         HStack(spacing: 10) {
-          Image(systemName: "plus")
-            .foregroundStyle(.secondary)
+          Menu {
+            Button("Attach files") {
+              isPickingFiles = true
+            }
+            .disabled(isSending || pendingAttachments.count >= AttachmentStore.maxCount)
+          } label: {
+            Image(systemName: "plus")
+              .font(.body.weight(.semibold))
+              .foregroundStyle(plusHovered ? Color.white : Color.secondary)
+              .frame(width: 26, height: 26)
+              .background(
+                Circle().fill(plusHovered ? Color.black.opacity(0.72) : Color.clear)
+              )
+          }
+          .menuStyle(.borderlessButton)
+          .menuIndicator(.hidden)
+          .buttonStyle(.plain)
+          .onHover { plusHovered = $0 }
+          .disabled(isSending || pendingAttachments.count >= AttachmentStore.maxCount)
+          .help("Attach")
           TextField(
             controller.selectedBot.map { "Message \($0.displayName)" } ?? "Message",
             text: $promptText,
@@ -103,7 +164,7 @@ public struct ChatView: View {
               .symbolRenderingMode(.hierarchical)
           }
           .buttonStyle(.plain)
-          .disabled(promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending)
+          .disabled(cannotSend)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -111,6 +172,25 @@ public struct ChatView: View {
         .clipShape(Capsule())
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+        .fileImporter(
+          isPresented: $isPickingFiles,
+          allowedContentTypes: [.item],
+          allowsMultipleSelection: true
+        ) { result in
+          switch result {
+          case .success(let urls):
+            do {
+              let incoming = try controller.ingestAttachments(from: urls)
+              let room = AttachmentStore.maxCount - pendingAttachments.count
+              pendingAttachments.append(contentsOf: incoming.prefix(max(0, room)))
+              attachError = incoming.count > room ? AttachmentStoreError.tooMany.localizedDescription : nil
+            } catch {
+              attachError = error.localizedDescription
+            }
+          case .failure(let error):
+            attachError = error.localizedDescription
+          }
+        }
 
       } else {
         VStack(spacing: 12) {
@@ -129,14 +209,23 @@ public struct ChatView: View {
     }
   }
 
+  private var cannotSend: Bool {
+    let emptyText = promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    return (emptyText && pendingAttachments.isEmpty) || isSending
+  }
+
   private func sendCurrentPrompt() {
     let trimmed = promptText.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty, let threadId = controller.selectedThreadId else { return }
+    guard let threadId = controller.selectedThreadId else { return }
+    guard !trimmed.isEmpty || !pendingAttachments.isEmpty else { return }
+    let files = pendingAttachments
     promptText = ""
+    pendingAttachments = []
+    attachError = nil
     isSending = true
     Task {
       do {
-        _ = try await controller.sendPrompt(threadId: threadId, text: trimmed)
+        _ = try await controller.sendPrompt(threadId: threadId, text: trimmed, attachments: files)
       } catch {
         // Error recorded in controller.threadErrors if key error
       }
@@ -147,15 +236,36 @@ public struct ChatView: View {
   @ViewBuilder
   private func transcriptItemView(_ item: TranscriptItem) -> some View {
     switch item {
-    case .user(_, _, let text):
+    case .user(_, _, let text, let files):
       HStack {
         Spacer(minLength: 80)
-        Text(text)
-          .foregroundStyle(.white)
-          .padding(.horizontal, 14)
-          .padding(.vertical, 10)
-          .background(Color.white.opacity(0.14))
-          .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        VStack(alignment: .trailing, spacing: 6) {
+          if !files.isEmpty {
+            VStack(alignment: .trailing, spacing: 4) {
+              ForEach(files) { file in
+                HStack(spacing: 6) {
+                  Image(systemName: "doc.fill")
+                    .font(.caption)
+                  Text(file.originalName)
+                    .font(.caption)
+                    .lineLimit(1)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color.white.opacity(0.10))
+                .clipShape(Capsule())
+              }
+            }
+          }
+          if !text.isEmpty {
+            Text(text)
+              .foregroundStyle(.white)
+              .padding(.horizontal, 14)
+              .padding(.vertical, 10)
+              .background(Color.white.opacity(0.14))
+              .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+          }
+        }
       }
 
     case .assistant(_, _, let text, let streaming):

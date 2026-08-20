@@ -4,7 +4,10 @@ import DsBotCore
 struct SidebarView: View {
   @Bindable var controller: SessionController
   @Binding var isCreateBotPresented: Bool
+  @Binding var editingBot: Bot?
+  @Binding var isAccountSettingsPresented: Bool
   @State private var searchText = ""
+  @State private var accountHovered = false
 
   var body: some View {
     VStack(spacing: 0) {
@@ -76,8 +79,36 @@ struct SidebarView: View {
       } else {
         Spacer()
       }
+
+      accountBar
     }
     .background(Color.black.opacity(0.25))
+  }
+
+  private var accountBar: some View {
+    HStack {
+      Menu {
+        Button("Settings…") {
+          isAccountSettingsPresented = true
+        }
+      } label: {
+        BlobAvatar(seed: NSUserName(), size: 34, idle: accountHovered)
+          .opacity(accountHovered ? 1 : 0.92)
+      }
+      .menuStyle(.borderlessButton)
+      .menuIndicator(.hidden)
+      .buttonStyle(.plain)
+      .onHover { accountHovered = $0 }
+      .help("Account")
+      .contextMenu {
+        Button("Settings…") {
+          isAccountSettingsPresented = true
+        }
+      }
+      Spacer()
+    }
+    .padding(.horizontal, 14)
+    .padding(.vertical, 10)
   }
 
   private var query: String {
@@ -173,6 +204,14 @@ struct SidebarView: View {
       Button("Pin") {
         try? controller.pinBot(id: bot.id)
       }
+    }
+    Button("Settings…") {
+      controller.selectBot(id: bot.id)
+      editingBot = bot
+    }
+    Divider()
+    Button("Delete Bot", role: .destructive) {
+      try? controller.deleteBot(id: bot.id)
     }
   }
 }
