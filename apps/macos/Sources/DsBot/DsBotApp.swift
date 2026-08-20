@@ -11,6 +11,7 @@ final class DsBotAppDelegate: NSObject, NSApplicationDelegate {
     // on Terminal.
     NSApp.setActivationPolicy(.regular)
     NSApp.activate(ignoringOtherApps: true)
+    NSApp.windows.forEach { TitlebarSpace.apply($0) }
   }
 
   func applicationDidBecomeActive(_ notification: Notification) {
@@ -40,6 +41,7 @@ struct DsBotApp: App {
     try? FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
     let storeURL = dsBotDir.appendingPathComponent("bots.json")
     let store = BotStore(fileURL: storeURL)
+    let settings = AppSettingsStore(fileURL: dsBotDir.appendingPathComponent("settings.json"))
     let transcripts = TranscriptStore(
       directory: dsBotDir.appendingPathComponent("transcripts", isDirectory: true),
       workspace: workspace
@@ -65,7 +67,12 @@ struct DsBotApp: App {
       cwd: launch.cwd,
       environment: launch.environment
     )
-    _controller = State(initialValue: SessionController(client: client, store: store, transcripts: transcripts))
+    _controller = State(initialValue: SessionController(
+      client: client,
+      store: store,
+      transcripts: transcripts,
+      settings: settings
+    ))
   }
 
   var body: some Scene {
@@ -90,5 +97,6 @@ struct DsBotApp: App {
           }
         }
     }
+    .windowStyle(.hiddenTitleBar)
   }
 }

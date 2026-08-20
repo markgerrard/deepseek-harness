@@ -4,6 +4,7 @@ import DsBotCore
 
 public struct ChatView: View {
   @Bindable var controller: SessionController
+  @Binding var isBotSettingsPresented: Bool
   @State private var promptText = ""
   @State private var isSending = false
   @State private var pendingAttachments: [ChatAttachment] = []
@@ -12,27 +13,19 @@ public struct ChatView: View {
   @State private var plusHovered = false
   @FocusState private var promptFocused: Bool
 
-  public init(controller: SessionController) {
+  public init(controller: SessionController, isBotSettingsPresented: Binding<Bool>) {
     self.controller = controller
+    self._isBotSettingsPresented = isBotSettingsPresented
   }
 
   public var body: some View {
     VStack(spacing: 0) {
-      if let selectedThreadId = controller.selectedThreadId {
-        HStack(spacing: 10) {
-          if let bot = controller.selectedBot {
-            BotAvatarView(bot: bot, size: 32)
-            Text(bot.displayName)
-              .font(.headline)
-          } else {
-            Text("Chat")
-              .font(.headline)
-          }
-          Spacer()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+      chatTitleBar
+      Rectangle()
+        .fill(Color.white.opacity(0.10))
+        .frame(height: 1)
 
+      if let selectedThreadId = controller.selectedThreadId {
         // Missing Key / Thread Error Banner
         if let threadError = controller.threadErrors[selectedThreadId] {
           HStack(spacing: 8) {
@@ -54,33 +47,30 @@ public struct ChatView: View {
         ScrollViewReader { proxy in
           ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
-              ForEach(controller.currentTranscript) { item in
+              ForEach(controller.presentedChat.items) { item in
                 transcriptItemView(item)
                   .id(item.id)
               }
-              if isSending {
-                HStack(alignment: .top, spacing: 8) {
+              if showWorkingIndicator {
+                HStack(alignment: .center, spacing: 10) {
                   if let bot = controller.selectedBot {
-                    BotAvatarView(bot: bot, size: 28)
-                      .padding(.top, 4)
+                    BotAvatarView(bot: bot, size: 32, motion: .working)
                   }
-                  HStack(spacing: 8) {
-                    ProgressView().controlSize(.mini)
-                    Text("Waiting for reply…")
+                  if let label = controller.presentedChat.activityLabel {
+                    Text(label)
                       .font(.callout)
                       .foregroundStyle(.secondary)
                   }
-                  .padding(.horizontal, 14)
-                  .padding(.vertical, 10)
                   Spacer(minLength: 60)
                 }
+                .padding(.vertical, 6)
                 .id("waiting-for-reply")
               }
             }
             .padding(16)
           }
-          .onChange(of: controller.currentTranscript.count) { _, _ in
-            if let last = controller.currentTranscript.last {
+          .onChange(of: controller.presentedChat.items.count) { _, _ in
+            if let last = controller.presentedChat.items.last {
               withAnimation {
                 proxy.scrollTo(last.id, anchor: .bottom)
               }
@@ -209,6 +199,42 @@ public struct ChatView: View {
     }
   }
 
+  private var chatTitleBar: some View {
+    HStack(spacing: 8) {
+      if let bot = controller.selectedBot {
+        Button {
+          isBotSettingsPresented.toggle()
+        } label: {
+          HStack(spacing: 8) {
+            BotAvatarView(bot: bot, size: 22, motion: .still)
+            Text(bot.displayName)
+              .font(.headline)
+              .foregroundStyle(.primary)
+          }
+        }
+        .buttonStyle(.plain)
+        .help("Bot settings")
+      } else {
+        Text("DsBot")
+          .font(.headline)
+          .allowsHitTesting(false)
+      }
+      Spacer()
+    }
+    .padding(.horizontal, 16)
+    .frame(height: 40)
+    .frame(maxWidth: .infinity)
+    .background(WindowDragArea())
+  }
+
+  private var isBotWorking: Bool {
+    isSending || controller.presentedChat.isWorking
+  }
+
+  private var showWorkingIndicator: Bool {
+    isBotWorking
+  }
+
   private var cannotSend: Bool {
     let emptyText = promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     return (emptyText && pendingAttachments.isEmpty) || isSending
@@ -269,22 +295,17 @@ public struct ChatView: View {
       }
 
     case .assistant(_, _, let text, let streaming):
-      HStack(alignment: .top, spacing: 8) {
-        if let bot = controller.selectedBot {
-          BotAvatarView(bot: bot, size: 28)
-            .padding(.top, 4)
-        }
-        VStack(alignment: .leading, spacing: 6) {
-          if streaming {
-            ProgressView().controlSize(.mini)
-          }
+      if streaming && text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        EmptyView()
+      } else {
+        HStack(alignment: .top, spacing: 8) {
           MarkdownMessageView(source: text)
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .background(Color.white.opacity(0.10))
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+          Spacer(minLength: 60)
         }
-        Spacer(minLength: 60)
       }
 
     case .reasoning(let id, _, let text, let streaming, let expanded):
@@ -365,6 +386,28 @@ public struct ChatView: View {
           }
           .padding(.leading, 12)
         }
+      }
+
+    case .artifact(_, _, let name, let path):
+      HStack(alignment: .top, spacing: 8) {
+        HStack(spacing: 8) {
+          Image(systemName: "doc.fill")
+            .font(.caption)
+          VStack(alignment: .leading, spacing: 2) {
+            Text(name)
+              .font(.caption)
+              .fontWeight(.medium)
+            Text(path)
+              .font(.caption2)
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
+          }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.white.opacity(0.10))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        Spacer(minLength: 60)
       }
 
     case .command(_, _, let text):

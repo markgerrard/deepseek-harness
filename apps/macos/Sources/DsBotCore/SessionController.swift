@@ -42,9 +42,11 @@ public enum SessionControllerError: Error, LocalizedError, Equatable, Sendable {
 public final class SessionController {
   public let client: HarnessClient
   public var store: BotStore
+  public var settings: AppSettingsStore
   public let transcripts: TranscriptStore?
   public var selectedBotId: String?
   public var selectedThreadId: String?
+  public var sessionChatSurface: [String: ChatSurface] = [:]
 
   public private(set) var eventsBySession: [String: [SessionEventDTO]] = [:]
   public var transcriptExpansion: TranscriptExpansion = TranscriptExpansion()
@@ -55,10 +57,16 @@ public final class SessionController {
   @ObservationIgnored private var pendingApprovalContinuation: CheckedContinuation<SdkPermissionOutcome, Never>?
   @ObservationIgnored nonisolated(unsafe) private var eventListeningTask: Task<Void, Never>?
 
-  public init(client: HarnessClient, store: BotStore, transcripts: TranscriptStore? = nil) {
+  public init(
+    client: HarnessClient,
+    store: BotStore,
+    transcripts: TranscriptStore? = nil,
+    settings: AppSettingsStore = AppSettingsStore(fileURL: nil)
+  ) {
     self.client = client
     self.store = store
     self.transcripts = transcripts
+    self.settings = settings
     self.hydratePersistedTranscripts()
     self.selectedBotId = store.bots.first?.id
     if let botId = self.selectedBotId, let chat = try? self.ensureChat(forBot: botId) {
@@ -123,6 +131,69 @@ public final class SessionController {
     return transcript(for: threadId)
   }
 
+  public var effectiveChatSurface: ChatSurface {
+    resolvedChatSurface(
+      account: settings.settings.chatSurface,
+      bot: selectedBot?.chatSurface,
+      session: selectedBotId.flatMap { sessionChatSurface[$0] }
+    )
+  }
+
+  public var presentedChat: PresentedChat {
+    presentChat(items: currentTranscript, surface: effectiveChatSurface)
+  }
+
+  public func toggleChatSurface() {
+    let next: ChatSurface = effectiveChatSurface == .simple ? .advanced : .simple
+    setSessionChatSurface(next)
+  }
+
+  public func setSessionChatSurface(_ surface: ChatSurface) {
+    guard let botId = selectedBotId else { return }
+    let inherited = selectedBot?.chatSurface ?? settings.settings.chatSurface
+    if surface == inherited {
+      sessionChatSurface[botId] = nil
+    } else {
+      sessionChatSurface[botId] = surface
+    }
+  }
+
+  public func setAccountChatSurface(_ surface: ChatSurface) throws {
+    try settings.setChatSurface(surface)
+  }
+
+  public func setNotificationsEnabled(id: String, enabled: Bool) throws {
+    try store.setNotificationsEnabled(botID: id, enabled: enabled)
+  }
+
+  public func activityStamp(forBot botId: String) -> String? {
+    guard let thread = store.threads(forBot: botId).first else { return nil }
+    return relativeActivityStamp(from: thread.createdAt)
+  }
+
+  public func setBotChatSurface(id: String, chatSurface: ChatSurface?) throws {
+    try store.setChatSurface(botID: id, chatSurface: chatSurface)
+    sessionChatSurface[id] = nil
+  }
+
+  public func setBlobLook(id: String, look: BlobLook?) throws {
+    try store.setBlobLook(botID: id, look: look)
+  }
+
+  public func setAvatarPath(id: String, path: String?) throws {
+    try store.setAvatarPath(botID: id, path: path)
+  }
+
+  public func generateBlobLook(id: String) throws {
+    let current = store.bots.first(where: { $0.id == id })?.resolvedLook
+    try store.setBlobLook(botID: id, look: BlobLook.random(excluding: current))
+  }
+
+  public func resetBotAppearance(id: String) throws {
+    try store.setBlobLook(botID: id, look: nil)
+    try store.setAvatarPath(botID: id, path: nil)
+  }
+
   public func transcript(for sessionId: String) -> [TranscriptItem] {
     let events = eventsBySession[sessionId] ?? []
     return projectTranscript(events, expansion: transcriptExpansion)
@@ -180,6 +251,8 @@ public final class SessionController {
       case .assistant(_, _, let text, _):
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty { return trimmed }
+      case .artifact(_, _, let name, _):
+        return name
       default:
         continue
       }
@@ -266,6 +339,7 @@ public final class SessionController {
   public func updateBot(
     id: String,
     displayName: String,
+    title: String = "",
     job: String,
     provider: String,
     model: String,
@@ -279,6 +353,7 @@ public final class SessionController {
     try store.updateBot(
       id: id,
       displayName: displayName,
+      title: title,
       job: job,
       provider: provider,
       model: model,

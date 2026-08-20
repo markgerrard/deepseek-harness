@@ -4,19 +4,27 @@ import DsBotCore
 public struct CreateBotSheet: View {
   var controller: SessionController
   var editingBot: Bot?
+  var onCreated: (() -> Void)?
   @Binding var isPresented: Bool
 
   @State private var displayName = ""
   @State private var job = ""
   @State private var model = "cline-pass/deepseek-v4-flash"
   @State private var thinking = "off"
+  @State private var chatSurfaceTag = "inherit"
   @State private var template = "code"
   @State private var isSubmitting = false
   @State private var errorMessage: String?
 
-  public init(controller: SessionController, editingBot: Bot? = nil, isPresented: Binding<Bool>) {
+  public init(
+    controller: SessionController,
+    editingBot: Bot? = nil,
+    isPresented: Binding<Bool>,
+    onCreated: (() -> Void)? = nil
+  ) {
     self.controller = controller
     self.editingBot = editingBot
+    self.onCreated = onCreated
     self._isPresented = isPresented
   }
 
@@ -88,8 +96,12 @@ public struct CreateBotSheet: View {
                   model: model,
                   thinking: thinking
                 )
+                try controller.setBotChatSurface(
+                  id: editingBot.id,
+                  chatSurface: ChatSurface(rawValue: chatSurfaceTag)
+                )
               } else {
-                try await controller.createBot(
+                _ = try await controller.createBot(
                   displayName: displayName,
                   job: job,
                   provider: "cline-pass",
@@ -97,6 +109,7 @@ public struct CreateBotSheet: View {
                   thinking: thinking,
                   template: template.isEmpty ? "code" : template
                 )
+                onCreated?()
               }
               isPresented = false
             } catch {
@@ -118,6 +131,7 @@ public struct CreateBotSheet: View {
         job = editingBot.job
         model = editingBot.model
         thinking = editingBot.reasoningEffort
+        chatSurfaceTag = editingBot.chatSurface?.rawValue ?? "inherit"
       }
     }
   }

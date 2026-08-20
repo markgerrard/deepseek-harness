@@ -4,7 +4,7 @@ import DsBotCore
 public struct RootView: View {
   @Bindable var controller: SessionController
   @State private var isCreateBotPresented = false
-  @State private var editingBot: Bot?
+  @State private var isBotSettingsPresented = false
   @State private var isAccountSettingsPresented = false
 
   public init(controller: SessionController) {
@@ -12,19 +12,49 @@ public struct RootView: View {
   }
 
   public var body: some View {
-    NavigationSplitView {
+    HStack(spacing: 0) {
       SidebarView(
         controller: controller,
         isCreateBotPresented: $isCreateBotPresented,
-        editingBot: $editingBot,
+        isBotSettingsPresented: $isBotSettingsPresented,
         isAccountSettingsPresented: $isAccountSettingsPresented
       )
-        .navigationSplitViewColumnWidth(min: 220, ideal: 268, max: 340)
-    } detail: {
-      ChatView(controller: controller)
+      .frame(width: 268)
+      .frame(maxHeight: .infinity)
+
+      paneRule
+
+      ChatView(controller: controller, isBotSettingsPresented: $isBotSettingsPresented)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+      if isBotSettingsPresented {
+        paneRule
+        Group {
+          if let botId = controller.selectedBotId {
+            BotSettingsInspector(
+              controller: controller,
+              botId: botId,
+              onClose: { isBotSettingsPresented = false }
+            )
+          } else {
+            VStack {
+              Spacer()
+              Text("Select a bot")
+                .foregroundStyle(.secondary)
+              Spacer()
+            }
+          }
+        }
+        .frame(width: 320)
+        .frame(maxHeight: .infinity)
+      }
     }
     .preferredColorScheme(.dark)
     .frame(minWidth: 720, minHeight: 480)
+    .background(Color.black.opacity(0.92))
+    .background(WindowDragArea())
+    .background(TitlebarSpace())
+    .ignoresSafeArea(edges: .top)
     .safeAreaInset(edge: .top, spacing: 0) {
       if let initError = controller.initializationError {
         HStack(spacing: 8) {
@@ -40,20 +70,14 @@ public struct RootView: View {
       }
     }
     .sheet(isPresented: $isCreateBotPresented) {
-      CreateBotSheet(controller: controller, isPresented: $isCreateBotPresented)
-    }
-    .sheet(isPresented: $isAccountSettingsPresented) {
-      AccountSettingsSheet(isPresented: $isAccountSettingsPresented)
-    }
-    .sheet(item: $editingBot) { bot in
       CreateBotSheet(
         controller: controller,
-        editingBot: bot,
-        isPresented: Binding(
-          get: { true },
-          set: { if !$0 { editingBot = nil } }
-        )
+        isPresented: $isCreateBotPresented,
+        onCreated: { isBotSettingsPresented = true }
       )
+    }
+    .sheet(isPresented: $isAccountSettingsPresented) {
+      AccountSettingsSheet(controller: controller, isPresented: $isAccountSettingsPresented)
     }
     .sheet(item: Binding(
       get: { controller.pendingApproval },
@@ -63,5 +87,12 @@ public struct RootView: View {
         controller.respondToPendingApproval(with: outcome)
       }
     }
+  }
+
+  private var paneRule: some View {
+    Rectangle()
+      .fill(Color.white.opacity(0.08))
+      .frame(width: 1)
+      .frame(maxHeight: .infinity)
   }
 }

@@ -64,6 +64,7 @@ public enum TranscriptItem: Equatable, Sendable, Identifiable {
     members: [WorkflowMember],
     expanded: Bool
   )
+  case artifact(id: String, seq: Int, name: String, path: String)
 
   public var id: String {
     switch self {
@@ -73,6 +74,7 @@ public enum TranscriptItem: Equatable, Sendable, Identifiable {
     case .tool(let id, _, _, _, _, _, _, _, _): return id
     case .command(let id, _, _): return id
     case .workflow(let id, _, _, _, _, _, _): return id
+    case .artifact(let id, _, _, _): return id
     }
   }
 
@@ -84,6 +86,7 @@ public enum TranscriptItem: Equatable, Sendable, Identifiable {
     case .tool(_, let seq, _, _, _, _, _, _, _): return seq
     case .command(_, let seq, _): return seq
     case .workflow(_, let seq, _, _, _, _, _): return seq
+    case .artifact(_, let seq, _, _): return seq
     }
   }
 
@@ -95,6 +98,7 @@ public enum TranscriptItem: Equatable, Sendable, Identifiable {
     case .tool: return "tool"
     case .command: return "command"
     case .workflow: return "workflow"
+    case .artifact: return "artifact"
     }
   }
 }

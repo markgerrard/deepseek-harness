@@ -64,6 +64,8 @@ final class SessionControllerTests: XCTestCase {
     XCTAssertEqual(storedBot?.reasoningEffort, "high")
     XCTAssertFalse(bot.pinned)
     XCTAssertFalse(storedBot?.pinned ?? true)
+    XCTAssertNil(bot.chatSurface)
+    XCTAssertEqual(controller.effectiveChatSurface, .simple)
     XCTAssertEqual(controller.threads(forBot: bot.id).count, 1)
     XCTAssertEqual(controller.selectedBotId, bot.id)
     XCTAssertEqual(controller.selectedThreadId, controller.threads(forBot: bot.id).first?.id)
@@ -203,6 +205,46 @@ final class SessionControllerTests: XCTestCase {
   }
 
   @MainActor
+  func testChatSurfaceToggleAndBotOverride() async throws {
+    let runtime = try bundledFakeRuntimeURL()
+    let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    let process = RuntimeProcess(launch: RuntimeLaunch(command: runtime.path, arguments: [], cwd: tempDir))
+    let client = try process.start()
+    let settings = AppSettingsStore(fileURL: tempDir.appendingPathComponent("settings.json"))
+    let controller = SessionController(
+      client: client,
+      store: BotStore(fileURL: tempDir.appendingPathComponent("bots.json")),
+      settings: settings
+    )
+    try await controller.initialize(cwd: tempDir.path, provider: "mock", model: "m", approvals: true)
+    let bot = try await controller.createBot(
+      displayName: "Surface Bot",
+      job: "Job",
+      provider: "mock",
+      model: "m"
+    )
+    XCTAssertEqual(controller.effectiveChatSurface, .simple)
+
+    controller.toggleChatSurface()
+    XCTAssertEqual(controller.effectiveChatSurface, .advanced)
+    XCTAssertNil(controller.store.bots.first?.chatSurface)
+
+    try controller.setAccountChatSurface(.advanced)
+    XCTAssertEqual(controller.effectiveChatSurface, .advanced)
+    controller.toggleChatSurface()
+    XCTAssertEqual(controller.effectiveChatSurface, .simple)
+
+    try controller.setBotChatSurface(id: bot.id, chatSurface: .advanced)
+    XCTAssertEqual(controller.effectiveChatSurface, .advanced)
+    XCTAssertEqual(controller.store.bots.first?.chatSurface, .advanced)
+
+    try await process.stop()
+  }
+
+  @MainActor
   func testSlugifyValidation() throws {
     XCTAssertEqual(try SessionController.slugify("Alpha Bot"), "alpha-bot")
     XCTAssertEqual(try SessionController.slugify("  My Cool Bot 2.0!  "), "my-cool-bot-2-0")
@@ -326,6 +368,9 @@ final class SessionControllerTests: XCTestCase {
     XCTAssertEqual(aid, "asst:2")
     XCTAssertEqual(seq3, 2)
     XCTAssertEqual(text3, "world")
+
+    XCTAssertEqual(controller.effectiveChatSurface, .simple)
+    XCTAssertEqual(controller.presentedChat.items.map(\.kind), ["user", "assistant"])
 
     controller.toggleExpansion(id: "reason:2", kind: "reasoning")
     XCTAssertTrue(controller.transcriptExpansion.reasoning.contains("reason:2"))

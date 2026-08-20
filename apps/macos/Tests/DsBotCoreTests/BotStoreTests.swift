@@ -17,6 +17,11 @@ final class BotStoreTests: XCTestCase {
     XCTAssertEqual(bot.id, "a")
     XCTAssertFalse(bot.pinned)
     XCTAssertEqual(bot.job, "")
+    XCTAssertNil(bot.chatSurface)
+    XCTAssertNil(bot.blobShape)
+    XCTAssertNil(bot.blobColorIndex)
+    XCTAssertEqual(bot.title, "")
+    XCTAssertFalse(bot.notificationsEnabled)
   }
 
   func testBotDecodesWithoutPinnedDefaultsFalse() throws {
@@ -225,18 +230,72 @@ final class BotStoreTests: XCTestCase {
     try store.updateBot(
       id: "bot-a",
       displayName: "Alpha",
+      title: "Scout",
       job: "new job",
       provider: "cline-pass",
       model: "cline-pass/deepseek-v4-pro",
       reasoningEffort: "high"
     )
     XCTAssertEqual(store.bots[0].displayName, "Alpha")
+    XCTAssertEqual(store.bots[0].title, "Scout")
     XCTAssertEqual(store.bots[0].job, "new job")
     XCTAssertEqual(store.bots[0].model, "cline-pass/deepseek-v4-pro")
     XCTAssertTrue(store.bots[0].pinned)
     let reloaded = BotStore(fileURL: fileURL)
     XCTAssertEqual(reloaded.bots[0].job, "new job")
     XCTAssertTrue(reloaded.bots[0].pinned)
+    XCTAssertNil(reloaded.bots[0].chatSurface)
+    XCTAssertEqual(reloaded.bots[0].title, "Scout")
+  }
+
+  func testSetNotificationsEnabledPersists() throws {
+    let fileURL = temporaryStoreURL()
+    defer { try? FileManager.default.removeItem(at: fileURL) }
+    var store = BotStore(fileURL: fileURL)
+    try store.addBot(Bot(id: "bot-a", displayName: "A", provider: "p", model: "m"))
+    XCTAssertFalse(store.bots[0].notificationsEnabled)
+    try store.setNotificationsEnabled(botID: "bot-a", enabled: true)
+    XCTAssertTrue(store.bots[0].notificationsEnabled)
+    XCTAssertTrue(BotStore(fileURL: fileURL).bots[0].notificationsEnabled)
+  }
+
+  func testSetChatSurfacePersistsAndRoundTrips() throws {
+    let fileURL = temporaryStoreURL()
+    defer { try? FileManager.default.removeItem(at: fileURL) }
+    var store = BotStore(fileURL: fileURL)
+    try store.addBot(Bot(id: "bot-a", displayName: "A", provider: "p", model: "m"))
+    XCTAssertNil(store.bots[0].chatSurface)
+
+    try store.setChatSurface(botID: "bot-a", chatSurface: .advanced)
+    XCTAssertEqual(store.bots[0].chatSurface, .advanced)
+    XCTAssertEqual(BotStore(fileURL: fileURL).bots[0].chatSurface, .advanced)
+
+    try store.setChatSurface(botID: "bot-a", chatSurface: nil)
+    XCTAssertNil(store.bots[0].chatSurface)
+    XCTAssertNil(BotStore(fileURL: fileURL).bots[0].chatSurface)
+  }
+
+  func testSetBlobLookPersistsAndResetClears() throws {
+    let fileURL = temporaryStoreURL()
+    defer { try? FileManager.default.removeItem(at: fileURL) }
+    var store = BotStore(fileURL: fileURL)
+    try store.addBot(Bot(id: "bot-a", displayName: "A", provider: "p", model: "m"))
+    XCTAssertNil(store.bots[0].blobShape)
+
+    try store.setBlobLook(botID: "bot-a", look: BlobLook(shape: .cloud, colorIndex: 2))
+    XCTAssertEqual(store.bots[0].blobShape, .cloud)
+    XCTAssertEqual(store.bots[0].blobColorIndex, 2)
+    XCTAssertEqual(BotStore(fileURL: fileURL).bots[0].blobShape, .cloud)
+
+    try store.setAvatarPath(botID: "bot-a", path: "/tmp/face.png")
+    XCTAssertEqual(store.bots[0].avatarPath, "/tmp/face.png")
+
+    try store.setBlobLook(botID: "bot-a", look: nil)
+    try store.setAvatarPath(botID: "bot-a", path: nil)
+    XCTAssertNil(store.bots[0].blobShape)
+    XCTAssertNil(store.bots[0].blobColorIndex)
+    XCTAssertNil(store.bots[0].avatarPath)
+    XCTAssertNil(BotStore(fileURL: fileURL).bots[0].blobShape)
   }
 
   func testRemoveBotDropsItsThreads() throws {

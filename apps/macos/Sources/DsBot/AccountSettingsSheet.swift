@@ -2,9 +2,11 @@ import SwiftUI
 import DsBotCore
 
 struct AccountSettingsSheet: View {
+  var controller: SessionController
   @Binding var isPresented: Bool
   @State private var clineKey = ""
   @State private var opencodeKey = ""
+  @State private var chatSurface: ChatSurface = .simple
   @State private var savedClineMask: String?
   @State private var savedOpencodeMask: String?
   @State private var errorMessage: String?
@@ -39,7 +41,18 @@ struct AccountSettingsSheet: View {
         } header: {
           Text("Providers")
         } footer: {
-          Text("Bots use this account provider. Per-bot settings only change name, job, model, and thinking.")
+          Text("Bots use this account provider. Per-bot settings only change name, job, model, thinking, and chat.")
+        }
+
+        Section {
+          Picker("Chat", selection: $chatSurface) {
+            Text("Simple").tag(ChatSurface.simple)
+            Text("Advanced").tag(ChatSurface.advanced)
+          }
+        } header: {
+          Text("Chat")
+        } footer: {
+          Text("Simple hides thinking and tool calls. A bot can override this in its settings.")
         }
 
         Section {
@@ -85,6 +98,7 @@ struct AccountSettingsSheet: View {
     let map = LaunchCredentials.loadCredentialMap()
     savedClineMask = LaunchCredentials.maskedSecret(map["CLINE_API_KEY"])
     savedOpencodeMask = LaunchCredentials.maskedSecret(map["OPENCODE_API_KEY"])
+    chatSurface = controller.settings.settings.chatSurface
   }
 
   private func save() {
@@ -97,12 +111,13 @@ struct AccountSettingsSheet: View {
     if !opencode.isEmpty { map["OPENCODE_API_KEY"] = opencode }
     do {
       try LaunchCredentials.saveCredentialMap(map)
+      try controller.setAccountChatSurface(chatSurface)
       clineKey = ""
       opencodeKey = ""
       load()
       didSave = true
     } catch {
-      errorMessage = "Could not save credentials file."
+      errorMessage = "Could not save settings."
     }
   }
 }

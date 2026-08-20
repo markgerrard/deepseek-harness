@@ -6,16 +6,26 @@ public struct Bot: Codable, Equatable, Identifiable, Sendable {
   public var provider: String
   public var model: String
   public var reasoningEffort: String
-  /// Job / persona text shown in Settings. Empty on bots created before this field.
+  /// Short role line in Settings (Grok Bot "Title"). Empty on older bots.
+  public var title: String
+  /// Job / persona text shown in Settings as Description. Empty on bots created before this field.
   public var job: String
   public var threadIDs: [String]
   /// User-pinned bots show as blobs at the top of the sidebar. Default false; old JSON omits it.
   public var pinned: Bool
   /// Absolute file path to a PNG, JPEG, or looping GIF. Nil uses a generated blob.
   public var avatarPath: String?
+  /// Nil follows the account Simple/Advanced default.
+  public var chatSurface: ChatSurface?
+  /// Nil uses the seed-derived silhouette.
+  public var blobShape: BlobShape?
+  /// Nil uses the seed-derived palette index.
+  public var blobColorIndex: Int?
+  public var notificationsEnabled: Bool
 
   enum CodingKeys: String, CodingKey {
-    case id, displayName, provider, model, reasoningEffort, job, threadIDs, pinned, avatarPath
+    case id, displayName, provider, model, reasoningEffort, title, job, threadIDs, pinned, avatarPath, chatSurface
+    case blobShape, blobColorIndex, notificationsEnabled
   }
 
   public init(
@@ -24,20 +34,30 @@ public struct Bot: Codable, Equatable, Identifiable, Sendable {
     provider: String,
     model: String,
     reasoningEffort: String = "off",
+    title: String = "",
     job: String = "",
     threadIDs: [String] = [],
     pinned: Bool = false,
-    avatarPath: String? = nil
+    avatarPath: String? = nil,
+    chatSurface: ChatSurface? = nil,
+    blobShape: BlobShape? = nil,
+    blobColorIndex: Int? = nil,
+    notificationsEnabled: Bool = false
   ) {
     self.id = id
     self.displayName = displayName
     self.provider = provider
     self.model = model
     self.reasoningEffort = reasoningEffort
+    self.title = title
     self.job = job
     self.threadIDs = threadIDs
     self.pinned = pinned
     self.avatarPath = avatarPath
+    self.chatSurface = chatSurface
+    self.blobShape = blobShape
+    self.blobColorIndex = blobColorIndex
+    self.notificationsEnabled = notificationsEnabled
   }
 
   public init(from decoder: Decoder) throws {
@@ -47,10 +67,23 @@ public struct Bot: Codable, Equatable, Identifiable, Sendable {
     provider = try c.decode(String.self, forKey: .provider)
     model = try c.decode(String.self, forKey: .model)
     reasoningEffort = try c.decode(String.self, forKey: .reasoningEffort)
+    title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
     job = try c.decodeIfPresent(String.self, forKey: .job) ?? ""
     threadIDs = try c.decodeIfPresent([String].self, forKey: .threadIDs) ?? []
     pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
     avatarPath = try c.decodeIfPresent(String.self, forKey: .avatarPath)
+    chatSurface = try c.decodeIfPresent(ChatSurface.self, forKey: .chatSurface)
+    blobShape = try c.decodeIfPresent(BlobShape.self, forKey: .blobShape)
+    blobColorIndex = try c.decodeIfPresent(Int.self, forKey: .blobColorIndex)
+    notificationsEnabled = try c.decodeIfPresent(Bool.self, forKey: .notificationsEnabled) ?? false
+  }
+
+  public var resolvedLook: BlobLook {
+    let derived = BlobLook.derived(from: id)
+    return BlobLook(
+      shape: blobShape ?? .whale,
+      colorIndex: blobColorIndex ?? derived.colorIndex
+    )
   }
 }
 
@@ -132,9 +165,43 @@ public struct BotStore: Sendable {
     try persist()
   }
 
+  public mutating func setChatSurface(botID: String, chatSurface: ChatSurface?) throws {
+    guard let index = bots.firstIndex(where: { $0.id == botID }) else {
+      throw BotStoreError.botNotFound(botID)
+    }
+    bots[index].chatSurface = chatSurface
+    try persist()
+  }
+
+  public mutating func setBlobLook(botID: String, look: BlobLook?) throws {
+    guard let index = bots.firstIndex(where: { $0.id == botID }) else {
+      throw BotStoreError.botNotFound(botID)
+    }
+    bots[index].blobShape = look?.shape
+    bots[index].blobColorIndex = look?.colorIndex
+    try persist()
+  }
+
+  public mutating func setAvatarPath(botID: String, path: String?) throws {
+    guard let index = bots.firstIndex(where: { $0.id == botID }) else {
+      throw BotStoreError.botNotFound(botID)
+    }
+    bots[index].avatarPath = path
+    try persist()
+  }
+
+  public mutating func setNotificationsEnabled(botID: String, enabled: Bool) throws {
+    guard let index = bots.firstIndex(where: { $0.id == botID }) else {
+      throw BotStoreError.botNotFound(botID)
+    }
+    bots[index].notificationsEnabled = enabled
+    try persist()
+  }
+
   public mutating func updateBot(
     id: String,
     displayName: String,
+    title: String = "",
     job: String,
     provider: String,
     model: String,
@@ -144,6 +211,7 @@ public struct BotStore: Sendable {
       throw BotStoreError.botNotFound(id)
     }
     bots[index].displayName = displayName
+    bots[index].title = title
     bots[index].job = job
     bots[index].provider = provider
     bots[index].model = model
