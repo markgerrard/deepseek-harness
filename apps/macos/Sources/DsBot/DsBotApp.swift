@@ -74,6 +74,7 @@ struct DsBotApp: App {
   var body: some Scene {
     WindowGroup {
       RootView(controller: controller)
+        .preferredColorScheme(.dark)
         .onAppear {
           appDelegate.runtime = runtime
           NSApp.activate(ignoringOtherApps: true)

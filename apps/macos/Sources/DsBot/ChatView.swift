@@ -14,24 +14,25 @@ public struct ChatView: View {
   public var body: some View {
     VStack(spacing: 0) {
       if let selectedThreadId = controller.selectedThreadId {
-        // Chat Header
-        HStack {
-          VStack(alignment: .leading, spacing: 2) {
+        HStack(spacing: 10) {
+          if let bot = controller.selectedBot {
+            BotAvatarView(bot: bot, size: 32)
+            VStack(alignment: .leading, spacing: 1) {
+              Text(bot.displayName)
+                .font(.headline)
+              Text(controller.selectedThread?.title ?? "")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            }
+          } else {
             Text(controller.selectedThread?.title ?? "Chat")
               .font(.headline)
-            if let bot = controller.selectedBot {
-              Text("\(bot.displayName) (\(bot.provider)/\(bot.model))")
-                .font(.caption)
-                .foregroundColor(.secondary)
-            }
           }
           Spacer()
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(Color(nsColor: .windowBackgroundColor))
-
-        Divider()
 
         // Missing Key / Thread Error Banner
         if let threadError = controller.threadErrors[selectedThreadId] {
@@ -72,38 +73,44 @@ public struct ChatView: View {
 
         Divider()
 
-        // Input Bar
-        HStack(alignment: .bottom, spacing: 8) {
-          TextField("Type a message...", text: $promptText, axis: .vertical)
-            .lineLimit(1...5)
-            .textFieldStyle(.roundedBorder)
-            .focused($promptFocused)
-            .onSubmit {
-              sendCurrentPrompt()
-            }
-            .onAppear { promptFocused = true }
-
+        HStack(spacing: 10) {
+          Image(systemName: "plus")
+            .foregroundStyle(.secondary)
+          TextField(
+            controller.selectedBot.map { "Message \($0.displayName)" } ?? "Message",
+            text: $promptText,
+            axis: .vertical
+          )
+          .textFieldStyle(.plain)
+          .focused($promptFocused)
+          .onSubmit { sendCurrentPrompt() }
+          .onAppear { promptFocused = true }
           Button(action: sendCurrentPrompt) {
             Image(systemName: "arrow.up.circle.fill")
               .font(.system(size: 22))
+              .symbolRenderingMode(.hierarchical)
           }
           .buttonStyle(.plain)
           .disabled(promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending)
         }
-        .padding(12)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Color.white.opacity(0.08))
+        .clipShape(Capsule())
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
 
       } else {
         VStack(spacing: 12) {
           Image(systemName: "bubble.left.and.bubble.right")
             .font(.system(size: 48))
-            .foregroundColor(.secondary)
-          Text("No Thread Selected")
+            .foregroundStyle(.secondary)
+          Text("No conversation selected")
             .font(.title2)
-            .foregroundColor(.secondary)
-          Text("Select an existing thread from the sidebar or create a new one.")
+            .foregroundStyle(.secondary)
+          Text("Pick a bot, then a thread in the sidebar.")
             .font(.subheadline)
-            .foregroundColor(.secondary)
+            .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
       }
@@ -130,35 +137,32 @@ public struct ChatView: View {
     switch item {
     case .user(_, _, let text):
       HStack {
-        Spacer(minLength: 40)
-        VStack(alignment: .trailing, spacing: 4) {
-          Text(text)
-            .padding(10)
-            .background(Color.accentColor)
-            .foregroundColor(.white)
-            .cornerRadius(10)
-        }
+        Spacer(minLength: 80)
+        Text(text)
+          .foregroundStyle(.white)
+          .padding(.horizontal, 14)
+          .padding(.vertical, 10)
+          .background(Color.white.opacity(0.14))
+          .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
       }
 
     case .assistant(_, _, let text, let streaming):
-      HStack {
-        VStack(alignment: .leading, spacing: 4) {
-          HStack {
-            Text(controller.selectedBot?.displayName ?? "Assistant")
-              .font(.caption)
-              .fontWeight(.semibold)
-              .foregroundColor(.secondary)
-            if streaming {
-              ProgressView()
-                .controlSize(.mini)
-            }
+      HStack(alignment: .top, spacing: 8) {
+        if let bot = controller.selectedBot {
+          BotAvatarView(bot: bot, size: 28)
+            .padding(.top, 4)
+        }
+        VStack(alignment: .leading, spacing: 6) {
+          if streaming {
+            ProgressView().controlSize(.mini)
           }
           MarkdownMessageView(source: text)
-            .padding(10)
-            .background(Color(nsColor: .controlBackgroundColor))
-            .cornerRadius(10)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(Color.white.opacity(0.10))
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
-        Spacer(minLength: 40)
+        Spacer(minLength: 60)
       }
 
     case .reasoning(let id, _, let text, let streaming, let expanded):

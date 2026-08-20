@@ -8,6 +8,15 @@ final class BotStoreTests: XCTestCase {
       .appendingPathComponent("botstore-test-\(UUID().uuidString).json")
   }
 
+  func testBotDecodesWithoutAvatarPath() throws {
+    let json = Data(#"""
+      {"id":"a","displayName":"A","provider":"p","model":"m","reasoningEffort":"off","threadIDs":[]}
+      """#.utf8)
+    let bot = try JSONDecoder().decode(Bot.self, from: json)
+    XCTAssertNil(bot.avatarPath)
+    XCTAssertEqual(bot.id, "a")
+  }
+
   func testOneBotOwnsManyThreadsAndDoesNotLeak() throws {
     let fileURL = temporaryStoreURL()
     defer { try? FileManager.default.removeItem(at: fileURL) }

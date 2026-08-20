@@ -7,6 +7,8 @@ public struct Bot: Codable, Equatable, Identifiable, Sendable {
   public var model: String
   public var reasoningEffort: String
   public var threadIDs: [String]
+  /// Absolute file path to a PNG, JPEG, or looping GIF. Nil uses a generated blob.
+  public var avatarPath: String?
 
   public init(
     id: String,
@@ -14,7 +16,8 @@ public struct Bot: Codable, Equatable, Identifiable, Sendable {
     provider: String,
     model: String,
     reasoningEffort: String = "off",
-    threadIDs: [String] = []
+    threadIDs: [String] = [],
+    avatarPath: String? = nil
   ) {
     self.id = id
     self.displayName = displayName
@@ -22,6 +25,7 @@ public struct Bot: Codable, Equatable, Identifiable, Sendable {
     self.model = model
     self.reasoningEffort = reasoningEffort
     self.threadIDs = threadIDs
+    self.avatarPath = avatarPath
   }
 }
 

@@ -191,7 +191,8 @@ public final class SessionController {
     provider: String,
     model: String,
     thinking: String = "off",
-    template: String = "code"
+    template: String = "code",
+    avatarPath: String? = nil
   ) async throws -> Bot {
     let slug = try Self.slugify(displayName)
     try await client.copyPreset(from: template, id: slug, name: displayName)
@@ -204,7 +205,8 @@ public final class SessionController {
       provider: provider,
       model: model,
       reasoningEffort: thinking,
-      threadIDs: []
+      threadIDs: [],
+      avatarPath: avatarPath
     )
     try store.addBot(bot)
     selectBot(id: slug)

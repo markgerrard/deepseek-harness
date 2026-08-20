@@ -18,7 +18,8 @@ let package = Package(
     ),
     .executableTarget(
       name: "DsBot",
-      dependencies: ["DsBotCore"]
+      dependencies: ["DsBotCore"],
+      resources: [.process("Resources")]
     ),
     .executableTarget(
       name: "FakeSdkRuntime",
