@@ -31,34 +31,30 @@ struct SidebarView: View {
       .padding(.top, 12)
 
       if !controller.bots.isEmpty {
-        ScrollView(.horizontal, showsIndicators: false) {
-          HStack(spacing: 16) {
-            ForEach(filteredBots) { bot in
-              Button {
-                controller.selectBot(id: bot.id)
-              } label: {
-                VStack(spacing: 6) {
-                  BotAvatarView(bot: bot, size: 64)
-                    .overlay {
-                      Circle()
-                        .stroke(
-                          controller.selectedBotId == bot.id ? Color.white.opacity(0.85) : Color.clear,
-                          lineWidth: 2
-                        )
-                    }
-                  Text(bot.displayName)
-                    .font(.caption)
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .frame(width: 72)
-                }
+        LazyVGrid(
+          columns: [GridItem(.adaptive(minimum: 72, maximum: 88), spacing: 18, alignment: .top)],
+          alignment: .leading,
+          spacing: 16
+        ) {
+          ForEach(filteredBots) { bot in
+            Button {
+              controller.selectBot(id: bot.id)
+            } label: {
+              VStack(spacing: 8) {
+                BotAvatarView(bot: bot, size: 68, idle: controller.selectedBotId == bot.id)
+                  .opacity(controller.selectedBotId == bot.id ? 1 : 0.88)
+                Text(bot.displayName)
+                  .font(.caption)
+                  .foregroundStyle(.primary)
+                  .lineLimit(1)
+                  .frame(maxWidth: 80)
               }
-              .buttonStyle(.plain)
             }
+            .buttonStyle(.plain)
           }
-          .padding(.horizontal, 16)
-          .padding(.vertical, 14)
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 16)
       }
 
       Divider().opacity(0.3)
