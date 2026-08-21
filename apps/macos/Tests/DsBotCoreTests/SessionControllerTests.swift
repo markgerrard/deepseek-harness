@@ -391,6 +391,35 @@ final class SessionControllerTests: XCTestCase {
   }
 
   @MainActor
+  func testTranscriptRevisionCoalescesChunksAndBumpsOnDurableEvents() async throws {
+    let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let store = BotStore(fileURL: tempDir.appendingPathComponent("bots.json"))
+    let client = HarnessClient(command: "/bin/echo", arguments: [], cwd: tempDir)
+    let controller = SessionController(client: client, store: store)
+
+    let before = controller.transcriptRevision
+    let chunk = SessionEventDTO(type: "assistant/chunk", seq: 1, data: .object([
+      "turn": .number(1), "step": .number(1),
+      "chunk": .object(["type": .string("text-delta"), "index": .number(0), "text": .string("hi")]),
+    ]))
+    controller.appendEvent(chunk, forSessionId: "s1")
+    controller.appendEvent(chunk, forSessionId: "s1")
+    XCTAssertEqual(controller.transcriptRevision, before, "chunks must not bump synchronously")
+
+    try await Task.sleep(for: SessionController.streamRenderInterval * 3)
+    XCTAssertEqual(controller.transcriptRevision, before + 1, "a chunk burst coalesces to one bump")
+
+    controller.appendEvent(
+      SessionEventDTO(type: "user/message", seq: 3, data: .object([
+        "source": .object(["kind": .string("user")]),
+        "content": .array([.object(["type": .string("text"), "text": .string("hello")])]),
+      ])),
+      forSessionId: "s1"
+    )
+    XCTAssertEqual(controller.transcriptRevision, before + 2, "durable events bump immediately")
+  }
+
+  @MainActor
   func testPresentedChatCapsItemsAndPagesEarlier() throws {
     let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let store = BotStore(fileURL: tempDir.appendingPathComponent("bots.json"))

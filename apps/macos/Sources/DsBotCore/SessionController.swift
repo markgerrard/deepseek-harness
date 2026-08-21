@@ -48,11 +48,44 @@ public final class SessionController {
   public var selectedThreadId: String?
   public var sessionChatSurface: [String: ChatSurface] = [:]
 
-  public private(set) var eventsBySession: [String: [SessionEventDTO]] = [:]
+  /// Raw session events. Observation-ignored: per-chunk appends must not
+  /// invalidate SwiftUI directly — `transcriptRevision` is the sole
+  /// transcript-change signal, coalesced during streaming.
+  @ObservationIgnored public private(set) var eventsBySession: [String: [SessionEventDTO]] = [:]
 
   /// Incremental projection per session: each appended event folds once, so a
-  /// streaming chunk never reprojects the whole event list.
-  private var projectors: [String: TranscriptProjector] = [:]
+  /// streaming chunk never reprojects the whole event list. Observation-ignored
+  /// for the same reason as `eventsBySession`.
+  @ObservationIgnored private var projectors: [String: TranscriptProjector] = [:]
+
+  /// Bumps when projected transcripts change. Durable events bump immediately;
+  /// `assistant/chunk` bursts coalesce to one bump per interval so a fast
+  /// stream cannot saturate the main thread with markdown re-layout.
+  public private(set) var transcriptRevision = 0
+
+  /// Streaming-render coalescing interval. 100ms keeps text visibly live
+  /// while bounding full-bubble re-layout to ten per second.
+  public static let streamRenderInterval: Duration = .milliseconds(100)
+
+  @ObservationIgnored private var pendingRevisionBump: Task<Void, Never>?
+
+  /// Publish a transcript change: immediately for durable events, coalesced
+  /// for streaming chunks.
+  private func notifyTranscriptChanged(coalesce: Bool) {
+    if !coalesce {
+      pendingRevisionBump?.cancel()
+      pendingRevisionBump = nil
+      transcriptRevision += 1
+      return
+    }
+    guard pendingRevisionBump == nil else { return }
+    pendingRevisionBump = Task { @MainActor [weak self] in
+      try? await Task.sleep(for: Self.streamRenderInterval)
+      guard let self, !Task.isCancelled else { return }
+      self.pendingRevisionBump = nil
+      self.transcriptRevision += 1
+    }
+  }
   public var transcriptExpansion: TranscriptExpansion = TranscriptExpansion()
   public private(set) var threadErrors: [String: String] = [:]
   public private(set) var initializationError: String?
@@ -234,7 +267,10 @@ public final class SessionController {
   }
 
   public func transcript(for sessionId: String) -> [TranscriptItem] {
-    projectors[sessionId]?.materialize(expansion: transcriptExpansion) ?? []
+    // Establish the observation dependency: transcript readers re-evaluate on
+    // revision bumps, never on raw per-chunk storage churn.
+    _ = transcriptRevision
+    return projectors[sessionId]?.materialize(expansion: transcriptExpansion) ?? []
   }
 
   public func selectBot(id: String) {
@@ -589,9 +625,11 @@ public final class SessionController {
     // A chunk only grows the in-flight stream buffer; the next durable event
     // persists the full list, so skipping here avoids an O(events) disk
     // rewrite per streamed delta (a crash loses only the unfinalized stream).
-    if event.type != "assistant/chunk" {
+    let isChunk = event.type == "assistant/chunk"
+    if !isChunk {
       persistTranscript(sessionId)
     }
+    notifyTranscriptChanged(coalesce: isChunk)
   }
 
   public func setEvents(_ events: [SessionEventDTO], forSessionId sessionId: String) {
@@ -602,6 +640,7 @@ public final class SessionController {
     }
     projectors[sessionId] = projector
     persistTranscript(sessionId)
+    notifyTranscriptChanged(coalesce: false)
   }
 
   private func hydratePersistedTranscripts() {
@@ -624,6 +663,7 @@ public final class SessionController {
         projector.ingest(event)
       }
       projectors[sessionId] = projector
+      notifyTranscriptChanged(coalesce: false)
     }
   }
 
