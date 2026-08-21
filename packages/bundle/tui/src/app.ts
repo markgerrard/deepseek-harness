@@ -126,7 +126,7 @@ function landingView(width: number, status: StatusModel, home: string | undefine
   )
   const textColumn = React.createElement(
     Box,
-    { key: 'copy', flexDirection: 'column', paddingLeft: 1 },
+    { key: 'copy', flexDirection: 'column', paddingLeft: 3, paddingTop: 2 },
     React.createElement(
       Box,
       { key: 'title', flexDirection: 'row', height: 1, flexShrink: 0 },
