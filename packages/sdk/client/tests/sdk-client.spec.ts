@@ -9,7 +9,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   DeepSeekHarness,
   HarnessClient,
@@ -243,6 +243,68 @@ describe('DeepSeekHarness', () => {
 })
 
 describe('HarnessClient', () => {
+  it('cancels an addressed session over the wire', async () => {
+    const record = join(await tempDir('dsh-sdk-cancel-'), 'cancel.jsonl')
+    const client = new HarnessClient(fakeLaunch({ FAKE_RECORD_CANCEL: record }))
+    cleanups.push(() => client.close())
+    await client.initialize({ cwd: process.cwd(), provider: 'p', model: 'm' })
+    await client.cancel('main')
+    await expect(readFile(record, 'utf8')).resolves.toBe('{"sessionId":"main"}\n')
+    await client.close()
+  })
+
+  it('resumes an addressed session over the wire', async () => {
+    const record = join(await tempDir('dsh-sdk-resume-'), 'resume.jsonl')
+    const client = new HarnessClient(fakeLaunch({ FAKE_RECORD_RESUME: record }))
+    cleanups.push(() => client.close())
+    await client.initialize({ cwd: process.cwd(), provider: 'p', model: 'm' })
+    await client.resume('main')
+    await expect(readFile(record, 'utf8')).resolves.toBe('{"sessionId":"main"}\n')
+    await client.close()
+  })
+
+  it('advertises approvals and answers session/request_permission', async () => {
+    const dir = await tempDir('dsh-sdk-permission-')
+    const initRecord = join(dir, 'init.jsonl')
+    const answerRecord = join(dir, 'permission.jsonl')
+    const client = new HarnessClient(fakeLaunch({
+      FAKE_RECORD_INIT: initRecord,
+      FAKE_ASK_PERMISSION: '1',
+      FAKE_RECORD_PERMISSION: answerRecord,
+    }))
+    cleanups.push(() => client.close())
+    client.onRequest(async (method, params) => {
+      expect(method).toBe('session/request_permission')
+      expect(params).toEqual({
+        sessionId: 'main',
+        toolName: 'bash',
+        callId: 'call-1',
+        reason: 'escalate sandbox to workspace-write: write a file',
+      })
+      return { outcome: 'allowed-once' }
+    })
+    await client.initialize({
+      cwd: process.cwd(),
+      provider: 'p',
+      model: 'm',
+      clientCapabilities: { approvals: true },
+    })
+    await expect(readFile(initRecord, 'utf8')).resolves.toBe(
+      `${JSON.stringify({
+        cwd: process.cwd(),
+        provider: 'p',
+        model: 'm',
+        clientCapabilities: { approvals: true },
+      })}\n`,
+    )
+    await vi.waitFor(async () => {
+      expect(await readFile(answerRecord, 'utf8')).toBe(
+        `${JSON.stringify({ jsonrpc: '2.0', id: 'perm-1', result: { outcome: 'allowed-once' } })}\n`,
+      )
+    })
+    await client.close()
+  })
+
   it('times out a hung request at the per-call bound', async () => {
     const client = new HarnessClient(fakeLaunch({ FAKE_HANG_PROMPT: '1' }))
     cleanups.push(() => client.close())

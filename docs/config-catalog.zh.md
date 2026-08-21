@@ -1661,6 +1661,11 @@ export interface Config {
 export interface JsonRpcConfig {
   /** Report max-token turn/subagent termination as a successful SDK result. */
   maxTokensAsSuccess?: boolean
+  /**
+   * Bound, in milliseconds, for one relayed `session/request_permission`.
+   * Expiry becomes `'unavailable'`. Omitted: wait only on the ask signal.
+   */
+  approvalRequestTimeoutMs?: number
   /** Transport input override; production uses `process.stdin`. */
   input?: Readable
   /** Transport output override; production uses `process.stdout`. */

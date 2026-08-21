@@ -6,14 +6,18 @@
   config:
     maxTokensAsSuccess: !!js "process.env.DSH_MAX_TOKENS_AS_SUCCESS === undefined ? true : JSON.parse(process.env.DSH_MAX_TOKENS_AS_SUCCESS)"
 
-# The DeepSeek adapter. Shipped default: full thinking at max effort on every
+# The DeepSeek adapter. Default: full thinking at max effort on every
 # request; exact-model resolution materializes request defaults before logging.
 # The model arrives per session over JSON-RPC, so it is not pinned here.
+# DSH_REASONING_EFFORT (off|high|max) selects the adapter default per launch:
+# the JSON-RPC wire has no effort control, so a deployment that switches
+# effort restarts the runtime with this variable and resumes the session
+# (adapter-defaulted effort is re-materialized on resume, not replayed).
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'
   config:
     thinking: enabled
-    reasoningEffort: max
+    reasoningEffort: !!js process.env.DSH_REASONING_EFFORT || 'max'
 
 # Managed child-process groups for the bash executor (spawn/kill/output plumbing).
 - id: subprocess

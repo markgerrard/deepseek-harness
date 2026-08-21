@@ -1,0 +1,23 @@
+# Probe overlay: attach an MCP server over Streamable HTTP whose bearer comes
+# from the CHILD PROCESS ENV, never from disk — the containment property the
+# bridge MCP plane requires.
+#
+# YAML landmines, both hit while writing this:
+#   - `!!js `Bearer ${x}`` fails: backtick is a reserved indicator.
+#   - `!!js x ? 'a' : 'b'` silently misparses: ` ? ` is the explicit key
+#     indicator, yielding {"[object Object]": "b"}.
+# Keep the JS to a bare process.env lookup and put the whole header value in
+# one env var.
+- id: base
+  name: '@deepseek-ai/cordis-plugin-include'
+  config:
+    path: ./minimal.cordis.yml
+- id: mcp-plane-probe
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: planeprobe
+    transport: streamable-http
+    url: !!js process.env.PROBE_MCP_URL
+    headers:
+      Authorization: !!js process.env.PROBE_MCP_AUTH
+    failOnStartupError: false

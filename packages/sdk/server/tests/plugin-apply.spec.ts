@@ -61,6 +61,7 @@ async function mountPlugin(
   options: {
     writeDelayMs?: number
     failFlush?: boolean
+    approvalRequestTimeoutMs?: number
     beforeServer?: (ctx: Context) => Promise<void> | void
   } = {},
 ): Promise<ApplyHarness> {
@@ -107,7 +108,14 @@ async function mountPlugin(
   const exit = (code: number): void => { events.push({ kind: 'exit', code }) }
 
   ctx.effect(() => () => { events.push({ kind: 'root-disposed' }) }, 'jsonrpc test root-disposal witness')
-  const fiber = await ctx.plugin(jsonrpc, { input, output, exit })
+  const fiber = await ctx.plugin(jsonrpc, {
+    input,
+    output,
+    exit,
+    ...options.approvalRequestTimeoutMs === undefined
+      ? {}
+      : { approvalRequestTimeoutMs: options.approvalRequestTimeoutMs },
+  })
 
   const frames = (): Record<string, unknown>[] =>
     events.flatMap(event => event.kind === 'frame' ? [event.frame] : [])
@@ -159,7 +167,7 @@ describe('dsh-sdk-jsonrpc-server plugin apply', () => {
   it('serves initialize over the injected stdio pair', async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-apply-init-'))
     vi.stubEnv('DEEPSEEK_API_KEY', 'test-key')
-    const harness = await mountPlugin(storageDir)
+    const harness = await mountPlugin(storageDir, { approvalRequestTimeoutMs: 1_000 })
     try {
       harness.send({ jsonrpc: '2.0', id: 'init-1', method: 'initialize', params: { cwd: storageDir, provider: 'deepseek-official', model: 'apply-model' } })
 
