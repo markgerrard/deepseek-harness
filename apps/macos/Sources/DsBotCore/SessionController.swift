@@ -451,18 +451,19 @@ public final class SessionController {
       throw SessionControllerError.threadNotFound(threadId)
     }
     let wireText = text + AttachmentStore.promptSuffix(for: attachments)
-    // Interrupt-steer: the prompt goes in as steering (latching a wake and
-    // splicing next-step), then keepInbox-cancel aborts the in-flight step so
-    // the wake replays into a fresh turn that answers the redirect now
-    // instead of after the current stream finishes.
+    // Interrupt-steer, cancel FIRST: a message sent into an already-aborted
+    // activity is the loop's designed wake-after-abort path — it reclassifies
+    // to next-turn and latches a wake that replays when the aborted driver
+    // retires. The reverse order parks the steering: a live driver claims its
+    // own queue, so a steer before the abort latches nothing and the retire
+    // drops it. keepInbox preserves any queued work through the abort.
     let interrupt = chatIsWorking(transcript(for: threadId))
     appendLocalUserMessage(text, attachments: attachments, sessionId: threadId)
     do {
-      let messageId = try await deliverPrompt(bot: bot, sessionId: threadId, text: wireText)
       if interrupt {
         try? await client.cancel(sessionId: threadId, keepInbox: true)
       }
-      return messageId
+      return try await deliverPrompt(bot: bot, sessionId: threadId, text: wireText)
     } catch {
       handlePromptError(error, sessionId: threadId)
       throw error

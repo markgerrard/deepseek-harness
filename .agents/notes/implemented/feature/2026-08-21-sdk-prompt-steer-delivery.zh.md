@@ -10,7 +10,7 @@ DS Bot 没有停止控件，而 `session/prompt` 一律通过 `agent.followup()`
 
 ## Decision
 
-`SessionPromptParams` 携带可选的 `steer` 标志。`steer: true` 通过 `agent.steer()` 投递：运行中的驱动在下一个步骤边界消费该消息，空闲驱动则开启一个轮次，因此转向随时可以安全发送。省略或 `false` 保持 `followup()` 的排队轮次投递。排在进行中惰性创建或恢复之后的 prompt 以其发送时的投递方式重放。DS Bot 的 `HarnessClient.prompt` 将 `steer` 默认为 `true`，且当线程可见地处于工作中时，应用在 prompt 被接受后跟发 `session/cancel { keepInbox: true }`：单独的转向只在下一个步骤边界被消费，而一次长文本生成永远到不了那个边界，keepInbox 中止会结束进行中的步骤，同时转向唤醒与消息幸存并重放为新轮次，立即回应重定向。需要严格轮次排队的 SDK 调用方在协议层传 `steer: false` 或省略该标志。
+`SessionPromptParams` 携带可选的 `steer` 标志。`steer: true` 通过 `agent.steer()` 投递：运行中的驱动在下一个步骤边界消费该消息，空闲驱动则开启一个轮次，因此转向随时可以安全发送。省略或 `false` 保持 `followup()` 的排队轮次投递。排在进行中惰性创建或恢复之后的 prompt 以其发送时的投递方式重放。DS Bot 的 `HarnessClient.prompt` 将 `steer` 默认为 `true`，且当线程可见地处于工作中时，应用在 prompt 之前先发 `session/cancel { keepInbox: true }`：单独的转向只在下一个步骤边界被消费，而一次长文本生成永远到不了那个边界；在中止之前发出的转向会被存活的驱动认领并在其退场时丢弃——而发进已中止活动的消息会重归类为 next-turn 并锁存唤醒，在中止驱动退场后重放为新轮次，立即回应重定向。需要严格轮次排队的 SDK 调用方在协议层传 `steer: false` 或省略该标志。
 
 ## Alternatives considered
 
