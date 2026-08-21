@@ -21,9 +21,11 @@ interface Script {
 async function bench(script: Script = {}): Promise<{
   ctx: Context
   prompts: UserMessage[]
-  run(config?: { resume?: string; prompt?: string }): Promise<{
+  run(config?: { resume?: string; prompt?: string }, stdout?: { columns?: number; rows?: number }): Promise<{
     sessionId?: string
     screen: string
+    width: number | undefined
+    height: number | undefined
     err: string
   }>
 }> {
@@ -70,11 +72,11 @@ async function bench(script: Script = {}): Promise<{
   return {
     ctx,
     prompts,
-    run: async (config = {}) => {
+    run: async (config = {}, stdout: { columns?: number; rows?: number } = { columns: 140, rows: 40 }) => {
       let err = ''
       let controller: TuiController | undefined
       internals.stderr = { write: (chunk: string) => { err += chunk; return true } }
-      internals.stdout = { columns: 140, rows: 40 }
+      internals.stdout = stdout
       internals.render = (element) => {
         controller = (element as { props: { controller: TuiController } }).props.controller
         return { unmount: () => {} }
@@ -88,6 +90,8 @@ async function bench(script: Script = {}): Promise<{
       return {
         ...(snapshot?.sessionId === undefined ? {} : { sessionId: snapshot.sessionId }),
         screen: snapshot?.screen ?? '',
+        width: snapshot?.width,
+        height: snapshot?.height,
         err,
       }
     },
@@ -101,6 +105,14 @@ describe('tui runner', () => {
     expect(result.sessionId).toMatch(/^session-/)
     expect(result.screen).toBe('landing')
     expect(result.err).toBe('')
+    await test.ctx.fiber.dispose()
+  })
+
+  it('falls back to 80x24 when the terminal reports zero size', async () => {
+    const test = await bench()
+    const result = await test.run({}, { columns: 0, rows: 0 })
+    expect(result.width).toBe(80)
+    expect(result.height).toBe(24)
     await test.ctx.fiber.dispose()
   })
 

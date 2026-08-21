@@ -79,8 +79,8 @@ async function run(ctx: Context, config: Config, io: TuiIo): Promise<void> {
   const selection = defaultModel.currentSelection()
   const guidance = await TuiController.guidance(ctx)
   const controller = new TuiController(ctx, { exit: io.exit }, {
-    width: io.stdout.columns ?? 80,
-    height: io.stdout.rows ?? 24,
+    width: io.stdout.columns || 80,
+    height: io.stdout.rows || 24,
     cwd: process.cwd(),
     provider: selection.provider,
     model: selection.model,

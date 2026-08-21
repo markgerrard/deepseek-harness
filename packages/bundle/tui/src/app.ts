@@ -239,11 +239,11 @@ export function App(props: AppProps): React.ReactElement {
     return () => { setHardwareCursorVisible(stdout, true) }
   }, [stdout])
   useEffect(() => {
-    const width = stdout.columns ?? 80
-    const height = stdout.rows ?? 24
+    const width = stdout.columns || 80
+    const height = stdout.rows || 24
     controller.dispatch({ type: 'resize', width, height })
     const onResize = (): void => {
-      controller.dispatch({ type: 'resize', width: stdout.columns ?? 80, height: stdout.rows ?? 24 })
+      controller.dispatch({ type: 'resize', width: stdout.columns || 80, height: stdout.rows || 24 })
     }
     stdout.on('resize', onResize)
     return () => { stdout.off('resize', onResize) }
