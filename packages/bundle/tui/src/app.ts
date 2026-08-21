@@ -138,7 +138,7 @@ function landingView(width: number, status: StatusModel, home: string | undefine
   )
   return React.createElement(
     Box,
-    { flexDirection: 'column', width },
+    { flexDirection: 'column', width, paddingLeft: 3 },
     React.createElement(
       Box,
       { key: 'header', flexDirection: 'row', paddingTop: 1 },
