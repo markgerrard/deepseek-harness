@@ -7,10 +7,11 @@
 import {
   formatConnectProviderLine,
   maskSecret,
+  providerDisplayName,
   type ConnectProviderRow,
 } from './connect.ts'
 import { formatModelLine, prettyPath, truncate, wrapText, type StatusModel } from './status.ts'
-import { ICONS, PRODUCT_MARK, PRODUCT_NAME } from './theme.ts'
+import { ICONS, PRODUCT_MARK, PRODUCT_NAME, PRODUCT_TITLE, PRODUCT_VERSION } from './theme.ts'
 import type { SessionRow } from './state.ts'
 
 /**
@@ -73,35 +74,36 @@ export const WHALE_EYE = '█  █'
 
 /**
  * Side-on solid-block whale splash for the empty landing view.
- * Unicode half/full blocks, one eye hole, blowhole spray. Original
- * composition — not the official DeepSeek whale logo.
+ * Unicode half/full blocks, one eye hole, blowhole spray. Head faces
+ * left (Claude Code-style). Original composition — not the official
+ * DeepSeek whale logo.
  */
 export const WHALE_ART: readonly WhaleLine[] = [
-  whaleLine({ tone: 'spray', text: '                     ▄' }),
-  whaleLine({ tone: 'spray', text: '                    ▄▀▄' }),
-  whaleLine({ tone: 'block', text: '  ▄▄          ▄▄██████' }),
+  whaleLine({ tone: 'spray', text: '▄                     ' }),
+  whaleLine({ tone: 'spray', text: '▄▀▄                    ' }),
+  whaleLine({ tone: 'block', text: '██████▄▄          ▄▄  ' }),
   whaleLine(
-    { tone: 'block', text: '▄████▄▄▄▄▄▄▄████████' },
-    { tone: 'hole', text: '  ' },
     { tone: 'block', text: '█' },
+    { tone: 'hole', text: '  ' },
+    { tone: 'block', text: '████████▄▄▄▄▄▄▄████▄' },
   ),
   whaleLine({ tone: 'block', text: '███████████████████████' }),
-  whaleLine({ tone: 'block', text: ' ▀███████████████████▀' }),
-  whaleLine({ tone: 'block', text: '   ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀' }),
+  whaleLine({ tone: 'block', text: '▀███████████████████▀ ' }),
+  whaleLine({ tone: 'block', text: '▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀   ' }),
 ]
 
 /** Narrow-terminal whale when the full drawing will clip. */
 export const WHALE_ART_COMPACT: readonly WhaleLine[] = [
-  whaleLine({ tone: 'spray', text: '          ▄' }),
-  whaleLine({ tone: 'spray', text: '         ▄▀▄' }),
-  whaleLine({ tone: 'block', text: '▄▄   ▄▄████' }),
+  whaleLine({ tone: 'spray', text: '▄          ' }),
+  whaleLine({ tone: 'spray', text: '▄▀▄         ' }),
+  whaleLine({ tone: 'block', text: '████▄▄   ▄▄' }),
   whaleLine(
-    { tone: 'block', text: '███▄████' },
-    { tone: 'hole', text: '  ' },
     { tone: 'block', text: '█' },
+    { tone: 'hole', text: '  ' },
+    { tone: 'block', text: '████▄███' },
   ),
   whaleLine({ tone: 'block', text: '▀█████████▀' }),
-  whaleLine({ tone: 'block', text: '  ▀▀▀▀▀▀▀' }),
+  whaleLine({ tone: 'block', text: '▀▀▀▀▀▀▀  ' }),
 ]
 
 /**
@@ -113,34 +115,74 @@ export function whaleArt(width: number): readonly WhaleLine[] {
   return width < 32 ? WHALE_ART_COMPACT : WHALE_ART
 }
 
-/**
- * Cwd / model / hint block under the whale.
- * @param width - main columns.
- * @param status - model/cwd facts.
- * @param home - `$HOME` for path collapsing.
- * @returns muted meta lines.
- */
-export function renderLandingMeta(width: number, status: StatusModel, home: string | undefined): string {
-  const cwd = prettyPath(status.cwd, home)
-  return [
-    wrapText(cwd, width),
-    '',
-    wrapText(formatModelLine(status), width),
-    '',
-    wrapText('Type a message. / opens commands.', width),
-  ].join('\n')
+/** Hint under the Claude Code-style landing header (full width, not in the column). */
+export const LANDING_HINT = 'Type a message. / opens commands.'
+
+/** Copy for the three-line column beside the whale. */
+export interface LandingHeaderCopy {
+  readonly title: string
+  readonly version: string
+  readonly model: string
+  readonly cwd: string
+  readonly hint: string
 }
 
 /**
- * Claude Code-like landing: original whale splash above cwd, model, and hint.
+ * Model line for the landing header: provider display + model, no occupancy.
+ * @param status - model/cwd facts.
+ * @returns `Cline Pass / cline-pass/deepseek-v4-flash`.
+ */
+export function formatLandingModelLine(status: StatusModel): string {
+  return `${providerDisplayName(status.provider)} / ${status.model}`
+}
+
+/**
+ * Title, version, model, and cwd for the landing header column.
+ * @param status - model/cwd facts.
+ * @param home - `$HOME` for path collapsing.
+ * @returns left-aligned header copy.
+ */
+export function landingHeaderCopy(status: StatusModel, home: string | undefined): LandingHeaderCopy {
+  return {
+    title: PRODUCT_TITLE,
+    version: PRODUCT_VERSION,
+    model: formatLandingModelLine(status),
+    cwd: prettyPath(status.cwd, home),
+    hint: LANDING_HINT,
+  }
+}
+
+/**
+ * Full-width hint under the whale + title header.
+ * @param width - main columns.
+ * @param _status - unused; kept so existing call sites stay valid.
+ * @param _home - unused.
+ * @returns muted hint line.
+ */
+export function renderLandingMeta(width: number, _status: StatusModel, _home: string | undefined): string {
+  return wrapText(LANDING_HINT, width)
+}
+
+/**
+ * Claude Code-like landing: left-facing whale beside title/version, model, cwd.
+ * Hint sits under the header block.
  * @param width - main columns.
  * @param status - model/cwd facts.
  * @param home - `$HOME` for path collapsing.
  * @returns landing body.
  */
 export function renderLanding(width: number, status: StatusModel, home: string | undefined): string {
-  const art = whaleArt(width).map(line => line.text)
-  return [...art, '', renderLandingMeta(width, status, home)].join('\n')
+  const art = whaleArt(width)
+  const header = landingHeaderCopy(status, home)
+  const beside = [`${header.title} ${header.version}`, header.model, header.cwd]
+  const artWidth = Math.max(1, ...art.map(line => line.text.length))
+  const rows = art.map((line, index) => {
+    const extra = beside[index]
+    if (extra === undefined) return line.text
+    const pad = ' '.repeat(Math.max(0, artWidth - line.text.length))
+    return `${line.text}${pad} ${extra}`
+  })
+  return [...rows, '', wrapText(header.hint, width)].join('\n')
 }
 
 /**

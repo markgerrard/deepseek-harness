@@ -101,6 +101,15 @@ export const PRODUCT_NAME = 'DSH'
 /** Small product mark kept for onboarding copy. */
 export const PRODUCT_MARK = 'DeepSeek™'
 
+/** Claude Code-style landing title beside the whale. */
+export const PRODUCT_TITLE = 'DeepSeek Harness Code'
+
+/**
+ * Landing version next to the title. Always `v0.1.0`, even when
+ * package.json is `0.1.0-rc.x`.
+ */
+export const PRODUCT_VERSION = 'v0.1.0'
+
 /** Unused compact-mode width breakpoint; single-column layout ignores it. */
 export const COMPACT_WIDTH = 120
 

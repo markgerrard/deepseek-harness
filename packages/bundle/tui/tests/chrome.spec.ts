@@ -18,7 +18,7 @@ import {
   WHALE_EYE,
   whaleArt,
 } from '../src/chrome.ts'
-import { COLORS, ICONS, PALETTE, PRODUCT_MARK, PRODUCT_NAME, WHALE_TONES } from '../src/theme.ts'
+import { COLORS, ICONS, PALETTE, PRODUCT_MARK, PRODUCT_NAME, PRODUCT_TITLE, PRODUCT_VERSION, WHALE_TONES } from '../src/theme.ts'
 
 const status = {
   provider: 'deepseek',
@@ -42,18 +42,28 @@ describe('Claude Code-like chrome strings', () => {
     const landing = renderLanding(60, status, '/home/mark')
     expect(landing).toContain('~/src')
     expect(landing).toContain('Type a message. / opens commands.')
+    expect(landing).toContain(PRODUCT_TITLE)
+    expect(landing).toContain(PRODUCT_VERSION)
     expect(landing).not.toContain('╱')
     expect(renderOnboarding(60, 'No API key')).toContain('No API key')
   })
 
-  it('puts an original whale splash above cwd/model/hint on landing', () => {
+  it('puts a left-facing whale beside title/version, model, and cwd on landing', () => {
     const landing = renderLanding(60, status, '/home/mark')
     expect(WHALE_EYE).toBe('█  █')
     expect(landing).toContain(WHALE_EYE)
     expect(landing).toContain('█')
+    expect(landing).toContain(`${PRODUCT_TITLE} ${PRODUCT_VERSION}`)
+    expect(landing).toContain('deepseek / v4')
     expect(landing).not.toContain('(O)')
-    expect(landing.indexOf(WHALE_EYE)).toBeLessThan(landing.indexOf('~/src'))
+    const first = landing.split('\n')[0] ?? ''
+    expect(first).toContain('▄')
+    expect(first).toContain(`${PRODUCT_TITLE} ${PRODUCT_VERSION}`)
     const lines = whaleArt(60)
+    expect(lines[0]?.text.startsWith('▄')).toBe(true)
+    expect(lines.some(line => line.text.includes('██████▄▄'))).toBe(true)
+    expect(lines.some(line => line.text.startsWith('█  █'))).toBe(true)
+    expect(lines.every(line => !line.text.includes('▄▄██████'))).toBe(true)
     const tones = new Set(lines.flatMap(line => line.segments.map(segment => segment.tone)))
     expect(tones.has('block')).toBe(true)
     expect(tones.has('spray')).toBe(true)
@@ -64,6 +74,7 @@ describe('Claude Code-like chrome strings', () => {
     expect(lines.length).toBeGreaterThanOrEqual(6)
     expect(lines.length).toBeLessThanOrEqual(8)
     expect(whaleArt(20).some(line => line.text.includes(WHALE_EYE))).toBe(true)
+    expect(whaleArt(20)[0]?.text.startsWith('▄')).toBe(true)
     expect(WHALE_TONES.block).toBe(COLORS.deepseek)
     expect(WHALE_TONES.spray).toBe('#8AA0FF')
     expect(WHALE_TONES.hole).toBe(COLORS.bg)

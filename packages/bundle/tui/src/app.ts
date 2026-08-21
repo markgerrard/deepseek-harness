@@ -20,7 +20,7 @@ import {
   renderApprovalDialog,
   renderChoiceDialog,
   renderConnectKeyDialog,
-  renderLandingMeta,
+  landingHeaderCopy,
   renderOnboarding,
   renderOverlay,
   renderQuitDialog,
@@ -93,8 +93,9 @@ function coloredLines(text: string): React.ReactElement {
 }
 
 /**
- * Landing / empty-transcript column: solid-block DeepSeek-blue whale,
- * muted cwd/model/hint underneath. Block/spray Text nodes are unwrapped.
+ * Landing / empty-transcript column: left-facing DeepSeek-blue whale with
+ * Claude Code-style title/version, model, and cwd beside it. Hint sits
+ * under the header. Block/spray Text nodes are unwrapped.
  * @param width - main columns.
  * @param status - model/cwd facts.
  * @param home - `$HOME` for path collapsing.
@@ -102,10 +103,10 @@ function coloredLines(text: string): React.ReactElement {
  */
 function landingView(width: number, status: StatusModel, home: string | undefined): React.ReactElement {
   const whale = whaleArt(width)
-  const meta = renderLandingMeta(width, status, home)
-  return React.createElement(
+  const header = landingHeaderCopy(status, home)
+  const whaleColumn = React.createElement(
     Box,
-    { flexDirection: 'column', width },
+    { key: 'whale', flexDirection: 'column', flexShrink: 0 },
     ...whale.map((line, index) => React.createElement(
       Box,
       { key: `whale-${index}`, flexDirection: 'row', height: 1, flexShrink: 0, flexGrow: 0 },
@@ -122,7 +123,29 @@ function landingView(width: number, status: StatusModel, home: string | undefine
         segment.text,
       )),
     )),
-    React.createElement(Text, { key: 'meta', color: COLORS.muted, wrap: 'wrap' }, `\n${meta}`),
+  )
+  const textColumn = React.createElement(
+    Box,
+    { key: 'copy', flexDirection: 'column', paddingLeft: 1 },
+    React.createElement(
+      Box,
+      { key: 'title', flexDirection: 'row', height: 1, flexShrink: 0 },
+      React.createElement(Text, { bold: true, color: COLORS.fg }, header.title),
+      React.createElement(Text, { color: COLORS.muted }, ` ${header.version}`),
+    ),
+    React.createElement(Text, { key: 'model', color: COLORS.muted }, header.model),
+    React.createElement(Text, { key: 'cwd', color: COLORS.muted }, header.cwd),
+  )
+  return React.createElement(
+    Box,
+    { flexDirection: 'column', width },
+    React.createElement(
+      Box,
+      { key: 'header', flexDirection: 'row', paddingTop: 1 },
+      whaleColumn,
+      textColumn,
+    ),
+    React.createElement(Text, { key: 'hint', color: COLORS.muted, wrap: 'wrap' }, `\n${header.hint}`),
   )
 }
 
