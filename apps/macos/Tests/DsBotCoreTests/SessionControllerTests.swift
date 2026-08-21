@@ -321,6 +321,47 @@ final class SessionControllerTests: XCTestCase {
   }
 
   @MainActor
+  func testSendWhileWorkingSteersAndKeepInboxCancels() async throws {
+    let runtime = try bundledFakeRuntimeURL()
+    let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    let cancelRecordFile = tempDir.appendingPathComponent("cancel.txt")
+    let promptRecordFile = tempDir.appendingPathComponent("prompt.txt")
+    let launch = RuntimeLaunch(
+      command: runtime.path,
+      arguments: [],
+      cwd: tempDir,
+      environment: [
+        "FAKE_RECORD_CANCEL": cancelRecordFile.path,
+        "FAKE_RECORD_PROMPT": promptRecordFile.path,
+      ]
+    )
+    let process = RuntimeProcess(launch: launch)
+    let client = try process.start()
+    let controller = SessionController(client: client, store: BotStore(fileURL: tempDir.appendingPathComponent("bots.json")))
+    try await controller.initialize(cwd: tempDir.path, provider: "mock", model: "m", approvals: true)
+    _ = try await controller.createBot(displayName: "Busy Bot", job: "j", provider: "mock", model: "m")
+    let threadId = try XCTUnwrap(controller.selectedThreadId)
+
+    // A tool call without its result marks the thread as working.
+    controller.appendEvent(
+      SessionEventDTO(type: "tool/call", seq: 100, data: .object([
+        "callId": .string("c1"), "name": .string("bash"), "arguments": .string("{}"),
+      ])),
+      forSessionId: threadId
+    )
+
+    _ = try await controller.sendPrompt(threadId: threadId, text: "redirect now")
+    try await process.stop()
+
+    let cancelContent = try String(contentsOf: cancelRecordFile, encoding: .utf8)
+    XCTAssertTrue(cancelContent.contains(threadId))
+    XCTAssertTrue(cancelContent.contains("\"keepInbox\":true"))
+  }
+
+  @MainActor
   func testStopCurrentTurnSendsSessionCancel() async throws {
     let runtime = try bundledFakeRuntimeURL()
     let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

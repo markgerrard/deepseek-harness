@@ -70,7 +70,7 @@ type SessionLoadKind = 'create' | 'resume'
  */
 type QueuedSessionOp =
   | { kind: 'prompt'; message: ReturnType<typeof createUserMessage>; steer: boolean }
-  | { kind: 'cancel'; settle: () => void }
+  | { kind: 'cancel'; keepInbox: boolean; settle: () => void }
 
 interface PendingSessionLoad {
   kind: SessionLoadKind
@@ -294,7 +294,7 @@ export class HarnessSdkJsonRpcServer {
     const pending = this.sessionCreations.get(params.sessionId)
     if (pending !== undefined) {
       const { promise, resolve } = Promise.withResolvers<void>()
-      pending.queue.push({ kind: 'cancel', settle: resolve })
+      pending.queue.push({ kind: 'cancel', keepInbox: params.keepInbox === true, settle: resolve })
       // Resolves once this cancel's own fate is settled — never merely
       // because the resume rejected, which would acknowledge before a
       // transferred abort ran, and never against a successor this cancel
@@ -303,7 +303,8 @@ export class HarnessSdkJsonRpcServer {
     }
     const rec = this.sessions.get(params.sessionId)
     if (rec !== undefined) {
-      rec.handle.agent.cancel({ kind: 'user' })
+      if (params.keepInbox === true) rec.handle.agent.cancel({ kind: 'user' }, { keepInbox: true })
+      else rec.handle.agent.cancel({ kind: 'user' })
       return Promise.resolve({})
     }
     return Promise.resolve({})
@@ -464,7 +465,10 @@ export class HarnessSdkJsonRpcServer {
       throw new Error(`session agent was disposed outside the server: ${sessionId}`)
     }
     for (const op of queue) {
-      if (op.kind === 'cancel') rec.handle.agent.cancel({ kind: 'user' })
+      if (op.kind === 'cancel') {
+        if (op.keepInbox) rec.handle.agent.cancel({ kind: 'user' }, { keepInbox: true })
+        else rec.handle.agent.cancel({ kind: 'user' })
+      }
       else if (op.steer) rec.handle.agent.steer(op.message)
       else rec.handle.agent.followup(op.message)
     }

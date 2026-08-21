@@ -10,7 +10,7 @@ DS Bot has no stop control, and `session/prompt` always delivered through `agent
 
 ## Decision
 
-`SessionPromptParams` carries an optional `steer` flag. `steer: true` delivers through `agent.steer()`: a running driver consumes the message at its next step boundary, and an idle driver starts a turn, so steering is always safe to send. Omitted or `false` keeps `followup()` queued-turn delivery. Prompts queued behind an in-flight lazy create or resume replay with the same delivery they were sent with. The DS Bot `HarnessClient.prompt` defaults `steer` to `true`, so every message from the app redirects the in-flight turn instead of stacking turns; SDK callers that want strict turn queueing pass `steer: false` or omit the flag at the wire level.
+`SessionPromptParams` carries an optional `steer` flag. `steer: true` delivers through `agent.steer()`: a running driver consumes the message at its next step boundary, and an idle driver starts a turn, so steering is always safe to send. Omitted or `false` keeps `followup()` queued-turn delivery. Prompts queued behind an in-flight lazy create or resume replay with the same delivery they were sent with. The DS Bot `HarnessClient.prompt` defaults `steer` to `true`, and when the thread is visibly working the app follows the accepted prompt with `session/cancel { keepInbox: true }`: steering alone is consumed only at the next step boundary, which a single long text generation never reaches, so the keepInbox abort ends the in-flight step while the steering wake and message survive and replay into a fresh turn that answers the redirect immediately. SDK callers that want strict turn queueing pass `steer: false` or omit the flag at the wire level.
 
 ## Alternatives considered
 

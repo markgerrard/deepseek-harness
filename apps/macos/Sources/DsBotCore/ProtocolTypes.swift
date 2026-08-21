@@ -272,9 +272,13 @@ public struct SessionSetModelParams: Codable, Sendable {
 
 public struct SessionCancelParams: Codable, Sendable {
   public var sessionId: String
+  /// Preserve queued and steering inbox work while aborting the active turn;
+  /// a steering wake then replays into a fresh turn.
+  public var keepInbox: Bool?
 
-  public init(sessionId: String) {
+  public init(sessionId: String, keepInbox: Bool? = nil) {
     self.sessionId = sessionId
+    self.keepInbox = keepInbox
   }
 }
 

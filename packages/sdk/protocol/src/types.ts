@@ -84,6 +84,12 @@ export interface SessionPromptResult {
 export interface SessionCancelParams {
   /** The SDK-side session id; an unknown id is a no-op. An in-flight lazy create or resume is cancelled, not unknown. */
   sessionId: string
+  /**
+   * Preserve queued and steering inbox work: the active turn still aborts,
+   * but pending messages survive and a steering wake replays into a fresh
+   * turn. Omitted or `false` clears the inbox with the abort.
+   */
+  keepInbox?: boolean
 }
 
 /** Parameters for rehydrating one persisted SDK session. */

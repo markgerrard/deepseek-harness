@@ -348,6 +348,36 @@ describe('HarnessSdkJsonRpcServer', () => {
     await server.shutdown()
   })
 
+  it('passes keepInbox through to agent.cancel on live and queued cancels', async () => {
+    const cancel = vi.fn<Agent['cancel']>()
+    const agent = ({
+      id: SessionId('main'),
+      followup: vi.fn(),
+      cancel,
+    } satisfies Pick<Agent, 'id' | 'followup' | 'cancel'>) as unknown as Agent
+    const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: { create: vi.fn(async () => handle), get: () => agent },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    // Queued path: prompt starts the lazy create; the cancel queued behind it
+    // replays with its keepInbox.
+    const prompt = server.prompt({ sessionId: 'main', contentBlocks: [{ type: 'text', text: 'go' }] })
+    await server.cancel({ sessionId: 'main', keepInbox: true })
+    await prompt
+    expect(cancel).toHaveBeenCalledWith({ kind: 'user' }, { keepInbox: true })
+
+    // Live path: keepInbox true forwards options, omission forwards none.
+    await server.cancel({ sessionId: 'main', keepInbox: true })
+    expect(cancel).toHaveBeenLastCalledWith({ kind: 'user' }, { keepInbox: true })
+    await server.cancel({ sessionId: 'main' })
+    expect(cancel).toHaveBeenLastCalledWith({ kind: 'user' })
+    await server.shutdown()
+  })
+
   it('cancels only the addressed live session and no-ops unknown ids', async () => {
     const mainCancel = vi.fn<Agent['cancel']>()
     const otherCancel = vi.fn<Agent['cancel']>()

@@ -471,8 +471,8 @@ public struct HarnessClient: Sendable {
     let _: EmptyResult = try await core.request(method: "session/setModel", params: params)
   }
 
-  public func cancel(sessionId: String) async throws {
-    let params = SessionCancelParams(sessionId: sessionId)
+  public func cancel(sessionId: String, keepInbox: Bool = false) async throws {
+    let params = SessionCancelParams(sessionId: sessionId, keepInbox: keepInbox ? true : nil)
     let _: EmptyResult = try await core.request(method: "session/cancel", params: params)
   }
 

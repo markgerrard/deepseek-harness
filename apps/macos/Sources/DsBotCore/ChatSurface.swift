@@ -28,8 +28,15 @@ public func resolvedChatSurface(
   session ?? bot ?? account
 }
 
+/// Whether any transcript item is still in flight (streaming or running).
+/// - Parameter items: projected transcript items.
+/// - Returns: `true` while a turn is visibly working.
+public func chatIsWorking(_ items: [TranscriptItem]) -> Bool {
+  items.contains(where: isInFlight)
+}
+
 public func presentChat(items: [TranscriptItem], surface: ChatSurface) -> PresentedChat {
-  let isWorking = items.contains(where: isInFlight)
+  let isWorking = chatIsWorking(items)
   let label = isWorking ? chatActivityLabel(for: items) : nil
   switch surface {
   case .advanced:
