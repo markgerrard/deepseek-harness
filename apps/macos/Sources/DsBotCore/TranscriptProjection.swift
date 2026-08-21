@@ -460,6 +460,13 @@ public struct TranscriptProjector: Sendable {
     }
   }
 
+  /// Total characters buffered for the in-flight stream; `0` when idle.
+  /// Render throttling scales its interval with this, because one full
+  /// re-layout of a very long streaming bubble can outlast a fixed interval.
+  public var streamingTextLength: Int {
+    chunkBuffers.values.reduce(0) { $0 + $1.text.count + $1.reasoning.count }
+  }
+
   /// Presentable items: the folded list with expansion applied plus the
   /// in-flight streaming tail.
   /// - Parameter expansion: card ids currently expanded in the UI.

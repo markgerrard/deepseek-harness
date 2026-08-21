@@ -391,6 +391,14 @@ final class SessionControllerTests: XCTestCase {
   }
 
   @MainActor
+  func testStreamRenderIntervalScalesWithLength() {
+    XCTAssertEqual(SessionController.streamRenderInterval(forLength: 0), .milliseconds(100))
+    XCTAssertEqual(SessionController.streamRenderInterval(forLength: 4_000), .milliseconds(100))
+    XCTAssertEqual(SessionController.streamRenderInterval(forLength: 4_001), .milliseconds(250))
+    XCTAssertEqual(SessionController.streamRenderInterval(forLength: 12_001), .milliseconds(500))
+  }
+
+  @MainActor
   func testTranscriptRevisionCoalescesChunksAndBumpsOnDurableEvents() async throws {
     let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let store = BotStore(fileURL: tempDir.appendingPathComponent("bots.json"))

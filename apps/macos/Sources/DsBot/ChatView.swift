@@ -284,12 +284,30 @@ public struct ChatView: View {
     }
   }
 
+  @State private var hoveredItemId: String?
+
+  /// Grok Bot-style hover actions beside a bubble: a copy button and an
+  /// ellipsis menu, revealed while the pointer is over the message row. Bot
+  /// bubbles carry it on their right, user bubbles on their left; it stays
+  /// laid out (opacity-hidden) so revealing never reflows.
+  @ViewBuilder
+  private func hoverActions(text: String, itemId: String) -> some View {
+    HoverActionRow(text: text, visible: hoveredItemId == itemId)
+      .padding(.top, 8)
+  }
+
+  /// Track the pointer per message row to drive its hover actions.
+  private func trackHover(_ itemId: String) -> some ViewModifier {
+    HoverTracker(itemId: itemId, hoveredItemId: $hoveredItemId)
+  }
+
   @ViewBuilder
   private func transcriptItemView(_ item: TranscriptItem) -> some View {
     switch item {
     case .user(_, _, let text, let files):
-      HStack {
+      HStack(alignment: .top, spacing: 8) {
         Spacer(minLength: 80)
+        hoverActions(text: text, itemId: item.id)
         VStack(alignment: .trailing, spacing: 6) {
           if !files.isEmpty {
             VStack(alignment: .trailing, spacing: 4) {
@@ -318,19 +336,35 @@ public struct ChatView: View {
           }
         }
       }
+      .modifier(trackHover(item.id))
 
     case .assistant(_, _, let text, let streaming):
       if streaming && text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
         EmptyView()
       } else {
         HStack(alignment: .top, spacing: 8) {
-          MarkdownMessageView(source: text)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(Color.white.opacity(0.10))
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+          Group {
+            if streaming {
+              // Plain text while streaming: markdown block parsing plus
+              // AttributedString layout of a growing multi-thousand-word
+              // bubble outlasts the render interval and wedges the main
+              // thread. The finalized message renders full markdown.
+              Text(text)
+                .textSelection(.enabled)
+            } else {
+              MarkdownMessageView(source: text)
+            }
+          }
+          .padding(.horizontal, 14)
+          .padding(.vertical, 10)
+          .background(Color.white.opacity(0.10))
+          .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+          if !streaming {
+            hoverActions(text: text, itemId: item.id)
+          }
           Spacer(minLength: 60)
         }
+        .modifier(trackHover(item.id))
       }
 
     case .reasoning(let id, _, let text, let streaming, let expanded):
@@ -533,5 +567,65 @@ public struct ChatView: View {
         .font(.caption2)
         .foregroundColor(.red)
     }
+  }
+}
+
+/// Applies onHover to a message row, claiming and releasing the shared
+/// hovered-item id.
+private struct HoverTracker: ViewModifier {
+  let itemId: String
+  @Binding var hoveredItemId: String?
+
+  func body(content: Content) -> some View {
+    content.onHover { inside in
+      if inside {
+        hoveredItemId = itemId
+      } else if hoveredItemId == itemId {
+        hoveredItemId = nil
+      }
+    }
+  }
+}
+
+/// Copy + ellipsis controls revealed by the owning row's hover tracking.
+/// Opacity-hidden when idle so appearing never shifts layout.
+private struct HoverActionRow: View {
+  let text: String
+  let visible: Bool
+  @State private var copied = false
+
+  var body: some View {
+    HStack(spacing: 6) {
+      Button {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        copied = true
+        Task { @MainActor in
+          try? await Task.sleep(for: .seconds(1))
+          copied = false
+        }
+      } label: {
+        Image(systemName: copied ? "checkmark" : "doc.on.doc")
+          .font(.system(size: 12))
+          .foregroundStyle(.secondary)
+      }
+      .buttonStyle(.plain)
+      .help("Copy")
+      Menu {
+        Button("Copy") {
+          NSPasteboard.general.clearContents()
+          NSPasteboard.general.setString(text, forType: .string)
+        }
+      } label: {
+        Image(systemName: "ellipsis")
+          .font(.system(size: 12))
+          .foregroundStyle(.secondary)
+      }
+      .menuStyle(.borderlessButton)
+      .menuIndicator(.hidden)
+      .fixedSize()
+    }
+    .opacity(visible ? 1 : 0)
+    .accessibilityHidden(!visible)
   }
 }

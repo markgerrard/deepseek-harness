@@ -17,7 +17,10 @@ struct TitlebarSpace: NSViewRepresentable {
     window.titleVisibility = .hidden
     window.titlebarAppearsTransparent = true
     window.styleMask.insert(.fullSizeContentView)
-    window.isMovableByWindowBackground = true
+    // Dragging is owned by the explicit WindowDragArea header strips; a
+    // movable background turns text-selection drags in the chat into window
+    // moves.
+    window.isMovableByWindowBackground = false
     window.titlebarSeparatorStyle = .none
   }
 }

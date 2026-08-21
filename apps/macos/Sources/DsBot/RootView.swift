@@ -52,7 +52,6 @@ public struct RootView: View {
     .preferredColorScheme(.dark)
     .frame(minWidth: 720, minHeight: 480)
     .background(Color.black.opacity(0.92))
-    .background(WindowDragArea())
     .background(TitlebarSpace())
     .ignoresSafeArea(edges: .top)
     .safeAreaInset(edge: .top, spacing: 0) {

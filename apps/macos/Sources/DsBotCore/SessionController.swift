@@ -63,15 +63,27 @@ public final class SessionController {
   /// stream cannot saturate the main thread with markdown re-layout.
   public private(set) var transcriptRevision = 0
 
-  /// Streaming-render coalescing interval. 100ms keeps text visibly live
-  /// while bounding full-bubble re-layout to ten per second.
+  /// Base streaming-render coalescing interval. 100ms keeps text visibly
+  /// live while bounding full-bubble re-layout to ten per second.
   public static let streamRenderInterval: Duration = .milliseconds(100)
+
+  /// Coalescing interval for the current stream length: one re-layout costs
+  /// roughly proportional to the bubble's text, so long streams slow to
+  /// 250ms past 4k characters and 500ms past 12k, keeping the main thread
+  /// ahead of its own layout work.
+  /// - Parameter streamingLength: characters buffered for the in-flight stream.
+  /// - Returns: the interval before the next coalesced render.
+  public static func streamRenderInterval(forLength streamingLength: Int) -> Duration {
+    if streamingLength > 12_000 { return .milliseconds(500) }
+    if streamingLength > 4_000 { return .milliseconds(250) }
+    return streamRenderInterval
+  }
 
   @ObservationIgnored private var pendingRevisionBump: Task<Void, Never>?
 
   /// Publish a transcript change: immediately for durable events, coalesced
-  /// for streaming chunks.
-  private func notifyTranscriptChanged(coalesce: Bool) {
+  /// for streaming chunks with an interval scaled to the stream's length.
+  private func notifyTranscriptChanged(coalesce: Bool, sessionId: String) {
     if !coalesce {
       pendingRevisionBump?.cancel()
       pendingRevisionBump = nil
@@ -79,8 +91,9 @@ public final class SessionController {
       return
     }
     guard pendingRevisionBump == nil else { return }
+    let interval = Self.streamRenderInterval(forLength: projectors[sessionId]?.streamingTextLength ?? 0)
     pendingRevisionBump = Task { @MainActor [weak self] in
-      try? await Task.sleep(for: Self.streamRenderInterval)
+      try? await Task.sleep(for: interval)
       guard let self, !Task.isCancelled else { return }
       self.pendingRevisionBump = nil
       self.transcriptRevision += 1
@@ -629,7 +642,7 @@ public final class SessionController {
     if !isChunk {
       persistTranscript(sessionId)
     }
-    notifyTranscriptChanged(coalesce: isChunk)
+    notifyTranscriptChanged(coalesce: isChunk, sessionId: sessionId)
   }
 
   public func setEvents(_ events: [SessionEventDTO], forSessionId sessionId: String) {
@@ -640,7 +653,7 @@ public final class SessionController {
     }
     projectors[sessionId] = projector
     persistTranscript(sessionId)
-    notifyTranscriptChanged(coalesce: false)
+    notifyTranscriptChanged(coalesce: false, sessionId: sessionId)
   }
 
   private func hydratePersistedTranscripts() {
@@ -663,7 +676,7 @@ public final class SessionController {
         projector.ingest(event)
       }
       projectors[sessionId] = projector
-      notifyTranscriptChanged(coalesce: false)
+      notifyTranscriptChanged(coalesce: false, sessionId: sessionId)
     }
   }
 
