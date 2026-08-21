@@ -9,11 +9,14 @@ public struct PresentedChat: Equatable, Sendable {
   public var items: [TranscriptItem]
   public var isWorking: Bool
   public var activityLabel: String?
+  /// Older items exist beyond the presented window; scroll-back loads them.
+  public var hasEarlier: Bool
 
-  public init(items: [TranscriptItem], isWorking: Bool, activityLabel: String? = nil) {
+  public init(items: [TranscriptItem], isWorking: Bool, activityLabel: String? = nil, hasEarlier: Bool = false) {
     self.items = items
     self.isWorking = isWorking
     self.activityLabel = activityLabel
+    self.hasEarlier = hasEarlier
   }
 }
 

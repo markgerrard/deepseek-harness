@@ -321,6 +321,35 @@ final class SessionControllerTests: XCTestCase {
   }
 
   @MainActor
+  func testPresentedChatCapsItemsAndPagesEarlier() throws {
+    let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let store = BotStore(fileURL: tempDir.appendingPathComponent("bots.json"))
+    let client = HarnessClient(command: "/bin/echo", arguments: [], cwd: tempDir)
+    let controller = SessionController(client: client, store: store)
+
+    let total = SessionController.transcriptWindowSize + 30
+    let events = (1...total).map { seq in
+      SessionEventDTO(type: "user/message", seq: seq, data: .object([
+        "source": .object(["kind": .string("user")]),
+        "content": .array([.object(["type": .string("text"), "text": .string("m\(seq)")])]),
+      ]))
+    }
+    controller.setEvents(events, forSessionId: "s1")
+    controller.selectedThreadId = "s1"
+
+    let capped = controller.presentedChat
+    XCTAssertTrue(capped.hasEarlier)
+    XCTAssertEqual(capped.items.count, SessionController.transcriptWindowSize)
+    guard case .user(_, let firstSeq, _, _) = capped.items[0] else { return XCTFail("Expected user item") }
+    XCTAssertEqual(firstSeq, 31)
+
+    controller.loadEarlierItems()
+    let expanded = controller.presentedChat
+    XCTAssertFalse(expanded.hasEarlier)
+    XCTAssertEqual(expanded.items.count, total)
+  }
+
+  @MainActor
   func testTranscriptAccumulationAndExpansion() throws {
     let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let storeFile = tempDir.appendingPathComponent("bots.json")

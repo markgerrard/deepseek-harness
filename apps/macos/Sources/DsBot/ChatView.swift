@@ -47,6 +47,20 @@ public struct ChatView: View {
         ScrollViewReader { proxy in
           ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
+              if controller.presentedChat.hasEarlier {
+                ProgressView()
+                  .controlSize(.small)
+                  .frame(maxWidth: .infinity)
+                  .padding(.vertical, 8)
+                  .id("earlier-sentinel")
+                  .onAppear {
+                    let anchor = controller.presentedChat.items.first?.id
+                    controller.loadEarlierItems()
+                    if let anchor {
+                      DispatchQueue.main.async { proxy.scrollTo(anchor, anchor: .top) }
+                    }
+                  }
+              }
               ForEach(controller.presentedChat.items) { item in
                 transcriptItemView(item)
                   .id(item.id)
@@ -69,7 +83,8 @@ public struct ChatView: View {
             }
             .padding(16)
           }
-          .onChange(of: controller.presentedChat.items.count) { _, _ in
+          .defaultScrollAnchor(.bottom)
+          .onChange(of: controller.presentedChat.items.last?.id) { _, _ in
             if let last = controller.presentedChat.items.last {
               withAnimation {
                 proxy.scrollTo(last.id, anchor: .bottom)

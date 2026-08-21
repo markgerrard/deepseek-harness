@@ -139,8 +139,29 @@ public final class SessionController {
     )
   }
 
+  /// Newest items presented before scroll-back paging loads earlier ones.
+  /// Bounds per-update SwiftUI diffing on long chats; the full projection
+  /// stays in memory and pages in windowSize steps.
+  public static let transcriptWindowSize = 120
+
+  /// Per-thread presented-item budget grown by `loadEarlierItems()`.
+  private var transcriptWindows: [String: Int] = [:]
+
   public var presentedChat: PresentedChat {
-    presentChat(items: currentTranscript, surface: effectiveChatSurface)
+    var chat = presentChat(items: currentTranscript, surface: effectiveChatSurface)
+    guard let threadId = selectedThreadId else { return chat }
+    let window = transcriptWindows[threadId] ?? Self.transcriptWindowSize
+    if chat.items.count > window {
+      chat.hasEarlier = true
+      chat.items = Array(chat.items.suffix(window))
+    }
+    return chat
+  }
+
+  /// Grow the selected thread's presented window by one page of items.
+  public func loadEarlierItems() {
+    guard let threadId = selectedThreadId else { return }
+    transcriptWindows[threadId] = (transcriptWindows[threadId] ?? Self.transcriptWindowSize) + Self.transcriptWindowSize
   }
 
   public func toggleChatSurface() {
