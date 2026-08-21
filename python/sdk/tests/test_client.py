@@ -781,6 +781,37 @@ for line in sys.stdin:
             assert healthy.next().payload == {"source": "emit-second"}
 
 
+def test_session_prompt_sends_steer_flag(tmp_path: Path) -> None:
+    script = tmp_path / "fake_bridge.py"
+    script.write_text(
+        """
+import json
+import sys
+
+for line in sys.stdin:
+    msg = json.loads(line)
+    method = msg.get("method")
+    if method == "initialize":
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"serverInfo": {"name": "fake-dsh"}}}), flush=True)
+    elif method == "session/prompt":
+        print(json.dumps({"jsonrpc": "2.0", "method": "llm/request", "params": dict(msg.get("params") or {}, requestId="req-1")}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"messageId": "message-1"}}), flush=True)
+    elif method == "shutdown":
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {}}), flush=True)
+        break
+""".strip()
+    )
+
+    with HarnessClient(
+        HarnessConfig(launch_args_override=(sys.executable, str(script)))
+    ) as client:
+        client.initialize(provider="deepseek-official", cwd="/workspace", model="dsagent")
+        client.session_prompt("main", [{"type": "text", "text": "redirect"}], steer=True)
+        notification = client.next_notification()
+    assert notification.payload["steer"] is True
+    assert notification.payload["sessionId"] == "main"
+
+
 def test_client_rejects_unaccepted_session_prompt_response(tmp_path: Path) -> None:
     script = tmp_path / "fake_bridge.py"
     script.write_text(

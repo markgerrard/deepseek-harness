@@ -69,7 +69,7 @@ type SessionLoadKind = 'create' | 'resume'
  * a successor load, so the settlement travels with it.
  */
 type QueuedSessionOp =
-  | { kind: 'prompt'; message: ReturnType<typeof createUserMessage> }
+  | { kind: 'prompt'; message: ReturnType<typeof createUserMessage>; steer: boolean }
   | { kind: 'cancel'; settle: () => void }
 
 interface PendingSessionLoad {
@@ -255,7 +255,7 @@ export class HarnessSdkJsonRpcServer {
       const pending = this.sessionCreations.get(params.sessionId)
         ?? this.beginSessionLoad(params.sessionId, 'create', () => this.createSession(params.sessionId, params))
       const message = createUserMessage({ content: params.contentBlocks, source: { kind: 'user' } })
-      pending.queue.push({ kind: 'prompt', message })
+      pending.queue.push({ kind: 'prompt', message, steer: params.steer === true })
       await pending.outcome
       return { messageId: message.id }
     }
@@ -266,7 +266,8 @@ export class HarnessSdkJsonRpcServer {
       throw new Error(`session agent was disposed outside the server: ${params.sessionId}`)
     }
     const message = createUserMessage({ content: params.contentBlocks, source: { kind: 'user' } })
-    rec.handle.agent.followup(message)
+    if (params.steer === true) rec.handle.agent.steer(message)
+    else rec.handle.agent.followup(message)
     return { messageId: message.id }
   }
 
@@ -464,6 +465,7 @@ export class HarnessSdkJsonRpcServer {
     }
     for (const op of queue) {
       if (op.kind === 'cancel') rec.handle.agent.cancel({ kind: 'user' })
+      else if (op.steer) rec.handle.agent.steer(op.message)
       else rec.handle.agent.followup(op.message)
     }
   }

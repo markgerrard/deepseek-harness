@@ -318,6 +318,36 @@ describe('HarnessSdkJsonRpcServer', () => {
     expect(otherHandle.dispose).toHaveBeenCalledOnce()
   })
 
+  it('delivers steer prompts through agent.steer on live and lazily created sessions', async () => {
+    const followup = vi.fn<Agent['followup']>()
+    const steer = vi.fn<Agent['steer']>()
+    const agent = ({
+      id: SessionId('main'),
+      followup,
+      steer,
+    } satisfies Pick<Agent, 'id' | 'followup' | 'steer'>) as unknown as Agent
+    const handle = { agent, dispose: vi.fn(() => Promise.resolve()) }
+    const create = vi.fn(async () => handle)
+    const ctx = {
+      on: vi.fn(() => () => undefined),
+      agents: { create, get: () => agent },
+      get: () => undefined,
+    } as unknown as Context
+    const server = new HarnessSdkJsonRpcServer(ctx, new FakeTransport())
+
+    // First prompt is queued behind the lazy create and replays as steering.
+    await server.prompt({ sessionId: 'main', contentBlocks: [{ type: 'text', text: 'redirect' }], steer: true })
+    expect(steer).toHaveBeenCalledOnce()
+    expect(followup).not.toHaveBeenCalled()
+
+    // Live session: steer routes to agent.steer, omission keeps followup.
+    await server.prompt({ sessionId: 'main', contentBlocks: [{ type: 'text', text: 'again' }], steer: true })
+    expect(steer).toHaveBeenCalledTimes(2)
+    await server.prompt({ sessionId: 'main', contentBlocks: [{ type: 'text', text: 'queued turn' }] })
+    expect(followup).toHaveBeenCalledOnce()
+    await server.shutdown()
+  })
+
   it('cancels only the addressed live session and no-ops unknown ids', async () => {
     const mainCancel = vi.fn<Agent['cancel']>()
     const otherCancel = vi.fn<Agent['cancel']>()

@@ -322,6 +322,7 @@ describe('HarnessClient', () => {
       provider: 'deepseek-official',
       model: 'deepseek-v4-flash',
       reasoningEffort: 'high',
+      steer: true,
     })
     expect(messageId).toMatch(/^fake-user-/)
     const recordContent = JSON.parse(await readFile(record, 'utf8')) as object
@@ -332,6 +333,7 @@ describe('HarnessClient', () => {
       provider: 'deepseek-official',
       model: 'deepseek-v4-flash',
       reasoningEffort: 'high',
+      steer: true,
     })
     await client.close()
   })

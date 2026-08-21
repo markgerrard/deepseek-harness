@@ -66,6 +66,12 @@ export interface SessionPromptParams {
   model?: string
   /** Optional reasoning effort setting for models that support it. */
   reasoningEffort?: string
+  /**
+   * Deliver as steering: a running turn consumes the message at its next step
+   * boundary instead of waiting behind it as a queued turn; an idle session
+   * starts a turn either way. Omitted or `false` queues a followup turn.
+   */
+  steer?: boolean
 }
 
 /** Durable enqueue receipt for one prompt. */

@@ -478,6 +478,12 @@ final class SessionControllerTests: XCTestCase {
   }
 
   @MainActor
+  func testPromptSteersByDefault() async throws {
+    let params = try await promptParams(thinking: "off", initialPrompt: "redirect please")
+    XCTAssertEqual(params["steer"] as? Bool, true)
+  }
+
+  @MainActor
   func testSendPromptAlsoOmitsOff() async throws {
     let runtime = try bundledFakeRuntimeURL()
     let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

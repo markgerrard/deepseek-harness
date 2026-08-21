@@ -144,10 +144,13 @@ class HarnessClient:
         session_id: str,
         content_blocks: list[JsonObject],
         *,
+        steer: bool | None = None,
         on_notification: Callable[[Notification], None] | None = None,
         notification_subscription: "NotificationSubscription | None" = None,
     ) -> str:
         payload: JsonObject = {"sessionId": session_id, "contentBlocks": content_blocks}
+        if steer is not None:
+            payload["steer"] = steer
         response = self.request(
             "session/prompt",
             payload,

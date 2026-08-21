@@ -201,6 +201,9 @@ public struct SessionPromptParams: Codable, Sendable {
   public var provider: String?
   public var model: String?
   public var reasoningEffort: String?
+  /// Steer the running turn at its next step boundary instead of queueing a
+  /// new turn; an idle session starts a turn either way.
+  public var steer: Bool?
 
   public init(
     sessionId: String,
@@ -208,7 +211,8 @@ public struct SessionPromptParams: Codable, Sendable {
     agentPreset: String? = nil,
     provider: String? = nil,
     model: String? = nil,
-    reasoningEffort: String? = nil
+    reasoningEffort: String? = nil,
+    steer: Bool? = nil
   ) {
     self.sessionId = sessionId
     self.contentBlocks = contentBlocks
@@ -216,6 +220,7 @@ public struct SessionPromptParams: Codable, Sendable {
     self.provider = provider
     self.model = model
     self.reasoningEffort = reasoningEffort
+    self.steer = steer
   }
 }
 

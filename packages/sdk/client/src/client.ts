@@ -338,7 +338,9 @@ export class HarnessClient {
    * Queue one prompt and return its durable inbox identity.
    * @param sessionId - target session; an unknown id creates it.
    * @param contentBlocks - the user message, sent verbatim.
-   * @param extras - optional per-session creation overrides (agentPreset, provider, model, reasoningEffort).
+   * @param extras - optional per-session creation overrides (agentPreset,
+   *   provider, model, reasoningEffort) and `steer`, which delivers into a
+   *   running turn at its next step boundary instead of queueing a followup turn.
    * @returns the queued message id.
    */
   async prompt(
@@ -349,6 +351,7 @@ export class HarnessClient {
       provider?: string
       model?: string
       reasoningEffort?: string
+      steer?: boolean
     },
   ): Promise<string> {
     const params: SessionPromptParams = {
@@ -358,6 +361,7 @@ export class HarnessClient {
       ...extras?.provider !== undefined ? { provider: extras.provider } : {},
       ...extras?.model !== undefined ? { model: extras.model } : {},
       ...extras?.reasoningEffort !== undefined ? { reasoningEffort: extras.reasoningEffort } : {},
+      ...extras?.steer !== undefined ? { steer: extras.steer } : {},
     }
     const result = await this.request('session/prompt', { ...params })
     if (!isRecord(result) || typeof result.messageId !== 'string') {

@@ -425,7 +425,8 @@ public struct HarnessClient: Sendable {
     agentPreset: String?,
     provider: String?,
     model: String?,
-    reasoningEffort: String?
+    reasoningEffort: String?,
+    steer: Bool = true
   ) async throws -> String {
     let params = SessionPromptParams(
       sessionId: sessionId,
@@ -433,7 +434,8 @@ public struct HarnessClient: Sendable {
       agentPreset: agentPreset,
       provider: provider,
       model: model,
-      reasoningEffort: reasoningEffort
+      reasoningEffort: reasoningEffort,
+      steer: steer
     )
     let result: SessionPromptResult = try await core.request(method: "session/prompt", params: params)
     return result.messageId
