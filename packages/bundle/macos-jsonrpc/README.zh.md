@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-dsh macOS JSON-RPC 组合包。[`cordis.patch.yml`](cordis.patch.yml) 直接叠加在 [`dsh-base`](../base/README.md) 之上：禁用 HMR（热模块替换）、挂载 Code Mode 的 worker 运行时（[`dsh-code-runtime-worker-thread`](../../workflow/code-runtime-worker-thread/README.md)）、插入 JSON-RPC stdio 服务端（[`dsh-sdk-jsonrpc-server`](../../sdk/server/README.md)），并配置以 `code` 为默认 preset 的 Agent Presets（[`dsh-agent-presets`](../../preset/agent-presets/README.md)）。
+dsh macOS JSON-RPC 组合包。[`cordis.patch.yml`](cordis.patch.yml) 直接叠加在 [`dsh-base`](../base/README.md) 之上：禁用 HMR（热模块替换）、挂载 Code Mode 的 worker 运行时（[`dsh-code-runtime-worker-thread`](../../code-runtime/code-runtime-worker-thread/README.md)）、插入 JSON-RPC stdio 服务端（[`dsh-sdk-jsonrpc-server`](../../sdk/server/README.md)），并配置以 `code` 为默认 preset 的 Agent Presets（[`dsh-agent-presets`](../../preset/agent-presets/README.md)）。
 
 该组合包不挂载任何终端 UI、Web 服务器或 stdout 日志记录器。进程的标准输出专用于 JSON-RPC 消息传输，以便与原生 macOS GUI 客户端应用通信。
 

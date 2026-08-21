@@ -188,6 +188,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         throws: ['when the preset is unknown or ships with the deployment.'],
       },
       {
+        signature: 'async setPersona(id: string, text: string): Promise<void>',
+        description: 'Replace only the persona plugin row\'s `config.text` on a locally authored preset.\n\nThe preset must be user-writable and carry an existing persona row. After a successful write, the standing mount cache drops this preset so the next mount sees the new generation.',
+        parameters: [{ name: 'id', description: 'the preset id.' }, { name: 'text', description: 'the new persona text.' }],
+        throws: ['when `text` is not a string, the preset is unknown, not user-writable, or has no persona row.'],
+      },
+      {
         signature: 'serviceFor<K extends string & keyof Context>(agent: { ctx: Context }, name: K): Context[K] | undefined',
         description: 'One agent\'s instance of a service its preset mounted.\n\nA preset publishes services behind `isolate` realms, which are invisible outside the group that declares them — including to the host. This is how a caller holding the agent reads one anyway: a request that is ABOUT a session but arrives from outside it, which is every browser RPC.\n\nRead addressing only. A host row that `inject`s a service cannot use this, because injection resolves before any session exists and has no agent to key by; such a service belongs on the host plane instead.',
         parameters: [{ name: 'agent', description: 'the agent whose composition to look inside.' }, { name: 'name', description: 'the service name as the preset\'s rows resolve it.' }],

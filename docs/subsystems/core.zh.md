@@ -501,6 +501,19 @@ async copy(from: string, id: string, name?: string): Promise<void>
 async remove(id: string): Promise<void>
 
 /**
+ * Replace only the persona plugin row's `config.text` on a locally authored preset.
+ *
+ * The preset must be user-writable and carry an existing persona row.
+ * After a successful write, the standing mount cache drops this preset so the
+ * next mount sees the new generation.
+ * @param id - the preset id.
+ * @param text - the new persona text.
+ * @throws when `text` is not a string, the preset is unknown, not user-writable,
+ * or has no persona row.
+ */
+async setPersona(id: string, text: string): Promise<void>
+
+/**
  * One agent's instance of a service its preset mounted.
  *
  * A preset publishes services behind `isolate` realms, which are invisible

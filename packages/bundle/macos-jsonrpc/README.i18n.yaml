@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/bundle/macos-jsonrpc/README.md
-README.md: 90c55757f4be0d94ef548225bb8ff3ef5964393c
-README.zh.md: 597112b0d1ddc685404874e6167e34f6ac6e62c7
+README.md: c11b59f6401d127e3810a655e49687f330ce2186
+README.zh.md: 753148369c085dda099f08ec4e5baf86c89089ca
