@@ -47,7 +47,7 @@ export function renderSidebar(
 }
 
 /** Per-glyph tone inside one landing-whale row. */
-export type WhaleTone = 'spray' | 'body' | 'belly' | 'eye' | 'water' | 'accent'
+export type WhaleTone = 'block' | 'spray' | 'hole'
 
 /** One coloured run inside a whale row. */
 export interface WhaleSegment {
@@ -66,78 +66,48 @@ function whaleLine(...segments: readonly WhaleSegment[]): WhaleLine {
 }
 
 /**
- * Distinctive eye glyph in the original landing whale. Tests pin this rather
- * than the whole drawing so the composition can be tweaked.
+ * Distinctive eye cutout in the solid-block whale (block, hole, block).
+ * Tests pin this rather than the whole drawing so the composition can be tweaked.
  */
-export const WHALE_EYE = '(O)'
+export const WHALE_EYE = '█  █'
 
 /**
- * Original side-on whale splash for the empty landing view.
- * Not the official DeepSeek / DSH banner — original composition.
+ * Side-on solid-block whale splash for the empty landing view.
+ * Unicode half/full blocks, one eye hole, blowhole spray. Original
+ * composition — not the official DeepSeek whale logo.
  */
 export const WHALE_ART: readonly WhaleLine[] = [
+  whaleLine({ tone: 'spray', text: '                     ▄' }),
+  whaleLine({ tone: 'spray', text: '                    ▄▀▄' }),
+  whaleLine({ tone: 'block', text: '  ▄▄          ▄▄██████' }),
   whaleLine(
-    { tone: 'spray', text: '               .  ' },
-    { tone: 'accent', text: '*' },
-    { tone: 'spray', text: '  .' },
+    { tone: 'block', text: '▄████▄▄▄▄▄▄▄████████' },
+    { tone: 'hole', text: '  ' },
+    { tone: 'block', text: '█' },
   ),
-  whaleLine({ tone: 'spray', text: '                \\ | /' }),
-  whaleLine({ tone: 'body', text: "      .-----------'  '--." }),
-  whaleLine(
-    { tone: 'body', text: '     /          ' },
-    { tone: 'eye', text: WHALE_EYE },
-    { tone: 'body', text: '      \\' },
-  ),
-  whaleLine(
-    { tone: 'body', text: '    (        ' },
-    { tone: 'belly', text: '.~~~~~~.' },
-    { tone: 'body', text: '     >' },
-  ),
-  whaleLine(
-    { tone: 'body', text: '     \\       ' },
-    { tone: 'belly', text: "'------'" },
-    { tone: 'body', text: '   ./' },
-  ),
-  whaleLine({ tone: 'body', text: "      '--.__________.--'" }),
-  whaleLine(
-    { tone: 'water', text: '       ~   ' },
-    { tone: 'accent', text: '\\/' },
-    { tone: 'water', text: '    ' },
-    { tone: 'accent', text: '\\/' },
-    { tone: 'water', text: '   ~' },
-  ),
+  whaleLine({ tone: 'block', text: '███████████████████████' }),
+  whaleLine({ tone: 'block', text: ' ▀███████████████████▀' }),
+  whaleLine({ tone: 'block', text: '   ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀' }),
 ]
 
 /** Narrow-terminal whale when the full drawing will clip. */
 export const WHALE_ART_COMPACT: readonly WhaleLine[] = [
-  whaleLine({ tone: 'spray', text: '    .*.' }),
+  whaleLine({ tone: 'spray', text: '          ▄' }),
+  whaleLine({ tone: 'spray', text: '         ▄▀▄' }),
+  whaleLine({ tone: 'block', text: '▄▄   ▄▄████' }),
   whaleLine(
-    { tone: 'body', text: '  _/' },
-    { tone: 'spray', text: ' | ' },
-    { tone: 'body', text: '\\_' },
+    { tone: 'block', text: '███▄████' },
+    { tone: 'hole', text: '  ' },
+    { tone: 'block', text: '█' },
   ),
-  whaleLine(
-    { tone: 'body', text: ' /  ' },
-    { tone: 'eye', text: WHALE_EYE },
-    { tone: 'body', text: '  )' },
-  ),
-  whaleLine(
-    { tone: 'body', text: " '--" },
-    { tone: 'belly', text: '~~~' },
-    { tone: 'body', text: "--'" },
-  ),
-  whaleLine(
-    { tone: 'water', text: ' ~ ' },
-    { tone: 'accent', text: '\\/' },
-    { tone: 'water', text: ' ~' },
-    { tone: 'accent', text: '\\/' },
-  ),
+  whaleLine({ tone: 'block', text: '▀█████████▀' }),
+  whaleLine({ tone: 'block', text: '  ▀▀▀▀▀▀▀' }),
 ]
 
 /**
  * Pick whale splash lines that fit `width`.
  * @param width - landing columns.
- * @returns original whale rows with per-segment tones.
+ * @returns solid-block whale rows with per-segment tones.
  */
 export function whaleArt(width: number): readonly WhaleLine[] {
   return width < 32 ? WHALE_ART_COMPACT : WHALE_ART

@@ -93,8 +93,8 @@ function coloredLines(text: string): React.ReactElement {
 }
 
 /**
- * Landing / empty-transcript column: per-segment whale colours, muted
- * cwd/model/hint underneath.
+ * Landing / empty-transcript column: solid-block DeepSeek-blue whale,
+ * muted cwd/model/hint underneath. Block/spray Text nodes are unwrapped.
  * @param width - main columns.
  * @param status - model/cwd facts.
  * @param home - `$HOME` for path collapsing.
@@ -111,7 +111,14 @@ function landingView(width: number, status: StatusModel, home: string | undefine
       { key: `whale-${index}`, flexDirection: 'row', height: 1, flexShrink: 0, flexGrow: 0 },
       ...line.segments.map((segment, segIndex) => React.createElement(
         Text,
-        { key: segIndex, color: WHALE_TONES[segment.tone] },
+        {
+          key: segIndex,
+          color: segment.tone === 'block'
+            ? COLORS.deepseek
+            : segment.tone === 'spray'
+              ? WHALE_TONES.spray
+              : WHALE_TONES.hole,
+        },
         segment.text,
       )),
     )),

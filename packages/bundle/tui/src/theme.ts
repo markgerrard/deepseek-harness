@@ -59,6 +59,8 @@ export const PALETTE = {
   subtle: '#6F6B63',
   /** Full-width user-row bar. */
   userBar: '#3A3632',
+  /** DeepSeek Blue — official brand, landing whale. */
+  deepseek: '#4D6BFE',
 } as const
 
 /** Ink color tokens mapped onto the Claude Code-like palette. */
@@ -80,16 +82,17 @@ export const COLORS = {
   dim: PALETTE.muted,
   fg: PALETTE.fg,
   bg: PALETTE.bg,
+  deepseek: PALETTE.deepseek,
 } as const
 
-/** Per-segment colours for the landing whale (not one tint per whole line). */
+/** Per-segment colours for the solid-block landing whale. */
 export const WHALE_TONES = {
-  spray: COLORS.tool,
-  body: COLORS.brand,
-  belly: COLORS.fg,
-  eye: COLORS.warning,
-  water: COLORS.success,
-  accent: COLORS.selector,
+  /** Body / flukes — DeepSeek Blue. */
+  block: COLORS.deepseek,
+  /** Blowhole spray — slightly lighter so ▄/▀ reads. */
+  spray: '#8AA0FF',
+  /** Eye hole; spaces show the terminal background. */
+  hole: COLORS.bg,
 } as const
 
 /** Product word kept for onboarding copy (no third-party wordmark). */
