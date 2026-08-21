@@ -9,7 +9,8 @@ public struct CreateBotSheet: View {
 
   @State private var displayName = ""
   @State private var job = ""
-  @State private var model = "cline-pass/deepseek-v4-flash"
+  @State private var provider = LlmCatalog.defaultProviderId
+  @State private var model = LlmCatalog.defaultModelId(for: LlmCatalog.defaultProviderId)
   @State private var thinking = "off"
   @State private var chatSurfaceTag = "inherit"
   @State private var template = "code"
@@ -58,10 +59,7 @@ public struct CreateBotSheet: View {
             .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.3)))
         }
 
-        Picker("Model:", selection: $model) {
-          Text("DeepSeek V4 Flash").tag("cline-pass/deepseek-v4-flash")
-          Text("DeepSeek V4 Pro").tag("cline-pass/deepseek-v4-pro")
-        }
+        ProviderModelPickers(provider: $provider, model: $model)
 
         Picker("Thinking:", selection: $thinking) {
           Text("Off").tag("off")
@@ -92,7 +90,7 @@ public struct CreateBotSheet: View {
                   id: editingBot.id,
                   displayName: displayName,
                   job: job,
-                  provider: editingBot.provider,
+                  provider: provider,
                   model: model,
                   thinking: thinking
                 )
@@ -104,7 +102,7 @@ public struct CreateBotSheet: View {
                 _ = try await controller.createBot(
                   displayName: displayName,
                   job: job,
-                  provider: "cline-pass",
+                  provider: provider,
                   model: model,
                   thinking: thinking,
                   template: template.isEmpty ? "code" : template
@@ -129,7 +127,8 @@ public struct CreateBotSheet: View {
       if let editingBot {
         displayName = editingBot.displayName
         job = editingBot.job
-        model = editingBot.model
+        provider = editingBot.provider
+        model = LlmCatalog.resolvedModel(providerId: editingBot.provider, modelId: editingBot.model)
         thinking = editingBot.reasoningEffort
         chatSurfaceTag = editingBot.chatSurface?.rawValue ?? "inherit"
       }

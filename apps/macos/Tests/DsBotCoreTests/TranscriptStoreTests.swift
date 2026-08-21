@@ -122,4 +122,83 @@ final class TranscriptStoreTests: XCTestCase {
     XCTAssertEqual(user, "hello")
     XCTAssertEqual(asst, "hi")
   }
+
+  func testModificationDateIsNilWhenMissing() throws {
+    let dir = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    XCTAssertNil(TranscriptStore(directory: dir).modificationDate(for: "missing"))
+  }
+
+  func testModificationDateAfterSave() throws {
+    let dir = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let store = TranscriptStore(directory: dir)
+    let before = Date()
+    try store.save(
+      sessionId: "s1",
+      events: [SessionEventDTO(type: "user/message", seq: 1, data: .object([:]))]
+    )
+    let modified = try XCTUnwrap(store.modificationDate(for: "s1"))
+    XCTAssertGreaterThanOrEqual(modified.timeIntervalSince(before), -1)
+  }
+
+  @MainActor
+  func testActivityStampUsesTranscriptWriteNotThreadCreatedAt() throws {
+    let dir = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let botsURL = dir.appendingPathComponent("bots.json")
+    var bots = BotStore(fileURL: botsURL)
+    try bots.addBot(Bot(id: "bot-a", displayName: "A", provider: "p", model: "m"))
+    let created = Date(timeIntervalSince1970: 1_777_132_260) // 2026-05-01 12:11 UTC
+    try bots.addThread(Thread(id: "s1", botID: "bot-a", title: "A", createdAt: created))
+    let transcripts = TranscriptStore(directory: dir.appendingPathComponent("transcripts"))
+    let controller = SessionController(
+      client: HarnessClient(command: "/bin/echo", arguments: [], cwd: dir),
+      store: bots,
+      transcripts: transcripts
+    )
+    controller.appendEvent(
+      SessionEventDTO(
+        type: "user/message",
+        seq: 1,
+        data: .object([
+          "source": .object(["kind": .string("user")]),
+          "content": .array([.object(["type": .string("text"), "text": .string("hello")])]),
+        ])
+      ),
+      forSessionId: "s1"
+    )
+    let stamp = try XCTUnwrap(controller.activityStamp(forBot: "bot-a"))
+    XCTAssertFalse(stamp.contains("/"), stamp)
+    XCTAssertNotEqual(stamp, "Yesterday")
+  }
+
+  @MainActor
+  func testLastMessagePreviewReturnsFullText() throws {
+    let dir = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let botsURL = dir.appendingPathComponent("bots.json")
+    var bots = BotStore(fileURL: botsURL)
+    try bots.addBot(Bot(id: "bot-a", displayName: "A", provider: "p", model: "m"))
+    try bots.addThread(Thread(id: "s1", botID: "bot-a", title: "A"))
+    let controller = SessionController(
+      client: HarnessClient(command: "/bin/echo", arguments: [], cwd: dir),
+      store: bots,
+      transcripts: TranscriptStore(directory: dir.appendingPathComponent("transcripts"))
+    )
+    let long = Array(repeating: "hello world", count: 20).joined(separator: " ")
+    controller.appendEvent(
+      SessionEventDTO(
+        type: "assistant/message",
+        seq: 1,
+        data: .object([
+          "message": .object([
+            "content": .array([.object(["type": .string("text"), "text": .string(long)])]),
+          ]),
+        ])
+      ),
+      forSessionId: "s1"
+    )
+    XCTAssertEqual(controller.lastMessagePreview(forBot: "bot-a"), long)
+  }
 }

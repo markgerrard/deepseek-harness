@@ -39,9 +39,12 @@ public enum LaunchCredentials: Sendable {
       env["HOME"] = home.path
     }
     env["PATH"] = mergedPath(env["PATH"])
-    if env["CLINE_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true {
-      if let key = clineApiKey(environment: base, home: home) {
-        env["CLINE_API_KEY"] = key
+    let fromFile = loadCredentialMap(home: home)
+    for key in ["CLINE_API_KEY", "OPENCODE_API_KEY"] {
+      if env[key]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true {
+        if let value = fromFile[key], !value.isEmpty {
+          env[key] = value
+        }
       }
     }
     return env

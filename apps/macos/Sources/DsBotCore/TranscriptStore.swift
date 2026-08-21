@@ -18,6 +18,11 @@ public struct TranscriptStore: Sendable {
     return (try? JSONDecoder().decode([SessionEventDTO].self, from: data)) ?? []
   }
 
+  public func modificationDate(for sessionId: String) -> Date? {
+    let url = fileURL(for: sessionId)
+    return (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+  }
+
   public func save(sessionId: String, events: [SessionEventDTO]) throws {
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let encoder = JSONEncoder()

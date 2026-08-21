@@ -10,13 +10,20 @@ struct BotSettingsInspector: View {
   @State private var displayName = ""
   @State private var title = ""
   @State private var job = ""
-  @State private var model = "cline-pass/deepseek-v4-flash"
+  @State private var provider = LlmCatalog.defaultProviderId
+  @State private var model = LlmCatalog.defaultModelId(for: LlmCatalog.defaultProviderId)
   @State private var thinking = "off"
   @State private var chatSurfaceTag = "inherit"
   @State private var isSaving = false
   @State private var errorMessage: String?
   @State private var isPickingAvatar = false
   @State private var isAvatarPickerPresented = false
+  @State private var pane: SettingsPane = .bot
+
+  private enum SettingsPane: String {
+    case bot
+    case model
+  }
 
   private var bot: Bot? {
     controller.bots.first(where: { $0.id == botId })
@@ -77,60 +84,83 @@ struct BotSettingsInspector: View {
             }
             .padding(.top, 12)
 
-            field("Name", text: $displayName, prompt: "News")
-            field("Title", text: $title, prompt: "Describe what your Bot does")
-            labeled("Description") {
-              TextField("What this Bot is for", text: $job, axis: .vertical)
-                .textFieldStyle(.plain)
-                .lineLimit(3...6)
+            HStack {
+              HStack(spacing: 0) {
+                pickerCap("Bot", selected: pane == .bot) { pane = .bot }
+                pickerCap("Model", selected: pane == .model) { pane = .model }
+              }
+              .padding(3)
+              .background(Color.white.opacity(0.06))
+              .clipShape(Capsule())
+              Spacer(minLength: 0)
             }
 
-            HStack(alignment: .center, spacing: 12) {
-              VStack(alignment: .leading, spacing: 2) {
-                Text("Notifications")
-                  .font(.body.weight(.semibold))
-                Text("Get notified when this Bot finishes or needs input")
-                  .font(.caption)
-                  .foregroundStyle(.secondary)
-                  .fixedSize(horizontal: false, vertical: true)
+            if pane == .bot {
+              field("Name", text: $displayName, prompt: "News")
+              field("Title", text: $title, prompt: "Describe what your Bot does")
+              labeled("Description") {
+                TextField("What this Bot is for", text: $job, axis: .vertical)
+                  .textFieldStyle(.plain)
+                  .lineLimit(3...6)
               }
-              Spacer()
-              Toggle(
-                "",
-                isOn: Binding(
-                  get: { bot.notificationsEnabled },
-                  set: { try? controller.setNotificationsEnabled(id: bot.id, enabled: $0) }
+
+              HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                  Text("Notifications")
+                    .font(.body.weight(.semibold))
+                  Text("Get notified when this Bot finishes or needs input")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                Toggle(
+                  "",
+                  isOn: Binding(
+                    get: { bot.notificationsEnabled },
+                    set: { try? controller.setNotificationsEnabled(id: bot.id, enabled: $0) }
+                  )
                 )
+                .labelsHidden()
+                .toggleStyle(.switch)
+              }
+              .padding(14)
+              .background(Color.white.opacity(0.06))
+              .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            } else {
+              menuField(
+                "Provider",
+                selection: $provider,
+                options: LlmCatalog.providers.map { ($0.id, $0.displayName) }
               )
-              .labelsHidden()
-              .toggleStyle(.switch)
+              menuField(
+                "Model",
+                selection: $model,
+                options: LlmCatalog.models(for: provider).map { ($0.id, $0.displayName) }
+              )
+              .onAppear {
+                model = LlmCatalog.resolvedModel(providerId: provider, modelId: model)
+              }
+              menuField(
+                "Thinking",
+                selection: $thinking,
+                options: [("off", "Off"), ("high", "High"), ("max", "Max")]
+              )
+              menuField(
+                "Chat mode",
+                selection: $chatSurfaceTag,
+                options: [("inherit", "Default"), ("simple", "Simple"), ("advanced", "Advanced")]
+              )
             }
-            .padding(14)
-            .background(Color.white.opacity(0.06))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-
-            DisclosureGroup("Model & chat") {
-              Picker("Model", selection: $model) {
-                Text("DeepSeek V4 Flash").tag("cline-pass/deepseek-v4-flash")
-                Text("DeepSeek V4 Pro").tag("cline-pass/deepseek-v4-pro")
-              }
-              Picker("Thinking", selection: $thinking) {
-                Text("Off").tag("off")
-                Text("High").tag("high")
-                Text("Max").tag("max")
-              }
-              Picker("Chat", selection: $chatSurfaceTag) {
-                Text("Account default").tag("inherit")
-                Text("Simple").tag("simple")
-                Text("Advanced").tag("advanced")
-              }
-            }
-            .tint(.secondary)
           }
           .padding(.horizontal, 16)
           .padding(.bottom, 24)
         }
         .onDisappear { persist(bot) }
+        .onChange(of: provider) { _, newValue in
+          model = LlmCatalog.resolvedModel(providerId: newValue, modelId: model)
+          persist(bot)
+        }
         .onChange(of: model) { _, _ in persist(bot) }
         .onChange(of: thinking) { _, _ in persist(bot) }
         .onChange(of: chatSurfaceTag) { _, _ in persist(bot) }
@@ -164,6 +194,43 @@ struct BotSettingsInspector: View {
       TextField(prompt, text: text)
         .textFieldStyle(.plain)
         .onSubmit { if let bot { persist(bot) } }
+    }
+  }
+
+  private func menuField(
+    _ label: String,
+    selection: Binding<String>,
+    options: [(String, String)]
+  ) -> some View {
+    let title = options.first(where: { $0.0 == selection.wrappedValue })?.1 ?? selection.wrappedValue
+    return VStack(alignment: .leading, spacing: 6) {
+      Text(label)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      Menu {
+        ForEach(options, id: \.0) { value, name in
+          Button(name) { selection.wrappedValue = value }
+        }
+      } label: {
+        HStack {
+          Text(title)
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+          Spacer(minLength: 8)
+          Image(systemName: "chevron.up.chevron.down")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .menuIndicator(.hidden)
+      .frame(maxWidth: .infinity, alignment: .leading)
     }
   }
 
@@ -259,7 +326,8 @@ struct BotSettingsInspector: View {
     displayName = bot.displayName
     title = bot.title
     job = bot.job
-    model = bot.model
+    provider = bot.provider
+    model = LlmCatalog.resolvedModel(providerId: bot.provider, modelId: bot.model)
     thinking = bot.reasoningEffort
     chatSurfaceTag = bot.chatSurface?.rawValue ?? "inherit"
     errorMessage = nil
@@ -277,7 +345,7 @@ struct BotSettingsInspector: View {
           displayName: name,
           title: title,
           job: job,
-          provider: bot.provider,
+          provider: provider,
           model: model,
           thinking: thinking
         )

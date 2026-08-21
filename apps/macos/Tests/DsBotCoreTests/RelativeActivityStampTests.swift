@@ -21,6 +21,23 @@ final class RelativeActivityStampTests: XCTestCase {
     XCTAssertEqual(relativeActivityStamp(from: yesterday, now: now, calendar: calendar), "Yesterday")
   }
 
+  func testLastActivityPrefersLaterTranscriptWrite() {
+    let created = Date(timeIntervalSince1970: 1_000)
+    let modified = Date(timeIntervalSince1970: 5_000)
+    XCTAssertEqual(lastActivityDate(threadCreatedAt: created, transcriptModifiedAt: modified), modified)
+  }
+
+  func testLastActivityFallsBackToThreadCreatedAt() {
+    let created = Date(timeIntervalSince1970: 1_000)
+    XCTAssertEqual(lastActivityDate(threadCreatedAt: created, transcriptModifiedAt: nil), created)
+  }
+
+  func testLastActivityIgnoresEarlierTranscriptWrite() {
+    let created = Date(timeIntervalSince1970: 5_000)
+    let modified = Date(timeIntervalSince1970: 1_000)
+    XCTAssertEqual(lastActivityDate(threadCreatedAt: created, transcriptModifiedAt: modified), created)
+  }
+
   func testOlderThanAWeekIsDayMonth() {
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = TimeZone(secondsFromGMT: 0)!

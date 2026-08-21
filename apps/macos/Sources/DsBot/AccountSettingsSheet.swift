@@ -30,18 +30,22 @@ struct AccountSettingsSheet: View {
 
       Form {
         Section {
-          LabeledContent("Provider") {
-            Text("Cline Pass")
+          LabeledContent("Cline Pass") {
+            Text("DeepSeek V4, GLM, Kimi, Qwen…")
               .foregroundStyle(.secondary)
           }
-          LabeledContent("Models") {
-            Text("DeepSeek V4 Flash / Pro")
+          LabeledContent("OpenCode Go") {
+            Text("Subscription chat models")
+              .foregroundStyle(.secondary)
+          }
+          LabeledContent("OpenCode Zen") {
+            Text("Pay-as-you-go chat models")
               .foregroundStyle(.secondary)
           }
         } header: {
           Text("Providers")
         } footer: {
-          Text("Bots use this account provider. Per-bot settings only change name, job, model, thinking, and chat.")
+          Text("Each bot picks Cline Pass, OpenCode Go, or OpenCode Zen in its settings. Go and Zen share the OpenCode API key.")
         }
 
         Section {

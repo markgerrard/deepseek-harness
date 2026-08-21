@@ -168,7 +168,9 @@ public final class SessionController {
 
   public func activityStamp(forBot botId: String) -> String? {
     guard let thread = store.threads(forBot: botId).first else { return nil }
-    return relativeActivityStamp(from: thread.createdAt)
+    let modified = transcripts?.modificationDate(for: thread.id)
+    let date = lastActivityDate(threadCreatedAt: thread.createdAt, transcriptModifiedAt: modified)
+    return relativeActivityStamp(from: date)
   }
 
   public func setBotChatSurface(id: String, chatSurface: ChatSurface?) throws {

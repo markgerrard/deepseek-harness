@@ -49,6 +49,20 @@ final class LaunchCredentialsTests: XCTestCase {
     XCTAssertEqual(env["HOME"], home.path)
   }
 
+  func testChildEnvironmentFillsOpenCodeKeyFromFile() throws {
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: home.appendingPathComponent(".dsh"), withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: home) }
+    try "OPENCODE_API_KEY: oc_child\nCLINE_API_KEY: sk_child\n".write(
+      to: home.appendingPathComponent(".dsh/.credentials.yaml"),
+      atomically: true,
+      encoding: .utf8
+    )
+    let env = LaunchCredentials.childEnvironment(base: ["PATH": "/usr/bin"], home: home)
+    XCTAssertEqual(env["OPENCODE_API_KEY"], "oc_child")
+    XCTAssertEqual(env["CLINE_API_KEY"], "sk_child")
+  }
+
   func testMergedPathFillsMissingShellPath() {
     let path = LaunchCredentials.mergedPath(nil)
     XCTAssertTrue(path.contains("/opt/homebrew/bin"))

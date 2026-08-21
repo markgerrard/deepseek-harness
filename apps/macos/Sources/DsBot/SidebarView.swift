@@ -173,22 +173,26 @@ struct SidebarView: View {
     let selected = controller.selectedBotId == bot.id
     HStack(spacing: 10) {
       BotAvatarView(bot: bot, size: 36, motion: .still)
-      VStack(alignment: .leading, spacing: 2) {
-        Text(bot.displayName)
-          .font(.body.weight(selected ? .semibold : .regular))
-          .lineLimit(1)
+      VStack(alignment: .leading, spacing: 3) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+          Text(bot.displayName)
+            .font(.body.weight(selected ? .semibold : .regular))
+            .lineLimit(1)
+          Spacer(minLength: 8)
+          if let stamp = controller.activityStamp(forBot: bot.id) {
+            Text(stamp)
+              .font(.body)
+              .foregroundStyle(.secondary)
+              .fixedSize()
+          }
+        }
         if let preview = controller.lastMessagePreview(forBot: bot.id) {
           Text(preview)
-            .font(.caption)
+            .font(.system(size: 15))
             .foregroundStyle(.secondary)
-            .lineLimit(1)
+            .lineLimit(2)
+            .truncationMode(.tail)
         }
-      }
-      Spacer(minLength: 6)
-      if let stamp = controller.activityStamp(forBot: bot.id) {
-        Text(stamp)
-          .font(.caption2)
-          .foregroundStyle(.secondary)
       }
     }
     .padding(.horizontal, 12)

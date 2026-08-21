@@ -1,5 +1,11 @@
 import Foundation
 
+/// Prefer the transcript write time when it is later than thread creation.
+public func lastActivityDate(threadCreatedAt: Date, transcriptModifiedAt: Date?) -> Date {
+  guard let transcriptModifiedAt else { return threadCreatedAt }
+  return max(threadCreatedAt, transcriptModifiedAt)
+}
+
 public func relativeActivityStamp(
   from date: Date,
   now: Date = Date(),
