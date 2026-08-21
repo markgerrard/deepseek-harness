@@ -431,3 +431,32 @@ private func parseList(lines: [String], start: Int) -> (ordered: Bool, start: In
   }
   return (first.ordered, first.number, items, end)
 }
+
+/// Split streaming text at its last settled paragraph boundary.
+///
+/// `settled` is everything before the final blank-line break — content that
+/// can no longer change, so a renderer may lay it out once and skip it on
+/// later chunks. `tail` is the paragraph still being written. Text inside an
+/// unclosed code fence never settles, because its blank lines are content
+/// rather than boundaries and the fence's language and body arrive together.
+/// - Parameter text: the streamed assistant text so far.
+/// - Returns: the settled prefix (without its trailing blank line) and the in-progress tail.
+public func splitSettledTail(_ text: String) -> (settled: String, tail: String) {
+  guard !text.isEmpty else { return ("", "") }
+  let lines = text.components(separatedBy: "\n")
+  var fenceOpen = false
+  var lastBoundary: Int?
+  for (index, line) in lines.enumerated() {
+    if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+      fenceOpen.toggle()
+      continue
+    }
+    if !fenceOpen && line.trimmingCharacters(in: .whitespaces).isEmpty {
+      lastBoundary = index
+    }
+  }
+  guard let boundary = lastBoundary else { return ("", text) }
+  let settled = lines[..<boundary].joined(separator: "\n")
+  let tail = lines[(boundary + 1)...].joined(separator: "\n")
+  return (settled, tail)
+}

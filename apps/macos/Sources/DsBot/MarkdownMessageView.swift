@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import DsBotCore
 
-struct MarkdownMessageView: View {
+struct MarkdownMessageView: View, Equatable {
   var source: String
 
   var body: some View {

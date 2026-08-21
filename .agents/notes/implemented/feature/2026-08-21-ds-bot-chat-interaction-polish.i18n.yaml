@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-21-ds-bot-chat-interaction-polish.md
-2026-08-21-ds-bot-chat-interaction-polish.md: bfb8db8231413d4fbb12ae72b7cfba14076d2b13
-2026-08-21-ds-bot-chat-interaction-polish.zh.md: ffbe94150e5845967760e6ef32a4acfa50cdc4a3
+2026-08-21-ds-bot-chat-interaction-polish.md: 424b66cc27d2126da7bfeb35f4dc12be802be05b
+2026-08-21-ds-bot-chat-interaction-polish.zh.md: 1fbc44cced552954a07c64874ab55eb359b184bf

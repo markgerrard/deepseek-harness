@@ -67,15 +67,16 @@ public final class SessionController {
   /// live while bounding full-bubble re-layout to ten per second.
   public static let streamRenderInterval: Duration = .milliseconds(100)
 
-  /// Coalescing interval for the current stream length: one re-layout costs
-  /// roughly proportional to the bubble's text, so long streams slow to
-  /// 250ms past 4k characters and 500ms past 12k, keeping the main thread
-  /// ahead of its own layout work.
-  /// - Parameter streamingLength: characters buffered for the in-flight stream.
+  /// Coalescing interval for an in-flight stream whose unsettled trailing
+  /// paragraph is `tailLength` characters. Settled paragraphs are laid out
+  /// once, so ordinary prose stays at the base interval; the backoff only
+  /// catches text that never breaks into paragraphs, where one re-layout
+  /// grows without bound and would otherwise outlast its own interval.
+  /// - Parameter tailLength: characters in the in-progress paragraph.
   /// - Returns: the interval before the next coalesced render.
-  public static func streamRenderInterval(forLength streamingLength: Int) -> Duration {
-    if streamingLength > 12_000 { return .milliseconds(500) }
-    if streamingLength > 4_000 { return .milliseconds(250) }
+  public static func streamRenderInterval(forLength tailLength: Int) -> Duration {
+    if tailLength > 12_000 { return .milliseconds(500) }
+    if tailLength > 4_000 { return .milliseconds(250) }
     return streamRenderInterval
   }
 
@@ -91,7 +92,7 @@ public final class SessionController {
       return
     }
     guard pendingRevisionBump == nil else { return }
-    let interval = Self.streamRenderInterval(forLength: projectors[sessionId]?.streamingTextLength ?? 0)
+    let interval = Self.streamRenderInterval(forLength: projectors[sessionId]?.streamingTailLength ?? 0)
     pendingRevisionBump = Task { @MainActor [weak self] in
       try? await Task.sleep(for: interval)
       guard let self, !Task.isCancelled else { return }

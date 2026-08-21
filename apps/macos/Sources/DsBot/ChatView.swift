@@ -345,14 +345,10 @@ public struct ChatView: View {
         HStack(alignment: .top, spacing: 8) {
           Group {
             if streaming {
-              // Plain text while streaming: markdown block parsing plus
-              // AttributedString layout of a growing multi-thousand-word
-              // bubble outlasts the render interval and wedges the main
-              // thread. The finalized message renders full markdown.
-              Text(text)
-                .textSelection(.enabled)
+              StreamingMarkdownView(text: text)
             } else {
               MarkdownMessageView(source: text)
+                .equatable()
             }
           }
           .padding(.horizontal, 14)
@@ -577,7 +573,10 @@ private struct HoverTracker: ViewModifier {
   @Binding var hoveredItemId: String?
 
   func body(content: Content) -> some View {
-    content.onHover { inside in
+    // The row's spacers and inter-view gaps are not hit-testable by default,
+    // so moving the pointer from a bubble toward its actions would drop the
+    // hover before reaching them.
+    content.contentShape(Rectangle()).onHover { inside in
       if inside {
         hoveredItemId = itemId
       } else if hoveredItemId == itemId {
@@ -593,6 +592,7 @@ private struct HoverActionRow: View {
   let text: String
   let visible: Bool
   @State private var copied = false
+  @State private var menuPresented = false
 
   var body: some View {
     HStack(spacing: 6) {
@@ -611,21 +611,65 @@ private struct HoverActionRow: View {
       }
       .buttonStyle(.plain)
       .help("Copy")
-      Menu {
-        Button("Copy") {
-          NSPasteboard.general.clearContents()
-          NSPasteboard.general.setString(text, forType: .string)
-        }
+      Button {
+        menuPresented = true
       } label: {
         Image(systemName: "ellipsis")
           .font(.system(size: 12))
           .foregroundStyle(.secondary)
       }
-      .menuStyle(.borderlessButton)
-      .menuIndicator(.hidden)
-      .fixedSize()
+      .buttonStyle(.plain)
+      .help("More")
+      .popover(isPresented: $menuPresented, arrowEdge: .bottom) {
+        VStack(alignment: .leading, spacing: 2) {
+          Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            menuPresented = false
+          } label: {
+            Label("Copy", systemImage: "doc.on.doc")
+              .frame(maxWidth: .infinity, alignment: .leading)
+          }
+          .buttonStyle(.plain)
+          .padding(.horizontal, 10)
+          .padding(.vertical, 6)
+        }
+        .padding(6)
+        .frame(minWidth: 140)
+      }
     }
-    .opacity(visible ? 1 : 0)
-    .accessibilityHidden(!visible)
+    // The popover takes the pointer out of the row, so hover alone would hide
+    // the control that opened it: an open popover keeps the row visible.
+    .opacity(visible || menuPresented ? 1 : 0)
+    .accessibilityHidden(!(visible || menuPresented))
+  }
+}
+
+/// Streaming assistant text rendered the way Grok Bot does: paragraphs that
+/// can no longer change are laid out once as markdown and skipped on later
+/// chunks (`.equatable()` on unchanged settled text), while only the
+/// in-progress trailing paragraph re-renders as plain text. One chunk
+/// therefore costs a short paragraph's layout, not the whole bubble's.
+private struct StreamingMarkdownView: View {
+  let text: String
+
+  var body: some View {
+    let split = splitSettledTail(text)
+    // Each settled paragraph is its own equatable subview keyed by position,
+    // so a completing paragraph appends one view instead of rebuilding every
+    // earlier paragraph's attributed text.
+    let settledParagraphs = split.settled.isEmpty
+      ? []
+      : split.settled.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    VStack(alignment: .leading, spacing: 10) {
+      ForEach(Array(settledParagraphs.enumerated()), id: \.offset) { _, paragraph in
+        MarkdownMessageView(source: paragraph)
+          .equatable()
+      }
+      if !split.tail.isEmpty {
+        Text(split.tail)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      }
+    }
   }
 }

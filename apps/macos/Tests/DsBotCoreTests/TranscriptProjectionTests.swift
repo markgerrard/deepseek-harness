@@ -179,4 +179,20 @@ final class TranscriptProjectionTests: XCTestCase {
       ),
     ])
   }
+  func testStreamingTailLengthCountsOnlyTheUnsettledParagraph() {
+    var projector = TranscriptProjector()
+    func chunk(_ text: String, seq: Int) -> SessionEventDTO {
+      SessionEventDTO(type: "assistant/chunk", seq: seq, data: .object([
+        "turn": .number(1), "step": .number(1),
+        "chunk": .object(["type": .string("text-delta"), "index": .number(0), "text": .string(text)]),
+      ]))
+    }
+    projector.ingest(chunk("A settled paragraph of prose.\n\n", seq: 1))
+    projector.ingest(chunk("tail", seq: 2))
+    XCTAssertEqual(projector.streamingTailLength, 4)
+
+    projector.ingest(chunk(" grows", seq: 3))
+    XCTAssertEqual(projector.streamingTailLength, 10)
+  }
+
 }

@@ -208,4 +208,28 @@ final class MarkdownBlocksTests: XCTestCase {
     XCTAssertEqual(table.headers, ["A"])
     XCTAssertEqual(table.rows, [["1"]])
   }
+  func testSplitSettledTailSplitsAtLastParagraphBoundary() {
+    let (settled, tail) = splitSettledTail("First para.\n\nSecond para.\n\nIn progress")
+    XCTAssertEqual(settled, "First para.\n\nSecond para.")
+    XCTAssertEqual(tail, "In progress")
+  }
+
+  func testSplitSettledTailKeepsEverythingPendingWithoutABoundary() {
+    let (settled, tail) = splitSettledTail("only one paragraph so far")
+    XCTAssertEqual(settled, "")
+    XCTAssertEqual(tail, "only one paragraph so far")
+  }
+
+  func testSplitSettledTailNeverSettlesInsideAnOpenFence() {
+    let (settled, tail) = splitSettledTail("Intro.\n\n```swift\nlet a = 1\n\nlet b = 2")
+    XCTAssertEqual(settled, "Intro.")
+    XCTAssertEqual(tail, "```swift\nlet a = 1\n\nlet b = 2")
+  }
+
+  func testSplitSettledTailSettlesAfterAClosedFence() {
+    let (settled, tail) = splitSettledTail("```swift\nlet a = 1\n```\n\nAfter")
+    XCTAssertEqual(settled, "```swift\nlet a = 1\n```")
+    XCTAssertEqual(tail, "After")
+  }
+
 }

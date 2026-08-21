@@ -460,11 +460,16 @@ public struct TranscriptProjector: Sendable {
     }
   }
 
-  /// Total characters buffered for the in-flight stream; `0` when idle.
-  /// Render throttling scales its interval with this, because one full
-  /// re-layout of a very long streaming bubble can outlast a fixed interval.
-  public var streamingTextLength: Int {
-    chunkBuffers.values.reduce(0) { $0 + $1.text.count + $1.reasoning.count }
+  /// Characters in the in-flight stream's unsettled trailing paragraph; `0`
+  /// when idle. Renderers lay settled paragraphs out once and re-render only
+  /// this tail, so it — not the whole buffer — is what render throttling
+  /// scales its interval with. Text with no paragraph break yet is all tail.
+  public var streamingTailLength: Int {
+    let buffered = chunkBuffers.keys.sorted().reduce(into: "") { text, key in
+      guard let buffer = chunkBuffers[key] else { return }
+      text += buffer.reasoning + buffer.text
+    }
+    return buffered.isEmpty ? 0 : splitSettledTail(buffered).tail.count
   }
 
   /// Presentable items: the folded list with expansion applied plus the
