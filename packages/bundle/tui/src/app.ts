@@ -276,7 +276,7 @@ export function App(props: AppProps): React.ReactElement {
       if (consumed) return
       if (key.backspace === true || key.delete === true) return
       if (input === '' || input === '\x7f' || input === '\b') return
-      if (name === 'backspace' || name === 'delete' || name === 'left' || name === 'right') return
+      if (name === 'backspace' || name === 'delete' || name === 'left' || name === 'right' || name === 'home' || name === 'end') return
       const live = controller.snapshot()
       if (live.overlay.kind === 'connect-key') {
         if (input !== '' && !key.ctrl && !key.meta) {
@@ -328,6 +328,11 @@ export function App(props: AppProps): React.ReactElement {
       clearEscapeHold()
       if (jump !== undefined) {
         void controller.handleKey(jump)
+        return
+      }
+      // Split CSI Home/End looks like Esc then `[H` / `[F`. Do not clear.
+      if (name === 'home' || name === 'end') {
+        void controller.handleKey(name)
         return
       }
       void controller.handleKey('escape').then(() => { deliverKey(name, input, key) })

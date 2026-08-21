@@ -134,8 +134,10 @@ export function applyPromptKey(
   const at = clampCursor(cursor, input.length)
   switch (key) {
     case 'ctrl+a':
+    case 'home':
       return { input, cursor: 0 }
     case 'ctrl+e':
+    case 'end':
       return { input, cursor: input.length }
     case 'ctrl+b':
     case 'left':

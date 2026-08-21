@@ -18,6 +18,11 @@ describe('applyPromptKey readline shortcuts', () => {
   it('moves the cursor to the start and end', () => {
     expect(applyPromptKey('hello', 5, 'ctrl+a')).toEqual({ input: 'hello', cursor: 0 })
     expect(applyPromptKey('hello', 0, 'ctrl+e')).toEqual({ input: 'hello', cursor: 5 })
+    expect(applyPromptKey('hello', 5, 'home')).toEqual({ input: 'hello', cursor: 0 })
+    expect(applyPromptKey('hello', 3, 'home')).toEqual({ input: 'hello', cursor: 0 })
+    expect(applyPromptKey('hello', 0, 'end')).toEqual({ input: 'hello', cursor: 5 })
+    expect(applyPromptKey('hello', 3, 'end')).toEqual({ input: 'hello', cursor: 5 })
+    expect(applyPromptKey('hello', 5, 'end')).toEqual({ input: 'hello', cursor: 5 })
   })
 
   it('moves the cursor one character with ctrl+b / ctrl+f', () => {
@@ -151,6 +156,9 @@ describe('chromeAction prompt keys', () => {
   it('wires ctrl shortcuts through set-input when no dialog is open', () => {
     const state = typed('hello', 5)
     expect(chromeAction(state, 'ctrl+a')).toEqual({ type: 'set-input', input: 'hello', cursor: 0 })
+    expect(chromeAction(state, 'home')).toEqual({ type: 'set-input', input: 'hello', cursor: 0 })
+    expect(chromeAction(typed('hello', 0), 'end')).toEqual({ type: 'set-input', input: 'hello', cursor: 5 })
+    expect(chromeAction(typed('hello', 0), 'ctrl+e')).toEqual({ type: 'set-input', input: 'hello', cursor: 5 })
     expect(chromeAction(state, 'ctrl+b')).toEqual({ type: 'set-input', input: 'hello', cursor: 4 })
     expect(chromeAction(state, 'ctrl+k')).toEqual({ type: 'set-input', input: 'hello', cursor: 5 })
     const mid = typed('hello', 2)
@@ -229,5 +237,10 @@ describe('chromeAction prompt keys', () => {
     expect(chromeAction(help, 'ctrl+k')).toBeUndefined()
     const models = reduce(state, { type: 'open-overlay', overlay: { kind: 'models', selected: 0 } })
     expect(chromeAction(models, 'ctrl+e')).toBeUndefined()
+    const sessions = reduce(state, { type: 'open-overlay', overlay: { kind: 'sessions', selected: 0 } })
+    expect(chromeAction(sessions, 'home')).toBeUndefined()
+    expect(chromeAction(sessions, 'end')).toBeUndefined()
+    expect(chromeAction(help, 'home')).toBeUndefined()
+    expect(chromeAction(help, 'end')).toBeUndefined()
   })
 })

@@ -79,6 +79,26 @@ describe('inkKeyName', () => {
     expect(inkKeyName('b', { ctrl: true })).toBe('ctrl+b')
   })
 
+  it('maps Home/End CSI and Ink names before escape so they never cancel', () => {
+    expect(inkKeyName('', { home: true })).toBe('home')
+    expect(inkKeyName('', { end: true })).toBe('end')
+    expect(inkKeyName('', { home: true, escape: true })).toBe('home')
+    expect(inkKeyName('', { end: true, escape: true })).toBe('end')
+    expect(inkKeyName('home', {})).toBe('home')
+    expect(inkKeyName('end', {})).toBe('end')
+    const esc = String.fromCharCode(27)
+    for (const seq of ['[H', '[1~', '[7~', 'OH', `${esc}[H`, `${esc}[1~`, `${esc}[7~`, `${esc}OH`]) {
+      expect(inkKeyName(seq, {})).toBe('home')
+      expect(inkKeyName(seq, { escape: true })).toBe('home')
+    }
+    for (const seq of ['[F', '[4~', '[8~', 'OF', `${esc}[F`, `${esc}[4~`, `${esc}[8~`, `${esc}OF`]) {
+      expect(inkKeyName(seq, {})).toBe('end')
+      expect(inkKeyName(seq, { escape: true })).toBe('end')
+    }
+    expect(inkKeyName('', { escape: true })).toBe('escape')
+    expect(inkKeyName('', { escape: true, leftArrow: true })).toBe('left')
+  })
+
   it('maps a following b/f after Esc to readline meta word-jump names', () => {
     expect(META_PREFIX_MS).toBe(400)
     expect(wordJumpAfterEscape('b')).toBe('alt+b')

@@ -87,6 +87,8 @@ export interface InkKeyFlags {
   readonly meta?: boolean
   readonly pageup?: boolean
   readonly pagedown?: boolean
+  readonly home?: boolean
+  readonly end?: boolean
 }
 
 /**
@@ -129,6 +131,28 @@ function isWordJumpRightSequence(input: string): boolean {
 }
 
 /**
+ * Home encodings: Ink name, CSI (`[H` `[1~` `[7~`), SS3 (`OH`).
+ * @param input - raw or ESC-stripped bytes.
+ * @returns true for Home sequences VTE / xterm / gnome-terminal / iTerm send.
+ */
+function isHomeSequence(input: string): boolean {
+  if (input === 'home') return true
+  const body = csiBody(input)
+  return body === '[H' || body === '[1~' || body === '[7~' || body === 'OH'
+}
+
+/**
+ * End encodings: Ink name, CSI (`[F` `[4~` `[8~`), SS3 (`OF`).
+ * @param input - raw or ESC-stripped bytes.
+ * @returns true for End sequences VTE / xterm / gnome-terminal / iTerm send.
+ */
+function isEndSequence(input: string): boolean {
+  if (input === 'end') return true
+  const body = csiBody(input)
+  return body === '[F' || body === '[4~' || body === '[8~' || body === 'OF'
+}
+
+/**
  * Readline meta-b / meta-f after a held Esc. Ink delivers Alt+b as one
  * `meta`+`b` event when the bytes arrive together; a typed Esc then b is two
  * events, and treating the first as cancel would wipe the prompt.
@@ -148,6 +172,12 @@ export function wordJumpAfterEscape(name: string): 'alt+b' | 'alt+f' | undefined
  * Ink 5 `key.pageUp` / `key.pageDown`, plus shift+up/down aliases tmux will not steal.
  * Arrow flags are resolved before `escape`: xfce4-terminal / Ink set `escape` on
  * the CSI prefix of up/down/left/right, and treating that as cancel closed overlays.
+ * Home/End are resolved after bare arrows and before `escape`: those CSI names
+ * start with ESC, and treating them as cancel wipes the prompt on this VTE box.
+ * Ink 5 parse-keypress already names `[H`/`[F`/`[1~`/`[4~`/`[7~`/`[8~`/`OH`/`OF`
+ * `home`/`end` but useInput then clears `input` (non-alphanumeric) and has no
+ * `home`/`end` flags — so leftover CSI in `input` and optional `key.home` /
+ * `key.end` are the paths that still reach us.
  * Option/Alt/Ctrl+Left/Right are mapped before bare arrows: Ink 5 has no `alt`
  * flag (use `meta`), and named arrows clear `input`, so modifier flags are the
  * path when xfce4-terminal sends CSI `1;3D` / `1;5D`. Ink 5 parse-keypress does
@@ -182,6 +212,8 @@ export function inkKeyName(input: string, key: InkKeyFlags): string {
   if (key.downArrow === true) return 'down'
   if (key.leftArrow === true) return 'left'
   if (key.rightArrow === true) return 'right'
+  if (key.home === true || isHomeSequence(input)) return 'home'
+  if (key.end === true || isEndSequence(input)) return 'end'
   if (key.meta === true && (input === 'b' || input === 'B')) return 'alt+b'
   if (key.meta === true && (input === 'f' || input === 'F')) return 'alt+f'
   if (input === String.fromCharCode(27) + 'b' || input === String.fromCharCode(27) + 'B') return 'alt+b'
