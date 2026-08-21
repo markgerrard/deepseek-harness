@@ -18,7 +18,7 @@ DS Bot has no stop control, and `session/prompt` always delivered through `agent
 
 **Steer only when the session is currently running.** Rejected: the client's view of running is racy; `agent.steer()` already degrades to starting a turn when idle, so an unconditional default avoids a wire round-trip and a race window.
 
-**An app-side stop button instead.** Complementary, not competing: `session/cancel` exists on the wire and a stop control remains open UI work; steering removes the common need to stop at all by making the next message the correction.
+**An app-side stop button instead.** Complementary, not competing: the composer shows a stop control while a turn runs (`SessionController.stopCurrentTurn()` sends `session/cancel`); steering removes the common need to stop at all by making the next message the correction.
 
 ## Consequences
 

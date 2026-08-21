@@ -63,7 +63,10 @@ while let line = readLine() {
     } else {
       response["result"] = [String: Any]()
     }
-  case "session/setModel", "session/cancel":
+  case "session/setModel":
+    response["result"] = [String: Any]()
+  case "session/cancel":
+    record(envVar: "FAKE_RECORD_CANCEL", content: trimmed)
     response["result"] = [String: Any]()
   case "session/prompt":
     record(envVar: "FAKE_RECORD_PROMPT", content: trimmed)

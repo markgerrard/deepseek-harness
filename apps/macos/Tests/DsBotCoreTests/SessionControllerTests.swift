@@ -321,6 +321,35 @@ final class SessionControllerTests: XCTestCase {
   }
 
   @MainActor
+  func testStopCurrentTurnSendsSessionCancel() async throws {
+    let runtime = try bundledFakeRuntimeURL()
+    let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    let cancelRecordFile = tempDir.appendingPathComponent("cancel.txt")
+    let launch = RuntimeLaunch(
+      command: runtime.path,
+      arguments: [],
+      cwd: tempDir,
+      environment: ["FAKE_RECORD_CANCEL": cancelRecordFile.path]
+    )
+    let process = RuntimeProcess(launch: launch)
+    let client = try process.start()
+    let controller = SessionController(client: client, store: BotStore(fileURL: tempDir.appendingPathComponent("bots.json")))
+    try await controller.initialize(cwd: tempDir.path, provider: "mock", model: "m", approvals: true)
+    let bot = try await controller.createBot(displayName: "Stop Bot", job: "j", provider: "mock", model: "m")
+    let threadId = try XCTUnwrap(controller.selectedThreadId)
+    XCTAssertEqual(controller.store.bot(forThread: threadId)?.id, bot.id)
+
+    await controller.stopCurrentTurn()
+    try await process.stop()
+
+    let content = try String(contentsOf: cancelRecordFile, encoding: .utf8)
+    XCTAssertTrue(content.contains(threadId))
+  }
+
+  @MainActor
   func testPresentedChatCapsItemsAndPagesEarlier() throws {
     let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let store = BotStore(fileURL: tempDir.appendingPathComponent("bots.json"))

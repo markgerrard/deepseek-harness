@@ -163,6 +163,16 @@ public struct ChatView: View {
           .focused($promptFocused)
           .onSubmit { sendCurrentPrompt() }
           .onAppear { promptFocused = true }
+          if isBotWorking {
+            Button(action: { Task { await controller.stopCurrentTurn() } }) {
+              Image(systemName: "stop.circle.fill")
+                .font(.system(size: 22))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.red)
+            }
+            .buttonStyle(.plain)
+            .help("Stop the current reply")
+          }
           Button(action: sendCurrentPrompt) {
             Image(systemName: "arrow.up.circle.fill")
               .font(.system(size: 22))

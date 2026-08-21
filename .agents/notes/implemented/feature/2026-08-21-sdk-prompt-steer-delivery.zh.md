@@ -18,7 +18,7 @@ DS Bot 没有停止控件，而 `session/prompt` 一律通过 `agent.followup()`
 
 **仅在会话正在运行时转向。** 否决：客户端对运行状态的观察存在竞态；`agent.steer()` 在空闲时本来就退化为开启轮次，无条件默认既省一次协议往返，也消除竞态窗口。
 
-**改做应用侧停止按钮。** 互补而非竞争：`session/cancel` 已在协议上存在，停止控件仍是待做的 UI 工作；转向让下一条消息本身成为纠正，从根上减少了停止的需要。
+**改做应用侧停止按钮。** 互补而非竞争：轮次进行中作曲框会显示停止控件（`SessionController.stopCurrentTurn()` 发送 `session/cancel`）；转向让下一条消息本身成为纠正，从根上减少了停止的需要。
 
 ## Consequences
 

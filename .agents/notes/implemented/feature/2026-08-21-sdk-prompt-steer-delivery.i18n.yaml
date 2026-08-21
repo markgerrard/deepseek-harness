@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-21-sdk-prompt-steer-delivery.md
-2026-08-21-sdk-prompt-steer-delivery.md: 9a42bdd4edb72178d4b55afa836622b0262dcc78
-2026-08-21-sdk-prompt-steer-delivery.zh.md: 10e024b992d8f32f6285b286b0809dbe72205f7d
+2026-08-21-sdk-prompt-steer-delivery.md: a574b4360bf78d6210c07784bd4a1dabce491c84
+2026-08-21-sdk-prompt-steer-delivery.zh.md: d62c2229155fc2fb1c4e8ead7f551a96eb9a1019

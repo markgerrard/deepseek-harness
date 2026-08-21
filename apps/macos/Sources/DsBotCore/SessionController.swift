@@ -162,6 +162,18 @@ public final class SessionController {
     return chat
   }
 
+  /// Abort the selected thread's in-flight turn via `session/cancel`.
+  /// A failure lands on the thread's error banner; an idle session no-ops.
+  public func stopCurrentTurn() async {
+    guard let threadId = selectedThreadId else { return }
+    do {
+      try await client.cancel(sessionId: threadId)
+    } catch {
+      let msg = (error as? HarnessRPCError)?.message ?? error.localizedDescription
+      if !msg.isEmpty { threadErrors[threadId] = msg }
+    }
+  }
+
   /// Grow the selected thread's presented window by one page of items.
   public func loadEarlierItems() {
     guard let threadId = selectedThreadId else { return }
