@@ -74,37 +74,25 @@ export const WHALE_EYE = '█  █'
 
 /**
  * Side-on solid-block whale splash for the empty landing view.
- * Unicode half/full blocks, one eye hole, blowhole spray. Head faces
- * left (Claude Code-style). Original composition — not the official
- * DeepSeek whale logo.
+ * Claude Code crab-sized (~5 rows by ~11 cells): Unicode half/full
+ * blocks, one eye hole, blowhole spray on the left. Head faces left
+ * with a rounded snout (▄/▀), not a flat wall of █. Original
+ * composition — not the official DeepSeek whale logo.
  */
 export const WHALE_ART: readonly WhaleLine[] = [
-  whaleLine({ tone: 'spray', text: '▄                     ' }),
-  whaleLine({ tone: 'spray', text: '▄▀▄                    ' }),
-  whaleLine({ tone: 'block', text: '██████▄▄          ▄▄  ' }),
+  whaleLine({ tone: 'spray', text: '▄          ' }),
+  whaleLine({ tone: 'spray', text: '▄▀▄        ' }),
+  whaleLine({ tone: 'block', text: '▄█████▄  ▄▄' }),
   whaleLine(
     { tone: 'block', text: '█' },
     { tone: 'hole', text: '  ' },
-    { tone: 'block', text: '████████▄▄▄▄▄▄▄████▄' },
+    { tone: 'block', text: '██████▄█' },
   ),
-  whaleLine({ tone: 'block', text: '███████████████████████' }),
-  whaleLine({ tone: 'block', text: '▀███████████████████▀ ' }),
-  whaleLine({ tone: 'block', text: '▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀   ' }),
+  whaleLine({ tone: 'block', text: '▀██████▀   ' }),
 ]
 
-/** Narrow-terminal whale when the full drawing will clip. */
-export const WHALE_ART_COMPACT: readonly WhaleLine[] = [
-  whaleLine({ tone: 'spray', text: '▄          ' }),
-  whaleLine({ tone: 'spray', text: '▄▀▄         ' }),
-  whaleLine({ tone: 'block', text: '████▄▄   ▄▄' }),
-  whaleLine(
-    { tone: 'block', text: '█' },
-    { tone: 'hole', text: '  ' },
-    { tone: 'block', text: '████▄███' },
-  ),
-  whaleLine({ tone: 'block', text: '▀█████████▀' }),
-  whaleLine({ tone: 'block', text: '▀▀▀▀▀▀▀  ' }),
-]
+/** Same small silhouette — the compact drawing is the default look. */
+export const WHALE_ART_COMPACT: readonly WhaleLine[] = WHALE_ART
 
 /**
  * Pick whale splash lines that fit `width`.
