@@ -49,6 +49,10 @@ public final class SessionController {
   public var sessionChatSurface: [String: ChatSurface] = [:]
 
   public private(set) var eventsBySession: [String: [SessionEventDTO]] = [:]
+
+  /// Incremental projection per session: each appended event folds once, so a
+  /// streaming chunk never reprojects the whole event list.
+  private var projectors: [String: TranscriptProjector] = [:]
   public var transcriptExpansion: TranscriptExpansion = TranscriptExpansion()
   public private(set) var threadErrors: [String: String] = [:]
   public private(set) var initializationError: String?
@@ -218,8 +222,7 @@ public final class SessionController {
   }
 
   public func transcript(for sessionId: String) -> [TranscriptItem] {
-    let events = eventsBySession[sessionId] ?? []
-    return projectTranscript(events, expansion: transcriptExpansion)
+    projectors[sessionId]?.materialize(expansion: transcriptExpansion) ?? []
   }
 
   public func selectBot(id: String) {
@@ -558,11 +561,24 @@ public final class SessionController {
     var list = eventsBySession[sessionId] ?? []
     list.append(event)
     eventsBySession[sessionId] = list
-    persistTranscript(sessionId)
+    var projector = projectors[sessionId] ?? TranscriptProjector()
+    projector.ingest(event)
+    projectors[sessionId] = projector
+    // A chunk only grows the in-flight stream buffer; the next durable event
+    // persists the full list, so skipping here avoids an O(events) disk
+    // rewrite per streamed delta (a crash loses only the unfinalized stream).
+    if event.type != "assistant/chunk" {
+      persistTranscript(sessionId)
+    }
   }
 
   public func setEvents(_ events: [SessionEventDTO], forSessionId sessionId: String) {
     eventsBySession[sessionId] = events
+    var projector = TranscriptProjector()
+    for event in events {
+      projector.ingest(event)
+    }
+    projectors[sessionId] = projector
     persistTranscript(sessionId)
   }
 
@@ -581,6 +597,11 @@ public final class SessionController {
     let events = transcripts.loadOrImport(sessionId: sessionId)
     if !events.isEmpty {
       eventsBySession[sessionId] = events
+      var projector = TranscriptProjector()
+      for event in events {
+        projector.ingest(event)
+      }
+      projectors[sessionId] = projector
     }
   }
 

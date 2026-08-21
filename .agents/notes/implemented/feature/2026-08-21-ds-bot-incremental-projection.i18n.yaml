@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-21-ds-bot-incremental-projection.md
+2026-08-21-ds-bot-incremental-projection.md: 9b7b0380837b1f6830b9d941debdc52426c20832
+2026-08-21-ds-bot-incremental-projection.zh.md: c7c9f0f023eb5c78869382507214682192f5f003

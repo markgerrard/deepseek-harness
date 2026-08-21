@@ -245,24 +245,49 @@ private struct OpenTool {
   var args: String
 }
 
-public func projectTranscript(
-  _ events: [SessionEventDTO],
-  expansion: TranscriptExpansion = TranscriptExpansion(tools: [], reasoning: [], workflows: [])
-) -> [TranscriptItem] {
-  var items: [TranscriptItem] = []
-  var chunkBuffers: [Int: ChunkBuffer] = [:]
-  var openTools: [String: OpenTool] = [:]
-  var openWorkflows: [String: TranscriptItem] = [:]
-  var streamingTurn: StreamingTurn?
+/**
+ Incremental fold of session events into transcript items.
 
-  for event in events {
+ `ingest` consumes one event and updates the folded item list in place, so a
+ streaming chunk costs one buffer update instead of a full reprojection.
+ `materialize` returns the presentable items: the folded list with the given
+ expansion flags applied plus the in-flight streaming tail. Folded items are
+ stored collapsed; expansion is a materialize-time overlay, so toggling a card
+ never requires refolding events.
+ */
+public struct TranscriptProjector: Sendable {
+  private var items: [TranscriptItem] = []
+  private var indexById: [String: Int] = [:]
+  private var chunkBuffers: [Int: ChunkBuffer] = [:]
+  private var openTools: [String: OpenTool] = [:]
+  private var openWorkflows: [String: TranscriptItem] = [:]
+  private var streamingTurn: StreamingTurn?
+
+  public init() {}
+
+  private mutating func append(_ item: TranscriptItem) {
+    indexById[item.id] = items.count
+    items.append(item)
+  }
+
+  private mutating func upsert(_ item: TranscriptItem) {
+    if let index = indexById[item.id] {
+      items[index] = item
+    } else {
+      append(item)
+    }
+  }
+
+  /// Fold one session event into the projected items.
+  /// - Parameter event: the durable session event, in seq order.
+  public mutating func ingest(_ event: SessionEventDTO) {
     switch event.type {
     case "user/message":
       guard event.data["source"]?["kind"]?.stringValue == "user" else { break }
       let text = textOf(event.data["content"] ?? .null).trimmingCharacters(in: .whitespacesAndNewlines)
       let attachments = ChatAttachment.list(from: event.data["attachments"])
       guard !text.isEmpty || !attachments.isEmpty else { break }
-      items.append(.user(id: "user:\(event.seq)", seq: event.seq, text: text, attachments: attachments))
+      append(.user(id: "user:\(event.seq)", seq: event.seq, text: text, attachments: attachments))
 
     case "assistant/chunk":
       let turn = event.data["turn"]?.intValue ?? 0
@@ -291,19 +316,17 @@ public func projectTranscript(
           let blockType = block["type"]?.stringValue
           let blockText = block["text"]?.stringValue ?? ""
           if blockType == "reasoning" && !blockText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let id = "reason:\(event.seq)"
-            items.append(.reasoning(
-              id: id,
+            append(.reasoning(
+              id: "reason:\(event.seq)",
               seq: event.seq,
               text: blockText,
               streaming: false,
-              expanded: expansion.reasoning.contains(id)
+              expanded: false
             ))
           }
           if blockType == "text" && !blockText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let id = "asst:\(event.seq)"
-            items.append(.assistant(
-              id: id,
+            append(.assistant(
+              id: "asst:\(event.seq)",
               seq: event.seq,
               text: blockText,
               streaming: false
@@ -316,70 +339,57 @@ public func projectTranscript(
       let callId = event.data["callId"]?.stringValue ?? ""
       let name = event.data["name"]?.stringValue ?? "tool"
       let args = event.data["arguments"]?.stringValue ?? ""
-      let id = "tool:\(callId)"
-      let card: TranscriptItem = .tool(
-        id: id,
+      openTools[callId] = OpenTool(seq: event.seq, name: name, args: args)
+      append(.tool(
+        id: "tool:\(callId)",
         seq: event.seq,
         callId: callId,
         name: name,
         args: args,
         result: nil,
         status: .running,
-        expanded: expansion.tools.contains(id),
+        expanded: false,
         meta: nil
-      )
-      openTools[callId] = OpenTool(seq: event.seq, name: name, args: args)
-      items.append(card)
+      ))
 
     case "tool/result":
       guard event.data["message"]?["source"]?["kind"]?.stringValue == "tool",
             let callId = event.data["message"]?["source"]?["callId"]?.stringValue else {
         break
       }
-      let id = "tool:\(callId)"
       let prior = openTools[callId]
       let result = textOf(event.data["message"]?["content"] ?? .null)
       let contentBlocks = event.data["message"]?["content"]?.arrayValue ?? []
       let hasError = contentBlocks.contains(where: {
         $0["type"]?.stringValue == "tool-result" && $0["isError"]?.boolValue == true
       }) || (event.data["error"] != nil && event.data["error"] != .null)
-      let status: ToolCardStatus = hasError ? .error : .success
-      let card: TranscriptItem = .tool(
-        id: id,
+      upsert(.tool(
+        id: "tool:\(callId)",
         seq: prior?.seq ?? event.seq,
         callId: callId,
         name: prior?.name ?? "tool",
         args: prior?.args ?? "",
         result: result,
-        status: status,
-        expanded: expansion.tools.contains(id),
+        status: hasError ? .error : .success,
+        expanded: false,
         meta: event.data["meta"]
-      )
-      if let lastIndex = items.lastIndex(where: {
-        if case .tool(let tid, _, _, _, _, _, _, _, _) = $0 { return tid == id }
-        return false
-      }) {
-        items[lastIndex] = card
-      } else {
-        items.append(card)
-      }
+      ))
       openTools[callId] = OpenTool(seq: prior?.seq ?? event.seq, name: prior?.name ?? "tool", args: prior?.args ?? "")
 
     case "tool-workflow/run-start":
       let runId = event.data["runId"]?.stringValue ?? ""
       let name = event.data["name"]?.stringValue ?? ""
-      let id = "workflow:\(runId)"
       let card: TranscriptItem = .workflow(
-        id: id,
+        id: "workflow:\(runId)",
         seq: event.seq,
         runId: runId,
         name: name,
         status: .running,
         members: [],
-        expanded: expansion.workflows.contains(id)
+        expanded: false
       )
       openWorkflows[runId] = card
-      items.append(card)
+      append(card)
 
     case "tool-workflow/agent-start":
       let runId = event.data["runId"]?.stringValue ?? ""
@@ -392,17 +402,10 @@ public func projectTranscript(
       let phase = event.data["phase"]?.stringValue
       let newMember = WorkflowMember(seq: memberSeq, label: label, phase: phase, status: .running)
       let card: TranscriptItem = .workflow(
-        id: id,
-        seq: seq,
-        runId: rId,
-        name: name,
-        status: status,
-        members: members + [newMember],
-        expanded: expansion.workflows.contains(id)
+        id: id, seq: seq, runId: rId, name: name, status: status,
+        members: members + [newMember], expanded: false
       )
-      if let lastIndex = items.lastIndex(where: { $0.id == id }) {
-        items[lastIndex] = card
-      }
+      upsert(card)
       openWorkflows[runId] = card
 
     case "tool-workflow/agent-end":
@@ -423,17 +426,10 @@ public func projectTranscript(
         return member
       }
       let card: TranscriptItem = .workflow(
-        id: id,
-        seq: seq,
-        runId: rId,
-        name: name,
-        status: status,
-        members: updatedMembers,
-        expanded: expansion.workflows.contains(id)
+        id: id, seq: seq, runId: rId, name: name, status: status,
+        members: updatedMembers, expanded: false
       )
-      if let lastIndex = items.lastIndex(where: { $0.id == id }) {
-        items[lastIndex] = card
-      }
+      upsert(card)
       openWorkflows[runId] = card
 
     case "tool-workflow/run-end":
@@ -445,24 +441,17 @@ public func projectTranscript(
       let stopReason = event.data["stopReason"]?.stringValue
       let runStatus: WorkflowStatus = (stopReason == "completed") ? .success : .error
       let card: TranscriptItem = .workflow(
-        id: id,
-        seq: seq,
-        runId: rId,
-        name: name,
-        status: runStatus,
-        members: members,
-        expanded: expansion.workflows.contains(id)
+        id: id, seq: seq, runId: rId, name: name, status: runStatus,
+        members: members, expanded: false
       )
-      if let lastIndex = items.lastIndex(where: { $0.id == id }) {
-        items[lastIndex] = card
-      }
+      upsert(card)
       openWorkflows[runId] = card
 
     case "command/done":
       if let text = event.data["text"]?.stringValue {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
-          items.append(.command(id: "cmd:\(event.seq)", seq: event.seq, text: text))
+          append(.command(id: "cmd:\(event.seq)", seq: event.seq, text: text))
         }
       }
 
@@ -471,35 +460,77 @@ public func projectTranscript(
     }
   }
 
-  if let streamingTurn = streamingTurn, !chunkBuffers.isEmpty {
-    var reasoning = ""
-    var text = ""
-    for key in chunkBuffers.keys.sorted() {
-      if let buffer = chunkBuffers[key] {
-        reasoning += buffer.reasoning
-        text += buffer.text
+  /// Presentable items: the folded list with expansion applied plus the
+  /// in-flight streaming tail.
+  /// - Parameter expansion: card ids currently expanded in the UI.
+  /// - Returns: items in transcript order.
+  public func materialize(
+    expansion: TranscriptExpansion = TranscriptExpansion(tools: [], reasoning: [], workflows: [])
+  ) -> [TranscriptItem] {
+    var out = items
+    for id in expansion.tools.union(expansion.reasoning).union(expansion.workflows) {
+      guard let index = indexById[id] else { continue }
+      out[index] = withExpanded(out[index], true)
+    }
+    if let streamingTurn = streamingTurn, !chunkBuffers.isEmpty {
+      var reasoning = ""
+      var text = ""
+      for key in chunkBuffers.keys.sorted() {
+        if let buffer = chunkBuffers[key] {
+          reasoning += buffer.reasoning
+          text += buffer.text
+        }
+      }
+      if !reasoning.isEmpty {
+        let id = "reason:stream:\(streamingTurn.turn):\(streamingTurn.step)"
+        out.append(.reasoning(
+          id: id,
+          seq: Int.max - 1,
+          text: reasoning,
+          streaming: true,
+          expanded: expansion.reasoning.contains(id)
+        ))
+      }
+      if !text.isEmpty {
+        out.append(.assistant(
+          id: "asst:stream:\(streamingTurn.turn):\(streamingTurn.step)",
+          seq: Int.max,
+          text: text,
+          streaming: true
+        ))
       }
     }
-    if !reasoning.isEmpty {
-      let id = "reason:stream:\(streamingTurn.turn):\(streamingTurn.step)"
-      items.append(.reasoning(
-        id: id,
-        seq: Int.max - 1,
-        text: reasoning,
-        streaming: true,
-        expanded: expansion.reasoning.contains(id)
-      ))
-    }
-    if !text.isEmpty {
-      let id = "asst:stream:\(streamingTurn.turn):\(streamingTurn.step)"
-      items.append(.assistant(
-        id: id,
-        seq: Int.max,
-        text: text,
-        streaming: true
-      ))
-    }
+    return out
   }
+}
 
-  return items
+/// Rebuild `item` with its `expanded` flag set where the case carries one.
+private func withExpanded(_ item: TranscriptItem, _ expanded: Bool) -> TranscriptItem {
+  switch item {
+  case .reasoning(let id, let seq, let text, let streaming, _):
+    return .reasoning(id: id, seq: seq, text: text, streaming: streaming, expanded: expanded)
+  case .tool(let id, let seq, let callId, let name, let args, let result, let status, _, let meta):
+    return .tool(id: id, seq: seq, callId: callId, name: name, args: args, result: result, status: status, expanded: expanded, meta: meta)
+  case .workflow(let id, let seq, let runId, let name, let status, let members, _):
+    return .workflow(id: id, seq: seq, runId: runId, name: name, status: status, members: members, expanded: expanded)
+  case .user, .assistant, .command, .artifact:
+    return item
+  }
+}
+
+/// One-shot projection of a complete event list (the incremental
+/// `TranscriptProjector` folded over `events`, then materialized).
+/// - Parameters:
+///   - events: durable session events in seq order.
+///   - expansion: card ids currently expanded in the UI.
+/// - Returns: items in transcript order.
+public func projectTranscript(
+  _ events: [SessionEventDTO],
+  expansion: TranscriptExpansion = TranscriptExpansion(tools: [], reasoning: [], workflows: [])
+) -> [TranscriptItem] {
+  var projector = TranscriptProjector()
+  for event in events {
+    projector.ingest(event)
+  }
+  return projector.materialize(expansion: expansion)
 }

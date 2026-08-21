@@ -22,7 +22,7 @@ Long DS Bot chats degrade while streaming: the chat view presents the full proje
 
 **Bought**: long chats open bottom-anchored rendering at most one window of rows, and update-time diffing is bounded by the window instead of chat length.
 
-**Paid**: `presentedChat` still projects the full event list before windowing, so per-event CPU cost remains until incremental projection lands. A thread's grown window persists only for the controller's lifetime.
+**Paid**: a thread's grown window persists only for the controller's lifetime.
 
 ## Testing
 
