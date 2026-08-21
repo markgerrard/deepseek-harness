@@ -6,7 +6,7 @@ English | [中文](2026-08-19-sdk-preset-session-model.zh.md)
 
 ## Problem
 
-Locally authored agent presets allow users to duplicate shipped compositions and provide display metadata, but personalizing an agent's instructions (persona) previously required hand-editing `agent.cordis.yml` on disk. Copy-only preset authoring ([copy-only preset authoring note](../simplification/2026-08-08-copy-only-preset-authoring.md)) intentionally eliminated arbitrary composition text submission to prevent arbitrary plugin row injection (`!!js` evaluation and unverified plugin imports). However, native clients and SDK consumers (such as Swift Grok Bot) need to configure custom bot personas without granting arbitrary composition editing capabilities or requiring manual filesystem manipulation.
+Locally authored agent presets allow users to duplicate shipped compositions and provide display metadata, but personalizing an agent's instructions (persona) previously required hand-editing `agent.cordis.yml` on disk. Copy-only preset authoring ([copy-only preset authoring note](../simplification/2026-08-08-copy-only-preset-authoring.md)) intentionally eliminated arbitrary composition text submission to prevent arbitrary plugin row injection (`!!js` evaluation and unverified plugin imports). However, native clients and SDK consumers (such as DS Bot for macOS) need to configure custom bot personas without granting arbitrary composition editing capabilities or requiring manual filesystem manipulation.
 
 ## Decision
 

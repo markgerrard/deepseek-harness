@@ -1,7 +1,7 @@
-# Swift Grok Bot v0
+# DS Bot v0
 
 Date: 2026-08-19
-Branch: `feat/swift-grokbot` (do not land on `feat/crush-style-tui`)
+Branch: `feat/ds-bot` (do not land on `feat/cc-style-tui`)
 Status: draft for review — not implemented
 
 Lives under `apps/macos/docs/` rather than `docs/` because `docs/**` in this repo is a bilingual pair.
@@ -170,7 +170,7 @@ No screenshot gate. Do not modify Ink TUI tests on `feat/crush-style-tui`.
 5. **Shared workspace, isolated chats** — Grok Bot parity. No per-Bot cwd in v0.
 6. **No Computer pane in v0.** Always-on cloud desktop is a later spec.
 7. **App quit stops the harness.** Always-on is that later spec.
-8. **Work only on `feat/swift-grokbot`.** `feat/crush-style-tui` stays the TUI branch.
+8. **Work only on `feat/ds-bot`.** `feat/cc-style-tui` stays the TUI branch.
 9. **Live two-Bot real-model run is a completion gate**, not a nice-to-have.
 
 ## Open questions

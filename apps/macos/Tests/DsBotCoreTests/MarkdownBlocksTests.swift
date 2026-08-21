@@ -43,14 +43,14 @@ final class MarkdownBlocksTests: XCTestCase {
 
   func testSplitProseParagraphsOnBlankLines() {
     let source = """
-    I'm Grok, a helpful and maximally truthful AI built by xAI.
+    I'm DS Bot, a helpful and maximally truthful AI.
 
     I don't have a specific job title.
 
     If you have something specific you want help with, just tell me!
     """
     XCTAssertEqual(splitProseParagraphs(source), [
-      "I'm Grok, a helpful and maximally truthful AI built by xAI.",
+      "I'm DS Bot, a helpful and maximally truthful AI.",
       "I don't have a specific job title.",
       "If you have something specific you want help with, just tell me!",
     ])
@@ -67,14 +67,14 @@ final class MarkdownBlocksTests: XCTestCase {
     XCTAssertTrue(proseUsesBlockMarkdown("- one\n- two"))
     XCTAssertTrue(proseUsesBlockMarkdown("## Title\nbody"))
     XCTAssertTrue(proseUsesBlockMarkdown("1. first\n2. second"))
-    XCTAssertFalse(proseUsesBlockMarkdown("I'm Grok.\nI don't have a job title."))
+    XCTAssertFalse(proseUsesBlockMarkdown("I'm DS Bot.\nI don't have a job title."))
   }
 
   func testGfmTableIsItsOwnBlock() {
     let source = """
     | Name | Role |
     | ---- | ---- |
-    | Grok | AI |
+    | DS Bot | AI |
     | Mark | Human |
     """
     let blocks = splitMarkdownBlocks(source)
@@ -83,7 +83,7 @@ final class MarkdownBlocksTests: XCTestCase {
       return XCTFail("expected table, got \(blocks)")
     }
     XCTAssertEqual(table.headers, ["Name", "Role"])
-    XCTAssertEqual(table.rows, [["Grok", "AI"], ["Mark", "Human"]])
+    XCTAssertEqual(table.rows, [["DS Bot", "AI"], ["Mark", "Human"]])
     XCTAssertEqual(table.alignments, [.left, .left])
   }
 

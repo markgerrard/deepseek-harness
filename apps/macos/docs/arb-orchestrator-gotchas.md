@@ -9,4 +9,4 @@ This dsbot work uses:
 - seat `agy-dsbot-dev-tdd` (`agy-print`, `gemini-3.7-flash-high`)
 - vantage `Mac-mini`
 - sender `grok-dsbot-orch`
-- branch `feat/swift-grokbot`
+- branch `feat/ds-bot`

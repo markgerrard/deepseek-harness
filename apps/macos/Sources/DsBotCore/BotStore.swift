@@ -6,7 +6,7 @@ public struct Bot: Codable, Equatable, Identifiable, Sendable {
   public var provider: String
   public var model: String
   public var reasoningEffort: String
-  /// Short role line in Settings (Grok Bot "Title"). Empty on older bots.
+  /// Short role line in Settings ("Title"). Empty on older bots.
   public var title: String
   /// Job / persona text shown in Settings as Description. Empty on bots created before this field.
   public var job: String

@@ -1,18 +1,18 @@
-# Swift Grok Bot v0 Implementation Plan
+# DS Bot v0 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship a native macOS Grok Bot shell that drives one local dsh JSON-RPC process, with named Bots (presets + per-Bot model/thinking) and isolated threads, proven by a live two-Bot real-model run.
+**Goal:** Ship a native macOS DS Bot shell (Grok Bot-style) that drives one local dsh JSON-RPC process, with named Bots (presets + per-Bot model/thinking) and isolated threads, proven by a live two-Bot real-model run.
 
 **Architecture:** SwiftUI in `apps/macos` speaks the existing SDK stdio JSON-RPC protocol, extended for `presets/*`, per-session `agentPreset`, and `installModelSelection`. One harness process; Bots are user-authored copies of the shipped `code` preset; threads are session ids. No Ink, no Host/web, no Computer pane.
 
 **Tech Stack:** TypeScript (dsh SDK/protocol/server, vitest), Swift 6 / macOS 15 SwiftUI (SwiftPM), JSON-RPC over stdio, Cordis agent presets.
 
-**Spec:** `apps/macos/docs/2026-08-19-swift-grokbot-v0-design.md`
+**Spec:** `apps/macos/docs/2026-08-19-ds-bot-v0-design.md`
 
 ## Global Constraints
 
-- Branch is `feat/swift-grokbot` only. Do not commit, push, or edit `feat/crush-style-tui`.
+- Branch is `feat/ds-bot` only. Do not commit, push, or edit `feat/cc-style-tui`.
 - Do not modify Ink TUI tests or `packages/bundle/tui` except reading `transcript.ts` as the projection source to port.
 - `docs/**` is bilingual in this repo; do not add unpaired English files there. Agent Notes under `.agents/notes/` need a complete EN/ZH/`i18n.yaml` triplet.
 - New TypeScript under `packages/*/*/src` is under the 100% per-file coverage gate.

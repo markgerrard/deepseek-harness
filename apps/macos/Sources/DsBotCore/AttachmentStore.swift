@@ -1,6 +1,6 @@
 import Foundation
 
-/// A file copied into the shared workspace. Grok Bot: one computer, all Bots
+/// A file copied into the shared workspace: one computer, all Bots
 /// can read `/workspace`. The chat that attached it still shows the chip.
 public struct ChatAttachment: Codable, Equatable, Identifiable, Sendable {
   public var id: String

@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-本地创作的 agent preset 允许用户复制随附组装并提供展示元数据，但个性化 agent 的身份指令（persona）此前必须在磁盘上手动编辑 `agent.cordis.yml`。仅复制的 preset 创作（[仅复制 preset 创作 note](../simplification/2026-08-08-copy-only-preset-authoring.md)）刻意移除了任意组装文本的提交能力，以防止注入任意插件行（`!!js` 求值与未经校验的插件导入）。然而，原生客户端和 SDK 使用方（如 Swift Grok Bot）需要在不开放任意组装编辑能力且无需手动操作文件系统的前提下配置自定义 bot persona。
+本地创作的 agent preset 允许用户复制随附组装并提供展示元数据，但个性化 agent 的身份指令（persona）此前必须在磁盘上手动编辑 `agent.cordis.yml`。仅复制的 preset 创作（[仅复制 preset 创作 note](../simplification/2026-08-08-copy-only-preset-authoring.md)）刻意移除了任意组装文本的提交能力，以防止注入任意插件行（`!!js` 求值与未经校验的插件导入）。然而，原生客户端和 SDK 使用方（如 macOS 版 DS Bot）需要在不开放任意组装编辑能力且无需手动操作文件系统的前提下配置自定义 bot persona。
 
 ## 决策
 
