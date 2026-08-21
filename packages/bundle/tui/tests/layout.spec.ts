@@ -15,7 +15,7 @@ describe('Claude Code-like layout helpers', () => {
     expect(editorHeight(20)).toBe(15)
   })
 
-  it('is always a single column: no sidebar, no Crush header band', () => {
+  it('is always a single column: no sidebar, no header band', () => {
     const full = layoutAreas(140, 40, 3)
     expect(full.sidebar).toBeUndefined()
     expect(full.main.x).toBe(0)

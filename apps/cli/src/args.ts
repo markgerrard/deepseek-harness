@@ -65,7 +65,7 @@ const HELP_EXAMPLES = `
 Examples:
   dsh --profile web                          boot the web profile (same as: dsh web)
   dsh --profile headless "run the tests"     answer one task, print the result, and exit
-  dsh tui                                    boot the Crush-style terminal UI (alias of the tui profile)
+  dsh tui                                    boot the Claude Code-style terminal UI (alias of the tui profile)
   dsh --profile tui --patch ./extra.yml      boot a custom profile with one extra overlay
   dsh --profile tui --resume <session>       arguments after the launcher flags reach the app
   dsh --profile web --help                   the web app's own flags and help

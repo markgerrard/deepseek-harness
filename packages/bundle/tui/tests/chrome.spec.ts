@@ -29,7 +29,7 @@ const status = {
 }
 
 describe('Claude Code-like chrome strings', () => {
-  it('does not draw a diagonal Crush header or wordmark', () => {
+  it('does not draw a diagonal header band or wordmark', () => {
     const header = renderHeader(80, status, false)
     expect(header).toContain('v4')
     expect(header).not.toContain('╱')
@@ -37,7 +37,7 @@ describe('Claude Code-like chrome strings', () => {
     expect(renderHeader(40, status, true)).not.toContain(PRODUCT_NAME)
   })
 
-  it('renders landing without Crush art and keeps unused sidebar helper', () => {
+  it('renders landing without borrowed art and keeps unused sidebar helper', () => {
     expect(renderSidebar(24, 'Fix tests', status, '/home/mark')).toContain('Fix tests')
     const landing = renderLanding(60, status, '/home/mark')
     expect(landing).toContain('~/src')
@@ -51,7 +51,6 @@ describe('Claude Code-like chrome strings', () => {
     expect(WHALE_EYE).toBe('(O)')
     expect(landing).toContain(WHALE_EYE)
     expect(landing.indexOf(WHALE_EYE)).toBeLessThan(landing.indexOf('~/src'))
-    expect(landing).not.toContain('Crush')
     const lines = whaleArt(60)
     const tones = new Set(lines.flatMap(line => line.segments.map(segment => segment.tone)))
     expect(tones.has('body')).toBe(true)
@@ -85,7 +84,7 @@ describe('Claude Code-like chrome strings', () => {
     expect(COLORS.dim).toBe(PALETTE.muted)
   })
 
-  it('lists overlays with a purple ❯ selector and no framed Crush box', () => {
+  it('lists overlays with a purple ❯ selector and no framed box', () => {
     const overlay = renderOverlay(40, 'Models', ['deepseek / v4'], 0)
     expect(overlay).toContain('Models')
     expect(overlay).toContain(ICONS.selector)

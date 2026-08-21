@@ -92,19 +92,19 @@ export const WHALE_TONES = {
   accent: COLORS.selector,
 } as const
 
-/** Product word kept for onboarding copy (not a Crush wordmark). */
+/** Product word kept for onboarding copy (no third-party wordmark). */
 export const PRODUCT_NAME = 'DSH'
 
 /** Small product mark kept for onboarding copy. */
 export const PRODUCT_MARK = 'DeepSeek™'
 
-/** Unused Crush compact-mode width breakpoint; single-column layout ignores it. */
+/** Unused compact-mode width breakpoint; single-column layout ignores it. */
 export const COMPACT_WIDTH = 120
 
-/** Unused Crush compact-mode height breakpoint; single-column layout ignores it. */
+/** Unused compact-mode height breakpoint; single-column layout ignores it. */
 export const COMPACT_HEIGHT = 30
 
-/** Unused Crush sidebar content width; the sidebar is never shown. */
+/** Unused sidebar content width; the sidebar is never shown. */
 export const SIDEBAR_WIDTH = 30
 
 /** Maximum Claude Code-like prompt textarea height. */

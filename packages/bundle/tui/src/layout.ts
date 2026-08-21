@@ -1,6 +1,6 @@
 /**
  * Claude Code-like layout: single-column transcript with the prompt pinned
- * at the bottom. Sidebar/header Crush chrome is omitted; compact breakpoints
+ * at the bottom. No sidebar or header band; compact breakpoints
  * stay exported for unused-width checks.
  * @module @deepseek-ai/dsh-tui/layout
  */

@@ -107,7 +107,7 @@ export function formatCount(value: number): string {
 }
 
 /**
- * Model line: `provider / model` plus occupancy. No Crush diamond mark.
+ * Model line: `provider / model` plus occupancy.
  * @param status - current model facts.
  * @returns one display line.
  */
