@@ -29,21 +29,31 @@ struct MarkdownMessageView: View, Equatable {
         }
       }
     }
+    .font(.system(size: 15))
     .frame(maxWidth: .infinity, alignment: .leading)
   }
 
-  @ViewBuilder
   private func proseView(_ markdown: String) -> some View {
-    let paragraphs = splitProseParagraphs(markdown)
-    VStack(alignment: .leading, spacing: 10) {
-      ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, paragraph in
-        Text(styledProse(paragraph))
-          .lineSpacing(3)
-          .textSelection(.enabled)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .fixedSize(horizontal: false, vertical: true)
+    // Whole prose block in one Text: SwiftUI selection is per-Text-instance,
+    // so per-paragraph Texts would end a drag at the first paragraph gap.
+    Text(styledProseBlock(markdown))
+      .lineSpacing(3)
+      .textSelection(.enabled)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .fixedSize(horizontal: false, vertical: true)
+  }
+
+  /// Inline-styled attributed text for a prose block, paragraphs preserved
+  /// with explicit blank-line separators.
+  private func styledProseBlock(_ markdown: String) -> AttributedString {
+    var combined = AttributedString()
+    for (index, paragraph) in splitProseParagraphs(markdown).enumerated() {
+      if index > 0 {
+        combined += AttributedString("\n\n")
       }
+      combined += styledProse(paragraph)
     }
+    return combined
   }
 
   private func codeView(language: String?, source: String) -> some View {

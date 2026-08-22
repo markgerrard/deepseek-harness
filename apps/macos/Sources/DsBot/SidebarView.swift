@@ -7,6 +7,7 @@ struct SidebarView: View {
   @Binding var isBotSettingsPresented: Bool
   @Binding var isAccountSettingsPresented: Bool
   @State private var searchText = ""
+  @State private var isProfileMenuPresented = false
 
   var body: some View {
     VStack(spacing: 0) {
@@ -108,25 +109,36 @@ struct SidebarView: View {
   }
 
   private var accountBar: some View {
-    HStack(spacing: 10) {
-      Menu {
-        Button("Settings…") {
-          isAccountSettingsPresented = true
-        }
-      } label: {
-        HStack(spacing: 10) {
-          BlobAvatar(seed: NSUserName(), size: 28, motion: .still)
-          Text(NSFullUserName())
-            .foregroundStyle(.primary)
-            .lineLimit(1)
-        }
+    Button {
+      isProfileMenuPresented = true
+    } label: {
+      HStack(spacing: 10) {
+        UserAvatarCircle(name: controller.settings.settings.userName, size: 28)
+        Text(controller.settings.settings.userName)
+          .foregroundStyle(.primary)
+          .lineLimit(1)
       }
-      .menuStyle(.borderlessButton)
-      .menuIndicator(.hidden)
-      .buttonStyle(.plain)
-      .help("Account")
-      Spacer()
     }
+    .buttonStyle(.plain)
+    .help("User")
+    // Above the icon, like the reference product's profile menu.
+    .popover(isPresented: $isProfileMenuPresented, arrowEdge: .top) {
+      VStack(alignment: .leading, spacing: 2) {
+        Button {
+          isProfileMenuPresented = false
+          isAccountSettingsPresented = true
+        } label: {
+          Label("Settings", systemImage: "gearshape")
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+      }
+      .padding(6)
+      .frame(minWidth: 180)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
     .padding(.horizontal, 14)
     .padding(.vertical, 10)
   }
@@ -148,6 +160,20 @@ struct SidebarView: View {
     controller.unpinnedBots.filter(matchesSearch)
   }
 
+  /// Small rounded badge for the bot's title. Stays shrinkable so a long
+  /// title truncates instead of pushing the row's fixed trailing timestamp.
+  private func titleChip(_ title: String) -> some View {
+    Text(title)
+      .font(.system(size: 11))
+      .foregroundStyle(.secondary)
+      .lineLimit(1)
+      .padding(.horizontal, 6)
+      .padding(.vertical, 2)
+      .background(
+        RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Color.white.opacity(0.08))
+      )
+  }
+
   @ViewBuilder
   private func pinnedBotCell(_ bot: Bot) -> some View {
     let selected = controller.selectedBotId == bot.id
@@ -158,10 +184,14 @@ struct SidebarView: View {
         BotAvatarView(bot: bot, size: 68, motion: .still)
           .opacity(selected ? 1 : 0.9)
         Text(bot.displayName)
-          .font(.caption)
+          .font(.system(size: 13))
           .foregroundStyle(.primary)
           .lineLimit(1)
           .frame(maxWidth: 80)
+        if !bot.title.isEmpty {
+          titleChip(bot.title)
+            .frame(maxWidth: 84)
+        }
       }
     }
     .buttonStyle(.plain)
@@ -174,23 +204,26 @@ struct SidebarView: View {
     HStack(spacing: 10) {
       BotAvatarView(bot: bot, size: 36, motion: .still)
       VStack(alignment: .leading, spacing: 3) {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
           Text(bot.displayName)
-            .font(.body.weight(selected ? .semibold : .regular))
+            .font(.system(size: 15).weight(selected ? .semibold : .regular))
             .lineLimit(1)
+          if !bot.title.isEmpty {
+            titleChip(bot.title)
+          }
           Spacer(minLength: 8)
           if let stamp = controller.activityStamp(forBot: bot.id) {
             Text(stamp)
-              .font(.body)
+              .font(.system(size: 12))
               .foregroundStyle(.secondary)
               .fixedSize()
           }
         }
         if let preview = controller.lastMessagePreview(forBot: bot.id) {
           Text(preview)
-            .font(.system(size: 15))
+            .font(.system(size: 13))
             .foregroundStyle(.secondary)
-            .lineLimit(2)
+            .lineLimit(1)
             .truncationMode(.tail)
         }
       }

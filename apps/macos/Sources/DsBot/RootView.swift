@@ -76,7 +76,7 @@ public struct RootView: View {
       )
     }
     .sheet(isPresented: $isAccountSettingsPresented) {
-      AccountSettingsSheet(controller: controller, isPresented: $isAccountSettingsPresented)
+      UserSettingsSheet(controller: controller, isPresented: $isAccountSettingsPresented)
     }
     .sheet(item: Binding(
       get: { controller.pendingApproval },
