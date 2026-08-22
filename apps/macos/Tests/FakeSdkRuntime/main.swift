@@ -76,6 +76,11 @@ while let line = readLine() {
       response["result"] = ["messageId": "m1"]
     }
   case "shutdown":
+    // FAKE_HANG_SHUTDOWN simulates an unresponsive runtime: no response, no
+    // exit — teardown must bound this from the client side.
+    if ProcessInfo.processInfo.environment["FAKE_HANG_SHUTDOWN"] == "1" {
+      continue
+    }
     response["result"] = [String: Any]()
     shouldExit = true
     record(envVar: "FAKE_RECORD_SHUTDOWN", content: "shutdown")

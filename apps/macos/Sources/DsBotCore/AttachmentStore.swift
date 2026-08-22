@@ -105,6 +105,26 @@ public enum AttachmentStore: Sendable {
     """
   }
 
+  /// Text pastes longer than this become removable chips instead of inline
+  /// input text.
+  public static let pasteChipCharacterLimit = 1200
+
+  public static func exceedsPasteChipLimit(_ text: String) -> Bool {
+    text.count > pasteChipCharacterLimit
+  }
+
+  /// Wire-prompt block for pasted text: numbered labeled fences so the model
+  /// can tell the blocks apart and quote them unambiguously. Leading `\n`
+  /// separates the blocks from the typed message.
+  public static func pastedTextSuffix(for texts: [String]) -> String {
+    guard !texts.isEmpty else { return "" }
+    var suffix = "\n"
+    for (index, text) in texts.enumerated() {
+      suffix += "--- Pasted text \(index + 1) ---\n\(text)\n"
+    }
+    return suffix
+  }
+
   /// fileImporter URLs are security-scoped; `fileSize` and `copyItem` often fail.
   private static func readPickedFile(_ url: URL) throws -> Data {
     let accessed = url.startAccessingSecurityScopedResource()

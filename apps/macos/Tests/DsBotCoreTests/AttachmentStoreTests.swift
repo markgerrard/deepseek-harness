@@ -61,6 +61,26 @@ final class AttachmentStoreTests: XCTestCase {
     XCTAssertFalse(suffix.contains("("))
   }
 
+  func testPasteChipLimitSplitsOnCharacterCount() {
+    let atLimit = String(repeating: "a", count: AttachmentStore.pasteChipCharacterLimit)
+    let overLimit = atLimit + "a"
+    XCTAssertFalse(AttachmentStore.exceedsPasteChipLimit(atLimit))
+    XCTAssertTrue(AttachmentStore.exceedsPasteChipLimit(overLimit))
+  }
+
+  func testPastedTextSuffixIsEmptyWithoutPastes() {
+    XCTAssertEqual(AttachmentStore.pastedTextSuffix(for: []), "")
+  }
+
+  func testPastedTextSuffixWrapsEachPasteInNumberedBlock() {
+    let suffix = AttachmentStore.pastedTextSuffix(for: ["first paste", "second paste"])
+    XCTAssertTrue(suffix.contains("--- Pasted text 1 ---"))
+    XCTAssertTrue(suffix.contains("first paste"))
+    XCTAssertTrue(suffix.contains("--- Pasted text 2 ---"))
+    XCTAssertTrue(suffix.contains("second paste"))
+    XCTAssertTrue(suffix.hasPrefix("\n"))
+  }
+
   func testProjectTranscriptKeepsUserAttachments() {
     let attachment = ChatAttachment(
       id: "att-1",

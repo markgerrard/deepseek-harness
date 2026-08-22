@@ -58,6 +58,25 @@ public final class SessionController {
   /// for the same reason as `eventsBySession`.
   @ObservationIgnored private var projectors: [String: TranscriptProjector] = [:]
 
+  /// Sessions whose turn the runtime has started and not yet ended. This is
+  /// the authoritative "bot is working" signal: it begins at `turn/start` —
+  /// before any reasoning, tool call, or text chunk exists — and ends at
+  /// `turn/end`, so a plain-text reply shows activity while the model thinks.
+  public private(set) var activeTurnSessions: Set<String> = []
+
+  /// Sessions with a prompt sent whose `turn/start` has not arrived yet. It
+  /// covers the wire round-trip so the working indicator is continuous from
+  /// the moment the user sends rather than flickering off until the runtime
+  /// opens the turn.
+  public private(set) var awaitingTurnSessions: Set<String> = []
+
+  /// Whether the runtime is running a turn for this session, or is about to.
+  /// - Parameter sessionId: the session to test.
+  /// - Returns: `true` from the send until that session's `turn/end`.
+  public func isTurnActive(_ sessionId: String) -> Bool {
+    activeTurnSessions.contains(sessionId) || awaitingTurnSessions.contains(sessionId)
+  }
+
   /// Bumps when projected transcripts change. Durable events bump immediately;
   /// `assistant/chunk` bursts coalesce to one bump per interval so a fast
   /// stream cannot saturate the main thread with markdown re-layout.
@@ -201,6 +220,7 @@ public final class SessionController {
   public var presentedChat: PresentedChat {
     var chat = presentChat(items: currentTranscript, surface: effectiveChatSurface)
     guard let threadId = selectedThreadId else { return chat }
+    if isTurnActive(threadId) { chat.isWorking = true }
     let window = transcriptWindows[threadId] ?? Self.transcriptWindowSize
     if chat.items.count > window {
       chat.hasEarlier = true
@@ -244,6 +264,10 @@ public final class SessionController {
 
   public func setAccountChatSurface(_ surface: ChatSurface) throws {
     try settings.setChatSurface(surface)
+  }
+
+  public func setUserName(_ name: String) throws {
+    try settings.setUserName(name)
   }
 
   public func setNotificationsEnabled(id: String, enabled: Bool) throws {
@@ -495,26 +519,33 @@ public final class SessionController {
   public func sendPrompt(
     threadId: String,
     text: String,
-    attachments: [ChatAttachment] = []
+    attachments: [ChatAttachment] = [],
+    pastedTexts: [String] = []
   ) async throws -> String {
     guard let bot = store.bot(forThread: threadId) else {
       throw SessionControllerError.threadNotFound(threadId)
     }
-    let wireText = text + AttachmentStore.promptSuffix(for: attachments)
+    let wireText = text
+      + AttachmentStore.promptSuffix(for: attachments)
+      + AttachmentStore.pastedTextSuffix(for: pastedTexts)
     // Interrupt-steer, cancel FIRST: a message sent into an already-aborted
     // activity is the loop's designed wake-after-abort path — it reclassifies
     // to next-turn and latches a wake that replays when the aborted driver
     // retires. The reverse order parks the steering: a live driver claims its
     // own queue, so a steer before the abort latches nothing and the retire
     // drops it. keepInbox preserves any queued work through the abort.
-    let interrupt = chatIsWorking(transcript(for: threadId))
+    let interrupt = isTurnActive(threadId) || chatIsWorking(transcript(for: threadId))
     appendLocalUserMessage(text, attachments: attachments, sessionId: threadId)
+    // Show the bot as working from this moment; `turn/start` takes over when
+    // the runtime opens the turn, and a delivery failure clears it.
+    awaitingTurnSessions.insert(threadId)
     do {
       if interrupt {
         try? await client.cancel(sessionId: threadId, keepInbox: true)
       }
       return try await deliverPrompt(bot: bot, sessionId: threadId, text: wireText)
     } catch {
+      awaitingTurnSessions.remove(threadId)
       handlePromptError(error, sessionId: threadId)
       throw error
     }
@@ -639,6 +670,15 @@ public final class SessionController {
     // A chunk only grows the in-flight stream buffer; the next durable event
     // persists the full list, so skipping here avoids an O(events) disk
     // rewrite per streamed delta (a crash loses only the unfinalized stream).
+    switch event.type {
+    case "turn/start":
+      activeTurnSessions.insert(sessionId)
+      awaitingTurnSessions.remove(sessionId)
+    case "turn/end":
+      activeTurnSessions.remove(sessionId)
+      awaitingTurnSessions.remove(sessionId)
+    default: break
+    }
     let isChunk = event.type == "assistant/chunk"
     if !isChunk {
       persistTranscript(sessionId)

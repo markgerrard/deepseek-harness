@@ -356,8 +356,11 @@ private final class HarnessClientCore: @unchecked Sendable {
     let alreadyShutdown = lock.withLock { isShutdown }
     if alreadyShutdown { return }
 
+    // Bounded best-effort: an unresponsive runtime must not hang teardown.
     do {
-      let _: EmptyResult = try await request(method: "shutdown", params: EmptyParams())
+      let _: EmptyResult = try await Self.bounded(.seconds(5), "shutdown request") {
+        try await self.request(method: "shutdown", params: EmptyParams())
+      }
     } catch {
       // Best-effort shutdown request
     }
@@ -377,9 +380,73 @@ private final class HarnessClientCore: @unchecked Sendable {
     }
 
     if let proc = proc {
-      proc.waitUntilExit()
+      Self.stopProcess(proc)
     }
     handleTermination()
+  }
+
+  /// Resumes with `op`'s result, or throws after `duration` if `op` has not
+  /// finished. The losing branch is abandoned rather than cancelled: an
+  /// in-flight RPC continuation cannot be interrupted, so awaiting both
+  /// branches would reintroduce the hang this exists to prevent.
+  private static func bounded<T: Sendable>(
+    _ duration: Duration,
+    _ label: String,
+    _ op: @escaping @Sendable () async throws -> T
+  ) async throws -> T {
+    try await withCheckedThrowingContinuation { outer in
+      let gate = ResumeGate<T>(outer)
+      Task.detached {
+        do {
+          gate.resume(.success(try await op()))
+        } catch {
+          gate.resume(.failure(error))
+        }
+      }
+      Task.detached {
+        try? await Task.sleep(for: duration)
+        gate.resume(.failure(HarnessRPCError(code: -32000, message: "\(label) timed out")))
+      }
+    }
+  }
+
+  /// SIGTERM, then a 3-second grace, then SIGKILL; `waitUntilExit` reaps
+  /// promptly after either signal.
+  private static func stopProcess(_ proc: Process) {
+    guard proc.isRunning else {
+      proc.waitUntilExit()
+      return
+    }
+    proc.terminate()
+    let deadline = Date().addingTimeInterval(3)
+    while proc.isRunning && Date() < deadline {
+      usleep(50_000)
+    }
+    if proc.isRunning {
+      kill(proc.processIdentifier, SIGKILL)
+    }
+    proc.waitUntilExit()
+  }
+}
+
+/// Resumes its continuation exactly once; later resumes are discarded.
+private final class ResumeGate<T: Sendable>: @unchecked Sendable {
+  private let lock = NSLock()
+  private var continuation: CheckedContinuation<T, Error>?
+
+  init(_ continuation: CheckedContinuation<T, Error>) {
+    self.continuation = continuation
+  }
+
+  func resume(_ result: Result<T, Error>) {
+    lock.lock()
+    let held = continuation
+    continuation = nil
+    lock.unlock()
+    switch result {
+    case .success(let value): held?.resume(returning: value)
+    case .failure(let error): held?.resume(throwing: error)
+    }
   }
 }
 

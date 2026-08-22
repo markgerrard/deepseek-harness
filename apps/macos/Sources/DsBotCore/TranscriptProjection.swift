@@ -308,6 +308,14 @@ public struct TranscriptProjector: Sendable {
         }
       }
 
+    case "step/end", "turn/end":
+      // A turn aborted mid-stream delivers no `assistant/message`, and a
+      // client that reconnects or relaunches mid-stream can miss the one that
+      // was sent. Either way the buffered prefix must stop being "streaming":
+      // finalize what was delivered so it reads as a finished reply instead
+      // of a reply that never lands.
+      finalizeStream(seq: event.seq)
+
     case "assistant/message":
       streamingTurn = nil
       chunkBuffers.removeAll()
@@ -457,6 +465,30 @@ public struct TranscriptProjector: Sendable {
 
     default:
       break
+    }
+  }
+
+  /// Convert any buffered stream into finished items, keeping the delivered
+  /// prefix visible. No-op when nothing is buffered.
+  /// - Parameter seq: the terminating event's seq, used for the items' identity.
+  private mutating func finalizeStream(seq: Int) {
+    defer {
+      streamingTurn = nil
+      chunkBuffers.removeAll()
+    }
+    guard !chunkBuffers.isEmpty else { return }
+    var reasoning = ""
+    var text = ""
+    for key in chunkBuffers.keys.sorted() {
+      guard let buffer = chunkBuffers[key] else { continue }
+      reasoning += buffer.reasoning
+      text += buffer.text
+    }
+    if !reasoning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      append(.reasoning(id: "reason:final:\(seq)", seq: seq, text: reasoning, streaming: false, expanded: false))
+    }
+    if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      append(.assistant(id: "asst:final:\(seq)", seq: seq, text: text, streaming: false))
     }
   }
 

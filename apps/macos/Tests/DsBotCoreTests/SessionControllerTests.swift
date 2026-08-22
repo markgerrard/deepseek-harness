@@ -428,6 +428,61 @@ final class SessionControllerTests: XCTestCase {
   }
 
   @MainActor
+  func testWorkingStateSpansTurnStartToTurnEndWithoutItems() throws {
+    let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let store = BotStore(fileURL: tempDir.appendingPathComponent("bots.json"))
+    let client = HarnessClient(command: "/bin/echo", arguments: [], cwd: tempDir)
+    let controller = SessionController(client: client, store: store)
+    controller.selectedThreadId = "s1"
+
+    XCTAssertFalse(controller.presentedChat.isWorking)
+
+    // A plain-text reply produces no in-flight item, so turn lifecycle alone
+    // must carry the working state.
+    controller.appendEvent(
+      SessionEventDTO(type: "turn/start", seq: 1, data: .object(["turn": .number(1)])),
+      forSessionId: "s1"
+    )
+    XCTAssertTrue(controller.presentedChat.isWorking)
+    XCTAssertTrue(controller.isTurnActive("s1"))
+
+    controller.appendEvent(
+      SessionEventDTO(type: "turn/end", seq: 2, data: .object(["turn": .number(1)])),
+      forSessionId: "s1"
+    )
+    XCTAssertFalse(controller.presentedChat.isWorking)
+    XCTAssertFalse(controller.isTurnActive("s1"))
+  }
+
+  @MainActor
+  func testWorkingStateStartsAtSendBeforeTurnStart() async throws {
+    let runtime = try bundledFakeRuntimeURL()
+    let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    let process = RuntimeProcess(launch: RuntimeLaunch(command: runtime.path, arguments: [], cwd: tempDir))
+    let client = try process.start()
+    let controller = SessionController(client: client, store: BotStore(fileURL: tempDir.appendingPathComponent("bots.json")))
+    try await controller.initialize(cwd: tempDir.path, provider: "mock", model: "m", approvals: true)
+    _ = try await controller.createBot(displayName: "Wait Bot", job: "j", provider: "mock", model: "m")
+    let threadId = try XCTUnwrap(controller.selectedThreadId)
+
+    // The fake runtime never emits turn/start, so this pins the send-side
+    // window alone: working from the send until a turn lifecycle resolves it.
+    _ = try await controller.sendPrompt(threadId: threadId, text: "hello")
+    XCTAssertTrue(controller.isTurnActive(threadId))
+    XCTAssertTrue(controller.presentedChat.isWorking)
+
+    controller.appendEvent(
+      SessionEventDTO(type: "turn/end", seq: 900, data: .object(["turn": .number(1)])),
+      forSessionId: threadId
+    )
+    XCTAssertFalse(controller.isTurnActive(threadId))
+    try await process.stop()
+  }
+
+  @MainActor
   func testPresentedChatCapsItemsAndPagesEarlier() throws {
     let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let store = BotStore(fileURL: tempDir.appendingPathComponent("bots.json"))

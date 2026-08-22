@@ -111,4 +111,29 @@ final class RuntimeProcessTests: XCTestCase {
 
     try await process.stop()
   }
+
+  /// An unresponsive runtime must not hang teardown: `stop()` bounds the
+  /// shutdown request, then SIGTERMs and SIGKILLs the child.
+  func testStopForceKillsUnresponsiveRuntime() async throws {
+    let runtime = try bundledFakeRuntimeURL()
+    let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    let launch = RuntimeLaunch(
+      command: runtime.path,
+      arguments: [],
+      cwd: tempDir,
+      environment: ["FAKE_HANG_SHUTDOWN": "1"]
+    )
+
+    let process = RuntimeProcess(launch: launch)
+    let client = try process.start()
+    try await client.initialize(cwd: tempDir.path, provider: "mock", model: "m", approvals: true)
+
+    try await process.stop()
+
+    let shutdownFile = tempDir.appendingPathComponent("shutdown.txt")
+    XCTAssertFalse(FileManager.default.fileExists(atPath: shutdownFile.path))
+  }
 }
